@@ -1,0 +1,384 @@
+SOCIAL SENA — MÓDULOS DEL SISTEMA V1
+
+1. OBJETIVO
+
+Definir los módulos principales del proyecto Social Sena, sus responsabilidades, su prioridad dentro del desarrollo y su relación con el ecosistema general del sistema.
+
+Este documento permite organizar el proyecto de forma modular desde la etapa de diseño.
+
+
+--------------------------------------------------
+2. PRINCIPIO GENERAL
+--------------------------------------------------
+
+El sistema debe dividirse en módulos independientes pero conectados entre sí.
+
+Cada módulo debe tener:
+- una responsabilidad clara
+- límites definidos
+- posibilidad de evolucionar sin romper otros módulos
+
+La modularidad es obligatoria para mantener escalabilidad y orden técnico.
+
+
+--------------------------------------------------
+3. MÓDULOS PRINCIPALES
+--------------------------------------------------
+
+
+3.1 MÓDULO DE AUTENTICACIÓN
+
+Responsabilidad:
+- permitir inicio de sesión
+- validar identidad del usuario
+- conectar identidad externa con el sistema interno
+
+Tecnología prevista:
+- Auth0
+
+Funciones base:
+- login
+- logout
+- obtención de token
+- lectura de identidad autenticada
+
+Estado:
+- MVP
+
+
+--------------------------------------------------
+
+
+3.2 MÓDULO DE PERFIL DE USUARIO
+
+Responsabilidad:
+- almacenar y recuperar datos persistentes del usuario
+
+Datos previstos:
+- auth0Id
+- username
+- displayName
+- skinId
+- configuraciones básicas futuras
+
+Funciones base:
+- carga de perfil
+- creación inicial de perfil
+- actualización de apariencia
+
+Estado:
+- MVP
+
+
+--------------------------------------------------
+
+
+3.3 MÓDULO DE CLIENTE WEB
+
+Responsabilidad:
+- servir como aplicación principal visible para el usuario
+- mostrar pantallas
+- manejar navegación
+- integrar UI con el entorno del juego
+
+Tecnología prevista:
+- React
+- Vite
+- TypeScript
+
+Funciones base:
+- login visual
+- selección de sala
+- UI general
+- contenedores del juego
+- paneles auxiliares
+
+Estado:
+- MVP
+
+
+--------------------------------------------------
+
+
+3.4 MÓDULO DE MOTOR VISUAL
+
+Responsabilidad:
+- renderizar el entorno 2D
+- mostrar avatares
+- mover sprites
+- representar el mundo
+
+Tecnología prevista:
+- Phaser
+
+Funciones base:
+- render de mapa
+- render de jugadores
+- animaciones
+- profundidad visual
+- cámara y escena
+
+Estado:
+- MVP
+
+
+--------------------------------------------------
+
+
+3.5 MÓDULO DE RED EN TIEMPO REAL
+
+Responsabilidad:
+- mantener comunicación en tiempo real entre cliente y servidor
+
+Funciones base:
+- conexión persistente
+- envío de eventos
+- recepción de actualizaciones
+- reconexión futura
+
+Tecnología prevista:
+- WebSockets
+- implementación concreta por definir
+
+Estado:
+- MVP
+
+
+--------------------------------------------------
+
+
+3.6 MÓDULO DE SERVIDOR DE JUEGO
+
+Responsabilidad:
+- actuar como autoridad del estado compartido
+- manejar salas
+- procesar inputs
+- actualizar presencia
+- distribuir cambios
+
+Tecnología prevista:
+- Node.js
+
+Funciones base:
+- creación de sesiones
+- asignación de salas
+- actualización de Presence
+- distribución de eventos
+- validaciones básicas
+
+Estado:
+- MVP
+
+
+--------------------------------------------------
+
+
+3.7 MÓDULO DE SALAS
+
+Responsabilidad:
+- crear y gestionar espacios compartidos independientes
+
+Funciones base:
+- crear room
+- unir jugador a room
+- expulsar jugador de room
+- manejar capacidad máxima
+- mantener lista de jugadores por sala
+
+Estado:
+- MVP
+
+
+--------------------------------------------------
+
+
+3.8 MÓDULO DE PRESENCIA
+
+Responsabilidad:
+- representar el estado vivo del jugador dentro del entorno
+
+Datos asociados:
+- posición
+- dirección
+- estado de movimiento
+- skin visible
+- sala actual
+
+Funciones base:
+- spawn inicial
+- actualización de posición
+- entrada/salida de sala
+- sincronización con clientes
+
+Estado:
+- MVP
+
+
+--------------------------------------------------
+
+
+3.9 MÓDULO DE CHAT
+
+Responsabilidad:
+- permitir comunicación textual entre usuarios
+
+Funciones base:
+- enviar mensaje
+- recibir mensaje
+- distribuir mensaje por sala
+
+Versión inicial:
+- chat global de sala
+
+Expansión futura:
+- chat por proximidad
+- chat privado
+- chat de grupo
+
+Estado:
+- MVP
+
+
+--------------------------------------------------
+
+
+3.10 MÓDULO DE GRUPOS
+
+Responsabilidad:
+- gestionar equipos o agrupaciones de usuarios
+
+Funciones futuras:
+- crear grupo
+- invitar usuarios
+- asignar líder
+- mover grupo entre salas
+- acciones conjuntas
+
+Estado:
+- FUTURO
+
+
+--------------------------------------------------
+
+
+3.11 MÓDULO DE INVENTARIO
+
+Responsabilidad:
+- almacenar objetos o recursos del usuario
+
+Funciones futuras:
+- agregar ítems
+- eliminar ítems
+- consultar inventario
+- usar objetos
+
+Estado:
+- FUTURO
+
+
+--------------------------------------------------
+
+
+3.12 MÓDULO DE INTERACCIÓN CON ENTORNO
+
+Responsabilidad:
+- permitir interacción con objetos del mapa o elementos de la sala
+
+Funciones futuras:
+- sentarse
+- subirse a elementos
+- interactuar con muebles
+- activar eventos
+
+Estado:
+- FUTURO
+
+
+--------------------------------------------------
+
+
+3.13 MÓDULO DE MODERACIÓN Y CONTROL
+
+Responsabilidad:
+- controlar comportamiento dentro de las salas
+- aplicar reglas administrativas
+
+Funciones futuras:
+- silenciar usuarios
+- expulsar usuarios
+- bloquear acceso
+- control de mensajes
+
+Estado:
+- FUTURO
+
+
+--------------------------------------------------
+4. RELACIÓN ENTRE MÓDULOS
+--------------------------------------------------
+
+AUTENTICACIÓN
+↓
+PERFIL DE USUARIO
+↓
+CLIENTE WEB
+↓
+RED EN TIEMPO REAL
+↓
+SERVIDOR DE JUEGO
+↓
+SALAS + PRESENCIA + CHAT
+
+Módulos futuros conectados:
+- GRUPOS
+- INVENTARIO
+- INTERACCIÓN
+- MODERACIÓN
+
+
+--------------------------------------------------
+5. PRIORIZACIÓN DEL MVP
+--------------------------------------------------
+
+Módulos obligatorios para iniciar desarrollo:
+
+- Autenticación
+- Perfil de usuario
+- Cliente web
+- Motor visual
+- Red en tiempo real
+- Servidor de juego
+- Salas
+- Presencia
+- Chat
+
+Módulos que NO entran en MVP:
+
+- Grupos
+- Inventario
+- Interacción avanzada
+- Moderación avanzada
+
+
+--------------------------------------------------
+6. REGLA DE DISEÑO
+--------------------------------------------------
+
+Todo módulo nuevo debe cumplir:
+
+- no romper módulos existentes
+- tener responsabilidad específica
+- poder documentarse por separado
+- integrarse mediante contratos claros
+
+
+--------------------------------------------------
+7. ESTADO ACTUAL
+--------------------------------------------------
+
+- Mapa modular inicial definido
+- Pendiente traducción a estructura real de carpetas
+- Pendiente asignación de archivos, servicios y responsabilidades técnicas más detalladas
+
+
+FIN DEL DOCUMENTO

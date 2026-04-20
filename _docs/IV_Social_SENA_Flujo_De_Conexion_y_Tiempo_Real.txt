@@ -1,0 +1,279 @@
+SOCIAL SENA — FLUJO DE CONEXIÓN Y TIEMPO REAL V1
+
+1. OBJETIVO
+
+Definir el flujo técnico base del sistema desde que un usuario inicia sesión hasta que entra a una sala y comienza a interactuar en tiempo real con otros jugadores.
+
+Este documento establece la lógica general de conexión, creación de sesión, ingreso a salas, sincronización de movimiento y distribución de eventos.
+
+
+--------------------------------------------------
+2. PRINCIPIO GENERAL
+--------------------------------------------------
+
+El sistema se basa en arquitectura cliente-servidor.
+
+REGLA PRINCIPAL:
+- El cliente envía intención o input
+- El servidor valida y actualiza estado
+- El servidor distribuye el nuevo estado
+
+El cliente no debe ser autoridad sobre el estado global de la sala.
+
+
+--------------------------------------------------
+3. FLUJO GENERAL DE CONEXIÓN
+--------------------------------------------------
+
+PASO 1 — AUTENTICACIÓN
+- El usuario inicia sesión mediante Auth0
+- El cliente obtiene identidad autenticada
+- El cliente recibe token o credencial válida
+
+Resultado:
+- El sistema conoce quién es el usuario
+
+
+PASO 2 — CARGA DE PERFIL
+- El cliente consulta o recibe datos persistentes del usuario
+- Se cargan:
+  - userId / auth0Id
+  - username o displayName
+  - skinId
+  - otros datos básicos
+
+Resultado:
+- El cliente tiene los datos mínimos para inicializar el personaje
+
+
+PASO 3 — CONEXIÓN AL SERVIDOR DE JUEGO
+- El cliente abre conexión de tiempo real con el servidor
+- Se envía autenticación al backend
+- El servidor valida identidad del usuario
+
+Resultado:
+- El usuario queda autorizado para entrar al entorno multijugador
+
+
+PASO 4 — CREACIÓN DE SESIÓN
+- El servidor crea una Session activa
+- La sesión representa la conexión viva del usuario
+
+Session base:
+- sessionId
+- userId
+- connectedAt
+- roomId inicial o null
+- estado online
+
+Resultado:
+- El usuario ya está conectado al ecosistema del juego
+
+
+PASO 5 — ASIGNACIÓN O INGRESO A SALA
+- El servidor asigna una sala disponible o la sala solicitada
+- Se evalúa capacidad máxima
+- Si la sala es válida, el usuario entra
+
+Resultado:
+- El usuario ya pertenece a una Room activa
+
+
+PASO 6 — CREACIÓN DE PRESENCE
+- El servidor crea el objeto Presence del usuario dentro de la sala
+- Se define posición inicial
+- Se define skin visible
+- Se define dirección inicial
+- Se define estado de movimiento
+
+Resultado:
+- El usuario ya existe dentro del mundo sincronizado
+
+
+PASO 7 — ENVÍO DE ESTADO INICIAL AL CLIENTE
+El servidor envía:
+- datos de la sala
+- lista de jugadores visibles
+- estado inicial del propio jugador
+- configuración necesaria de sincronización
+
+Resultado:
+- El cliente puede renderizar el entorno y los usuarios conectados
+
+
+PASO 8 — INICIO DEL CICLO DE TIEMPO REAL
+- El cliente empieza a enviar inputs
+- El servidor procesa esos inputs
+- El servidor distribuye cambios de estado a los clientes relevantes
+
+Resultado:
+- Comienza la interacción multijugador en tiempo real
+
+
+--------------------------------------------------
+4. FLUJO DE MOVIMIENTO
+--------------------------------------------------
+
+4.1 PRINCIPIO
+
+El cliente no debe enviar posición final como autoridad.
+Debe enviar intención de movimiento o input.
+
+Ejemplos:
+- mover izquierda
+- mover derecha
+- detenerse
+- cambiar dirección
+
+4.2 CICLO DE MOVIMIENTO
+
+1. Jugador pulsa una tecla o input de movimiento
+2. Cliente detecta el input
+3. Cliente envía evento al servidor
+4. Servidor valida el input
+5. Servidor actualiza Presence
+6. Servidor distribuye nueva posición o estado
+7. Clientes renderizan el movimiento
+
+4.3 BENEFICIOS DE ESTE MODELO
+
+- Reduce trampas o inconsistencias
+- Mantiene una fuente única de verdad
+- Permite validaciones centralizadas
+- Facilita escalabilidad y control
+
+
+--------------------------------------------------
+5. SINCRONIZACIÓN
+--------------------------------------------------
+
+5.1 DATOS QUE SE SINCRONIZAN FRECUENTEMENTE
+
+- x
+- y
+- dirección
+- moving
+- animación actual
+- entrada/salida de sala
+
+5.2 DATOS QUE NO DEBEN SINCRONIZARSE CONSTANTEMENTE
+
+- inventario
+- configuración extensa del usuario
+- datos históricos
+- información no visible en la escena
+
+5.3 CRITERIO DE RENDIMIENTO
+
+No enviar el estado completo de toda la sala en cada actualización.
+Enviar únicamente:
+- cambios relevantes
+- eventos de entrada/salida
+- actualizaciones de Presence
+- mensajes de chat
+
+
+--------------------------------------------------
+6. FLUJO DE CHAT
+--------------------------------------------------
+
+6.1 CHAT DE SALA (MVP)
+
+1. Usuario escribe mensaje
+2. Cliente envía evento de chat al servidor
+3. Servidor valida contenido y origen
+4. Servidor distribuye el mensaje a los usuarios de la misma sala
+
+6.2 DATOS BÁSICOS DEL MENSAJE
+
+- messageId
+- roomId
+- userId
+- displayName
+- content
+- timestamp
+
+
+--------------------------------------------------
+7. EVENTOS PRINCIPALES DEL SISTEMA
+--------------------------------------------------
+
+Eventos cliente → servidor:
+- connect_to_game
+- join_room
+- move_input
+- stop_input
+- send_chat_message
+- ping
+- disconnect
+
+Eventos servidor → cliente:
+- connection_accepted
+- room_joined
+- room_state
+- player_joined
+- player_moved
+- player_left
+- chat_message
+- server_error
+
+
+--------------------------------------------------
+8. RECONEXIÓN Y DESCONEXIÓN
+--------------------------------------------------
+
+8.1 DESCONEXIÓN
+
+Cuando un usuario se desconecta:
+- la Session pasa a estado desconectado o se destruye
+- la Presence se elimina de la Room
+- la sala notifica a los demás usuarios
+
+8.2 RECONEXIÓN FUTURA
+
+En una fase posterior:
+- el usuario podrá reanudar sesión
+- se podrá restaurar sala anterior si aplica
+- se podrá reconstruir Presence inicial
+
+
+--------------------------------------------------
+9. RESPONSABILIDADES POR CAPA
+--------------------------------------------------
+
+CLIENTE
+- UI
+- render
+- captura de input
+- interpolación visual
+- reproducción local de animaciones
+
+SERVIDOR
+- autenticación de acceso al entorno
+- control de salas
+- autoridad de Presence
+- sincronización
+- distribución de eventos
+
+
+--------------------------------------------------
+10. REGLAS TÉCNICAS IMPORTANTES
+--------------------------------------------------
+
+- No mezclar datos persistentes con Presence
+- El servidor siempre es autoridad del estado compartido
+- El cliente solo representa y solicita acciones
+- Cada sala debe aislar su estado
+- La conexión de tiempo real debe ser independiente del frontend visual
+
+
+--------------------------------------------------
+11. ESTADO ACTUAL
+--------------------------------------------------
+
+- Flujo general definido
+- Pendiente convertir eventos a contrato técnico formal
+- Pendiente elegir implementación exacta del servidor realtime
+
+
+FIN DEL DOCUMENTO

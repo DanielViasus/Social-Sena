@@ -1,0 +1,229 @@
+SOCIAL SENA — MODELO DE DATOS V1
+
+1. OBJETIVO
+
+Definir la estructura de datos del sistema separando correctamente:
+
+- Identidad del usuario
+- Estado persistente
+- Estado en tiempo real
+- Relaciones sociales
+
+Esta separación permite escalabilidad, mantenimiento y correcta sincronización.
+
+
+2. PRINCIPIO CLAVE
+
+NO mezclar:
+
+- Datos persistentes (base de datos)
+- Datos en memoria (tiempo real)
+- Datos de sesión (conexión activa)
+
+Cada uno tiene responsabilidades distintas.
+
+
+--------------------------------------------------
+3. ENTIDADES PRINCIPALES
+--------------------------------------------------
+
+
+3.1 USUARIO (PERSISTENTE)
+
+Representa la identidad del usuario en el sistema.
+
+User:
+- auth0Id: string
+- username: string
+- displayName: string
+- createdAt: timestamp
+- lastLoginAt: timestamp
+
+Notas:
+- auth0Id es la clave principal externa
+- Este objeto NO contiene posición ni estado en sala
+
+
+--------------------------------------------------
+
+
+3.2 APARIENCIA (PERSISTENTE)
+
+Define cómo se ve el usuario.
+
+Appearance:
+- userId: string
+- skinId: string
+- colorVariant: string (opcional)
+- accesorios: array (futuro)
+
+Notas:
+- Separado del usuario para permitir personalización futura
+
+
+--------------------------------------------------
+
+
+3.3 INVENTARIO (PERSISTENTE - FUTURO)
+
+Inventory:
+- userId: string
+- items: lista de objetos
+  - itemId: string
+  - quantity: number
+
+Notas:
+- No se implementa en MVP
+- Estructura abierta para expansión
+
+
+--------------------------------------------------
+
+
+3.4 SESIÓN (CONEXIÓN ACTIVA)
+
+Representa una conexión activa del usuario.
+
+Session:
+- sessionId: string
+- userId: string
+- connectedAt: timestamp
+- lastPing: timestamp
+- roomId: string
+- status: online | disconnected
+
+Notas:
+- Un usuario puede tener múltiples sesiones (futuro)
+- Vive en servidor (no en base de datos necesariamente)
+
+
+--------------------------------------------------
+
+
+3.5 PRESENCIA (TIEMPO REAL)
+
+Representa al jugador dentro de una sala.
+
+Presence:
+- userId: string
+- sessionId: string
+- roomId: string
+
+- position:
+    - x: number
+    - y: number
+
+- direction: up | down | left | right
+- moving: boolean
+
+- currentPlatformId: string | null
+
+- skinId: string
+- animation: string
+
+Notas:
+- Este objeto es el que se sincroniza en tiempo real
+- Vive en memoria del servidor
+- Es el más crítico para el rendimiento
+
+
+--------------------------------------------------
+
+
+3.6 SALA (ROOM)
+
+Representa una instancia del mundo compartido.
+
+Room:
+- roomId: string
+- name: string
+- maxUsers: number
+
+- players: lista de Presence
+
+- createdAt: timestamp
+
+Notas:
+- Cada sala es independiente
+- Maneja su propio estado y chat
+
+
+--------------------------------------------------
+
+
+3.7 MENSAJES DE CHAT
+
+ChatMessage:
+- messageId: string
+- userId: string
+- roomId: string
+- content: string
+- timestamp: timestamp
+
+Notas:
+- Inicialmente solo chat global
+- Luego se puede extender a proximidad o grupos
+
+
+--------------------------------------------------
+
+
+3.8 GRUPOS (FUTURO)
+
+Group:
+- groupId: string
+- leaderId: string
+- members: lista de userId
+
+- state:
+    - currentRoomId: string
+
+Notas:
+- No guardar posición del grupo directamente
+- Las acciones de grupo se manejan como eventos
+
+
+--------------------------------------------------
+4. RELACIONES ENTRE ENTIDADES
+--------------------------------------------------
+
+User → Appearance (1:1)
+User → Inventory (1:1)
+User → Session (1:N)
+Session → Presence (1:1)
+Room → Presence (1:N)
+User → Group (N:1)
+
+
+--------------------------------------------------
+5. FLUJO DE DATOS (SIMPLIFICADO)
+--------------------------------------------------
+
+1. Usuario inicia sesión
+2. Se carga User + Appearance
+3. Se crea Session
+4. Usuario entra a Room
+5. Se crea Presence
+6. Se sincroniza Presence en tiempo real
+
+
+--------------------------------------------------
+6. REGLAS IMPORTANTES
+--------------------------------------------------
+
+- El cliente NO define la posición final
+- El servidor es la autoridad
+- Presence NO se guarda en base de datos
+- Session puede perderse sin afectar persistencia
+- User nunca debe contener datos de tiempo real
+
+
+--------------------------------------------------
+7. ESTADO ACTUAL
+
+- Modelo base definido
+- Pendiente implementación en backend
+- Pendiente adaptación a TypeScript
+
+
+FIN DEL DOCUMENTO

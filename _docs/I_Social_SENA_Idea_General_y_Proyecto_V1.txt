@@ -1,0 +1,92 @@
+SOCIAL SENA — IDEA GENERAL Y PROYECCIÓN V1
+
+1. CONCEPTO GENERAL
+
+Social Sena es una plataforma social multijugador en entorno virtual 2D, donde múltiples usuarios pueden conectarse simultáneamente desde diferentes dispositivos y compartir un espacio digital en tiempo real.
+
+El sistema está inspirado en videojuegos sociales como Habbo, pero con una arquitectura moderna basada en tecnologías web actuales, enfocada en escalabilidad, modularidad y futura integración con sistemas educativos.
+
+El objetivo principal no es la competencia, sino la interacción social, la presencia digital y la comunicación en entornos virtuales compartidos.
+
+
+2. PROPÓSITO DEL PROYECTO
+
+El proyecto busca crear una base tecnológica que permita:
+
+- Interacción social en tiempo real
+- Representación visual de usuarios mediante avatares
+- Comunicación por chat
+- Persistencia de identidad digital
+- Creación de espacios virtuales compartidos
+
+A futuro, esta plataforma podrá integrarse con sistemas educativos, gamificación de contenidos, eventos virtuales y experiencias interactivas.
+
+
+3. EXPERIENCIA DEL USUARIO
+
+El usuario:
+
+- Inicia sesión en la plataforma
+- Selecciona o utiliza su avatar
+- Ingresa a una sala virtual
+- Visualiza otros usuarios conectados
+- Se desplaza dentro del entorno
+- Interactúa mediante chat
+
+La experiencia está enfocada en la sensación de presencia en un espacio digital compartido.
+
+
+4. ALCANCE INICIAL (MVP)
+
+La primera versión del sistema incluirá:
+
+- Sistema de autenticación
+- Representación de usuario (avatar/skin)
+- Sistema de salas
+- Movimiento en tiempo real
+- Visualización de otros usuarios
+- Chat global por sala
+
+El objetivo del MVP es validar la sincronización en tiempo real y la interacción básica entre usuarios.
+
+
+5. PROYECCIÓN DEL SISTEMA
+
+El sistema está diseñado para evolucionar hacia:
+
+- Grupos de usuarios
+- Inventario de objetos
+- Interacción con elementos del entorno
+- Eventos dentro de salas
+- Integración con módulos educativos
+- Gamificación (misiones, retos, actividades)
+
+La arquitectura debe permitir crecimiento progresivo sin necesidad de rediseño completo.
+
+
+6. CAPACIDAD OBJETIVO
+
+- Salas con múltiples usuarios simultáneos (objetivo inicial: hasta 80 usuarios)
+- Sincronización en tiempo real con baja latencia
+- Escalabilidad por instancias de salas
+
+
+7. PRINCIPIOS DEL PROYECTO
+
+- Simplicidad en el inicio
+- Escalabilidad desde el diseño
+- Separación clara entre frontend y backend
+- Modularidad del sistema
+- Evolución progresiva por fases
+
+
+8. ESTADO ACTUAL
+
+El proyecto se encuentra en fase de definición conceptual y estructuración técnica.
+
+Aún no se ha iniciado implementación de código.
+
+El enfoque actual es establecer bases sólidas antes del desarrollo.
+
+
+FIN DEL DOCUMENTO

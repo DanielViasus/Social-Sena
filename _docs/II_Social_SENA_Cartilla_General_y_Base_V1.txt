@@ -1,0 +1,158 @@
+SOCIAL SENA — CARTILLA TÉCNICA BASE V1
+
+1. OBJETIVO TÉCNICO
+
+Definir la estructura inicial del sistema, los componentes principales y la forma en que interactúan entre sí, con el fin de establecer una base sólida para el desarrollo del proyecto.
+
+
+2. ARQUITECTURA GENERAL
+
+El sistema se basa en una arquitectura cliente-servidor:
+
+CLIENTE:
+- Aplicación web desarrollada en React + Vite
+- Render del entorno mediante motor 2D (Phaser)
+- Manejo de interfaz de usuario
+- Captura de inputs del jugador
+
+SERVIDOR:
+- Node.js
+- Sistema de comunicación en tiempo real (WebSockets)
+- Manejo de salas (rooms)
+- Sincronización de estado de jugadores
+- Lógica de presencia
+
+BASE DE DATOS:
+- Persistencia de usuarios
+- Configuración de perfiles
+- Datos no volátiles
+
+
+3. COMPONENTES PRINCIPALES
+
+3.1 CLIENTE
+
+Responsable de:
+- Renderizar el mundo
+- Mostrar otros jugadores
+- Enviar inputs al servidor
+- Mostrar chat
+- Manejar UI
+
+3.2 SERVIDOR
+
+Responsable de:
+- Mantener estado global de cada sala
+- Recibir inputs de jugadores
+- Validar y actualizar posiciones
+- Distribuir estado a los clientes
+- Manejar conexiones/desconexiones
+
+3.3 MOTOR 2D
+
+- Manejo de sprites
+- Posicionamiento (X, Y)
+- Animaciones
+- Profundidad visual
+- Colisiones básicas (opcional en MVP)
+
+
+4. MODELO DE CONEXIÓN
+
+Flujo base:
+
+1. Usuario inicia sesión (Auth0)
+2. Cliente obtiene token de autenticación
+3. Cliente se conecta al servidor de juego
+4. Servidor valida identidad
+5. Usuario es asignado a una sala
+6. Se envía estado inicial
+7. Se inicia sincronización en tiempo real
+
+
+5. MODELO DE SALAS
+
+- Cada sala es una instancia independiente
+- Contiene múltiples jugadores
+- Tiene su propio estado
+- Maneja su propio chat
+
+Propiedades de sala:
+
+- ID de sala
+- Lista de jugadores
+- Estado sincronizado
+- Capacidad máxima
+
+
+6. MODELO DE JUGADOR (TIEMPO REAL)
+
+Cada jugador en una sala contiene:
+
+- ID de usuario
+- Posición (X, Y)
+- Dirección
+- Estado de movimiento
+- Skin
+- Estado de conexión
+
+Este modelo vive en memoria del servidor.
+
+
+7. SINCRONIZACIÓN
+
+El sistema funcionará bajo modelo de:
+
+- Cliente envía inputs (no estado completo)
+- Servidor calcula el estado
+- Servidor distribuye actualizaciones
+
+Frecuencia de actualización:
+- Optimizada para rendimiento
+- No necesariamente por frame
+
+
+8. CHAT
+
+Tipos iniciales:
+
+- Chat global de sala
+
+Características:
+- Mensajes en tiempo real
+- Identificación de usuario
+- Distribución a todos los clientes en la sala
+
+
+9. SISTEMA DE GRUPOS (FUTURO)
+
+- Identificador de grupo
+- Roles (líder / miembro)
+- Posibilidad de acciones conjuntas
+- Sincronización opcional de movimiento o sala
+
+
+10. INVENTARIO (NO IMPLEMENTADO EN MVP)
+
+- Estructura abierta
+- Asociado al usuario
+- Persistente en base de datos
+
+
+11. CONSIDERACIONES TÉCNICAS
+
+- Separar lógica de render y lógica de red
+- Evitar lógica crítica en cliente
+- Mantener servidor como autoridad
+- Minimizar tráfico de red
+- Diseñar para escalabilidad
+
+
+12. ESTADO ACTUAL
+
+- Definición técnica inicial
+- Sin implementación aún
+- Pendiente definición de módulos detallados
+
+
+FIN DEL DOCUMENTO
