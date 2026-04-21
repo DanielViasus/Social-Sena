@@ -1,27 +1,25 @@
 {
   "name": "social-sena",
   "private": true,
-  "version": "0.0.0",
-  "type": "module",
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "lint": "eslint .",
-    "preview": "vite preview"
+    "dev": "npm run dev:web",
+    "dev:full": "sh -c 'npm run dev:server & npm run dev:web'",
+    "dev:web": "npm run dev -w @social-sena/web",
+    "dev:server": "npm run dev -w @social-sena/game-server",
+    "build:shared": "npm run build -w @social-sena/shared",
+    "build:server": "npm run build -w @social-sena/game-server",
+    "build:web": "npm run build -w @social-sena/web",
+    "start:server": "npm run start -w @social-sena/game-server",
+    "build": "npm run build:shared && npm run build:server && npm run build:web",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
   },
-  "dependencies": {
-    "react": "^19.2.5",
-    "react-dom": "^19.2.5"
-  },
-  "devDependencies": {
-    "@eslint/js": "^9.39.4",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.1",
-    "eslint": "^9.39.4",
-    "eslint-plugin-react-hooks": "^7.1.1",
-    "eslint-plugin-react-refresh": "^0.5.2",
-    "globals": "^17.5.0",
-    "vite": "^8.0.9"
+  "engines": {
+    "node": ">=20.0.0"
   }
 }
