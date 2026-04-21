@@ -6,13 +6,14 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "npm run build -w @social-sena/shared && tsc -p tsconfig.json",
-    "start": "node dist/apps/game-server/src/index.js",
+    "start": "node --import tsx src/index.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@social-sena/shared": "file:../../packages/shared",
     "socket.io": "^4.8.1",
+    "tsx": "^4.20.6",
     "zod": "^4.1.12"
   },
   "devDependencies": {
@@ -20,7 +21,6 @@
     "@types/node": "^24.9.1",
     "eslint": "^9.39.1",
     "globals": "^16.4.0",
-    "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.2"
   }
