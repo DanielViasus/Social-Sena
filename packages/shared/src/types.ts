@@ -1,0 +1,78 @@
+import type { RoomTemplate } from './rooms/types'
+
+export type Direction = 'up' | 'down' | 'left' | 'right'
+
+export interface UserProfile {
+  userId: string
+  username: string
+  displayName: string
+  skinId: string
+}
+
+export interface Position {
+  x: number
+  y: number
+}
+
+export interface RouteState {
+  start: Position
+  target: Position
+  waypoints: Position[]
+}
+
+export interface Presence {
+  userId: string
+  displayName: string
+  sessionId: string
+  roomId: string
+  position: Position
+  direction: Direction
+  moving: boolean
+  skinId: string
+  animation: string
+  destination: Position | null
+  route: RouteState | null
+}
+
+export interface RoomState {
+  roomId: string
+  templateId: string
+  name: string
+  maxUsers: number
+  template: RoomTemplate
+  players: Presence[]
+}
+
+export interface ChatMessage {
+  messageId: string
+  roomId: string
+  userId: string
+  displayName: string
+  content: string
+  timestamp: string
+}
+
+export interface ConnectToGamePayload {
+  token?: string
+  profile: UserProfile
+}
+
+export interface JoinRoomPayload {
+  roomId: string
+  templateId: string
+}
+
+export interface NavigateToPayload {
+  roomId: string
+  target: Position
+}
+
+export interface SendChatMessagePayload {
+  roomId: string
+  content: string
+}
+
+export interface ServerErrorPayload {
+  code: string
+  message: string
+}
