@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "npm run build -w @social-sena/shared && tsc -p tsconfig.json",
-    "start": "node dist/index.js",
+    "start": "node dist/apps/game-server/src/index.js",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
