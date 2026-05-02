@@ -6,6 +6,10 @@ import crockWalk0 from '../../assets/characters/crock/crock_walk_0.svg'
 import crockWalk1 from '../../assets/characters/crock/crock_walk_1.svg'
 import crockWalk2 from '../../assets/characters/crock/crock_walk_2.svg'
 import crockWalk3 from '../../assets/characters/crock/crock_walk_3.svg'
+import crockBackWalk0 from '../../assets/characters/crock/crockBack_walk_0.svg'
+import crockBackWalk1 from '../../assets/characters/crock/crockBack_walk_1.svg'
+import crockBackWalk2 from '../../assets/characters/crock/crockBack_walk_2.svg'
+import crockBackWalk3 from '../../assets/characters/crock/crockBack_walk_3.svg'
 
 export interface AvatarTextureDefinition {
   key: string
@@ -18,6 +22,7 @@ export interface AvatarPreset {
   scale: number
   idleFrames: AvatarTextureDefinition[]
   walkFrames: AvatarTextureDefinition[]
+  walkBackFrames?: AvatarTextureDefinition[]
 }
 
 const crockPreset: AvatarPreset = {
@@ -36,6 +41,12 @@ const crockPreset: AvatarPreset = {
     { key: 'avatar-crock-walk-2', url: crockWalk2 },
     { key: 'avatar-crock-walk-3', url: crockWalk3 },
   ],
+  walkBackFrames: [
+    { key: 'avatar-crock-back-walk-0', url: crockBackWalk0 },
+    { key: 'avatar-crock-back-walk-1', url: crockBackWalk1 },
+    { key: 'avatar-crock-back-walk-2', url: crockBackWalk2 },
+    { key: 'avatar-crock-back-walk-3', url: crockBackWalk3 },
+  ],
 }
 
 const avatarPresetBySkinId: Record<string, AvatarPreset> = {
@@ -52,7 +63,7 @@ export function resolveAvatarPreset(skinId: string | null | undefined): AvatarPr
 export const avatarTextureEntries: AvatarTextureDefinition[] = Array.from(
   new Map(
     [crockPreset]
-      .flatMap((preset) => [...preset.idleFrames, ...preset.walkFrames])
+      .flatMap((preset) => [...preset.idleFrames, ...preset.walkFrames, ...(preset.walkBackFrames ?? [])])
       .map((texture) => [texture.key, texture]),
   ).values(),
 )

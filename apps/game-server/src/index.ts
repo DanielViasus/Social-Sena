@@ -259,8 +259,6 @@ function simulateMovement(deltaSeconds: number) {
       }
 
       player.position = nextPosition
-      player.direction = resolveDirection(player.position, player.destination)
-      player.animation = `walk-${player.direction}`
       player.moving = true
       io.to(room.roomId).emit(serverEvents.playerMoved, player)
     })

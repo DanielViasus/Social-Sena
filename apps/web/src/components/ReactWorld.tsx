@@ -51,7 +51,17 @@ function getObjectSortY(objectTemplate: RoomObjectTemplate) {
 
 function getAvatarFrame(player: Presence, now: number) {
   const preset = resolveAvatarPreset(player.skinId)
-  const frames = player.moving ? preset.walkFrames : preset.idleFrames
+  const routeStart = player.route?.start ?? player.position
+  const routeTarget = player.route?.target ?? player.destination ?? player.position
+  const deltaX = routeTarget.x - routeStart.x
+  const deltaY = routeTarget.y - routeStart.y
+  const useBackWalk = player.moving && deltaY < 0 && Math.abs(deltaY) >= Math.abs(deltaX) * 0.65
+  const flipX = deltaX < 0
+  const frames = player.moving
+    ? useBackWalk && preset.walkBackFrames?.length
+      ? preset.walkBackFrames
+      : preset.walkFrames
+    : preset.idleFrames
   const frameDuration = 200
   const frameIndex = Math.floor(now / frameDuration) % frames.length
 
@@ -59,6 +69,7 @@ function getAvatarFrame(player: Presence, now: number) {
     preset,
     texture: frames[frameIndex],
     frameIndex,
+    flipX,
   }
 }
 
@@ -206,25 +217,41 @@ function ReactWorld({ room, currentUserId, template, onNavigate, debugEnabled }:
           </>
         ) : null}
 
-        <svg className="react-world-routes" width={template.world.width} height={template.world.height}>
-          {(room?.players ?? []).map((player) => {
-            if (!player.route || player.route.waypoints.length < 2) {
-              return null
-            }
+        {debugEnabled ? (
+          <svg className="react-world-routes" width={template.world.width} height={template.world.height}>
+            {(room?.players ?? []).map((player) => {
+              if (!player.route || player.route.waypoints.length < 2) {
+                return null
+              }
 
-            const [start, target] = player.route.waypoints
-            const color = player.userId === currentUserId ? '#ff8d3a' : '#2574ff'
-            const radius = player.userId === currentUserId ? 12 : 8
-            const opacity = player.userId === currentUserId ? 0.85 : 0.45
+              const [start, target] = player.route.waypoints
+              const color = player.userId === currentUserId ? '#ff8d3a' : '#2574ff'
+              const radius = player.userId === currentUserId ? 12 : 8
+              const opacity = player.userId === currentUserId ? 0.85 : 0.45
 
-            return (
-              <g key={`${player.sessionId}-route`}>
-                <line x1={start.x} y1={start.y} x2={target.x} y2={target.y} stroke={color} strokeWidth={player.userId === currentUserId ? 4 : 2} strokeOpacity={opacity} />
-                <circle cx={target.x} cy={target.y} r={radius} fill={color} fillOpacity={player.userId === currentUserId ? 0.22 : 0.12} />
-              </g>
-            )
-          })}
-        </svg>
+              return (
+                <g key={`${player.sessionId}-route`}>
+                  <line
+                    x1={start.x}
+                    y1={start.y}
+                    x2={target.x}
+                    y2={target.y}
+                    stroke={color}
+                    strokeWidth={player.userId === currentUserId ? 4 : 2}
+                    strokeOpacity={opacity}
+                  />
+                  <circle
+                    cx={target.x}
+                    cy={target.y}
+                    r={radius}
+                    fill={color}
+                    fillOpacity={player.userId === currentUserId ? 0.22 : 0.12}
+                  />
+                </g>
+              )
+            })}
+          </svg>
+        ) : null}
 
         {template.objects.map((objectTemplate) => {
           const sortY = getObjectSortY(objectTemplate)
@@ -312,7 +339,11 @@ function ReactWorld({ room, currentUserId, template, onNavigate, debugEnabled }:
               alt={player.displayName}
               draggable={false}
               className="react-world-avatar-sprite"
-              style={{ width: `${32 * frame.preset.scale}px`, height: `${32 * frame.preset.scale}px` }}
+              style={{
+                width: `${32 * frame.preset.scale}px`,
+                height: `${32 * frame.preset.scale}px`,
+                transform: frame.flipX ? 'scaleX(-1)' : 'scaleX(1)',
+              }}
             />
             <div className={`react-world-avatar-label ${isSelf ? 'is-self' : ''}`}>{player.displayName}</div>
             {debugEnabled ? (
