@@ -8,9 +8,10 @@ interface PhaserWorldProps {
   currentUserId: string
   template: RoomTemplate
   onNavigate: (target: Position) => void
+  debugEnabled: boolean
 }
 
-function PhaserWorld({ room, currentUserId, template, onNavigate }: PhaserWorldProps) {
+function PhaserWorld({ room, currentUserId, template, onNavigate, debugEnabled }: PhaserWorldProps) {
   const mountRef = useRef<HTMLDivElement | null>(null)
   const sceneRef = useRef<SocialSenaScene | null>(null)
   const gameRef = useRef<Phaser.Game | null>(null)
@@ -71,6 +72,10 @@ function PhaserWorld({ room, currentUserId, template, onNavigate }: PhaserWorldP
   useEffect(() => {
     sceneRef.current?.setNavigateHandler(onNavigate)
   }, [onNavigate])
+
+  useEffect(() => {
+    sceneRef.current?.setDebugEnabled(debugEnabled)
+  }, [debugEnabled])
 
   return (
     <div className="phaser-frame">

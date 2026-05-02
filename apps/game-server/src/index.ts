@@ -16,6 +16,7 @@ import {
   type Direction,
   type Position,
   type Presence,
+  type RoomObjectTemplate,
   type RoomState,
   type UserProfile,
 } from '@social-sena/shared'
@@ -81,6 +82,15 @@ const io = new Server(httpServer, {
 const sessions = new Map<string, SessionState>()
 const rooms = new Map<string, RoomState>()
 let lastSimulationTick = Date.now()
+const PLAYER_FOOT_WIDTH = 30
+const PLAYER_FOOT_HEIGHT = 14
+
+interface RectBounds {
+  left: number
+  right: number
+  top: number
+  bottom: number
+}
 
 function getOrCreateRoom(roomId: string, templateId: string): RoomState | null {
   const existingRoom = rooms.get(roomId)
@@ -127,10 +137,55 @@ function clonePosition(position: Position): Position {
 }
 
 function clampPositionToRoom(room: RoomState, position: Position): Position {
+  const halfFootWidth = PLAYER_FOOT_WIDTH / 2
   return {
-    x: Math.min(Math.max(position.x, 32), room.template.world.width - 32),
-    y: Math.min(Math.max(position.y, 48), room.template.world.height - 32),
+    x: Math.min(Math.max(position.x, halfFootWidth + 16), room.template.world.width - halfFootWidth - 16),
+    y: Math.min(Math.max(position.y, PLAYER_FOOT_HEIGHT + 16), room.template.world.height - 20),
   }
+}
+
+function getObjectColliderBounds(objectTemplate: RoomObjectTemplate): RectBounds {
+  const collider = objectTemplate.collider ?? {
+    offsetX: 0,
+    offsetY: 0,
+    width: objectTemplate.width,
+    height: objectTemplate.height,
+  }
+
+  const centerX = objectTemplate.x + collider.offsetX
+  const centerY = objectTemplate.y + collider.offsetY
+
+  return {
+    left: centerX - collider.width / 2,
+    right: centerX + collider.width / 2,
+    top: centerY - collider.height / 2,
+    bottom: centerY + collider.height / 2,
+  }
+}
+
+function getPlayerFootBounds(position: Position): RectBounds {
+  return {
+    left: position.x - PLAYER_FOOT_WIDTH / 2,
+    right: position.x + PLAYER_FOOT_WIDTH / 2,
+    top: position.y - PLAYER_FOOT_HEIGHT,
+    bottom: position.y,
+  }
+}
+
+function overlapsRect(a: RectBounds, b: RectBounds) {
+  return !(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom)
+}
+
+function isBlockedByRoomObjects(room: RoomState, position: Position) {
+  const playerFootBounds = getPlayerFootBounds(position)
+
+  return room.template.objects.some((objectTemplate) => {
+    if (!objectTemplate.blocksMovement) {
+      return false
+    }
+
+    return overlapsRect(playerFootBounds, getObjectColliderBounds(objectTemplate))
+  })
 }
 
 function resolveDirection(from: Position, to: Position): Direction {
@@ -148,6 +203,11 @@ function updateRoute(room: RoomState, player: Presence, target: Position) {
   const start = clonePosition(player.position)
   const destination = clampPositionToRoom(room, target)
 
+  if (isBlockedByRoomObjects(room, destination)) {
+    stopPlayer(player)
+    return false
+  }
+
   player.destination = destination
   player.route = {
     start,
@@ -157,6 +217,7 @@ function updateRoute(room: RoomState, player: Presence, target: Position) {
   player.direction = resolveDirection(start, destination)
   player.animation = `walk-${player.direction}`
   player.moving = true
+  return true
 }
 
 function stopPlayer(player: Presence) {
@@ -186,10 +247,18 @@ function simulateMovement(deltaSeconds: number) {
 
       const step = PLAYER_SPEED * deltaSeconds
       const factor = Math.min(step / distance, 1)
-      player.position = clampPositionToRoom(room, {
+      const nextPosition = clampPositionToRoom(room, {
         x: player.position.x + deltaX * factor,
         y: player.position.y + deltaY * factor,
       })
+
+      if (isBlockedByRoomObjects(room, nextPosition)) {
+        stopPlayer(player)
+        io.to(room.roomId).emit(serverEvents.playerMoved, player)
+        return
+      }
+
+      player.position = nextPosition
       player.direction = resolveDirection(player.position, player.destination)
       player.animation = `walk-${player.direction}`
       player.moving = true
@@ -289,8 +358,10 @@ io.on('connection', (socket) => {
       return
     }
 
-    updateRoute(room, player, parsed.data.target)
-    io.to(room.roomId).emit(serverEvents.playerMoved, player)
+    const routeAccepted = updateRoute(room, player, parsed.data.target)
+    if (routeAccepted) {
+      io.to(room.roomId).emit(serverEvents.playerMoved, player)
+    }
   })
 
   socket.on(clientEvents.sendChatMessage, (rawPayload) => {

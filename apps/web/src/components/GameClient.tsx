@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { io, type Socket } from 'socket.io-client'
 import { clientEvents, serverEvents, type ChatMessage, type Position, type Presence, type RoomState } from '@social-sena/shared'
 import type { AuthSession } from '../auth/localSession'
-import PhaserWorld from './PhaserWorld'
+import ReactWorld from './ReactWorld'
 import { availableRoomRoutes, resolveRoomTemplateFromPath } from '../rooms/registry'
 
 const SERVER_URL = import.meta.env.VITE_GAME_SERVER_URL ?? 'http://localhost:3001'
@@ -21,6 +21,7 @@ function GameClient({ session, onLogout }: GameClientProps) {
   const [connected, setConnected] = useState(false)
   const [optionsOpen, setOptionsOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
+  const [debugEnabled, setDebugEnabled] = useState(false)
   const socketRef = useRef<Socket | null>(null)
   const optionsMenuRef = useRef<HTMLDivElement | null>(null)
   const chatOpenRef = useRef(false)
@@ -103,6 +104,31 @@ function GameClient({ session, onLogout }: GameClientProps) {
       timeouts.forEach((timeoutId) => window.clearTimeout(timeoutId))
       timeouts.clear()
     }
+  }, [])
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat || event.key.toLowerCase() !== 'p') {
+        return
+      }
+
+      const target = event.target as HTMLElement | null
+      const tagName = target?.tagName?.toLowerCase()
+      const isTyping =
+        tagName === 'input' ||
+        tagName === 'textarea' ||
+        target?.isContentEditable === true
+
+      if (isTyping) {
+        return
+      }
+
+      event.preventDefault()
+      setDebugEnabled((currentValue) => !currentValue)
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
   useEffect(() => {
@@ -212,11 +238,12 @@ function GameClient({ session, onLogout }: GameClientProps) {
   return (
     <main className="hud-layout">
       <div className="world-canvas fullscreen-world">
-        <PhaserWorld
+        <ReactWorld
           room={room}
           currentUserId={session.profile.userId}
           template={activeTemplate}
           onNavigate={handleNavigate}
+          debugEnabled={debugEnabled}
         />
 
         <div className="hud-layer">
@@ -287,6 +314,18 @@ function GameClient({ session, onLogout }: GameClientProps) {
                       )}
                     </ul>
                   </div>
+                  <div className="dropdown-row">
+                    <span>Modo debug</span>
+                    <strong>{debugEnabled ? 'Activo' : 'Inactivo'}</strong>
+                    <small className="dropdown-subtext">Atajo rapido: tecla P</small>
+                  </div>
+                  <button
+                    type="button"
+                    className={`secondary-action-button ${debugEnabled ? 'is-active' : ''}`}
+                    onClick={() => setDebugEnabled((currentValue) => !currentValue)}
+                  >
+                    {debugEnabled ? 'Ocultar coliders' : 'Mostrar coliders'}
+                  </button>
                   <button type="button" className="secondary-action-button" onClick={onLogout}>
                     Cerrar sesion
                   </button>

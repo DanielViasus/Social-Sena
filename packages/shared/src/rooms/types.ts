@@ -2,6 +2,13 @@ import type { Position } from '../types'
 
 export type RoomObjectKind = 'wall' | 'door' | 'portal' | 'zone' | 'landmark'
 
+export interface RoomColliderTemplate {
+  offsetX: number
+  offsetY: number
+  width: number
+  height: number
+}
+
 export interface RoomObjectTemplate {
   id: string
   kind: RoomObjectKind
@@ -14,6 +21,8 @@ export interface RoomObjectTemplate {
   fillColor?: number
   strokeColor?: number
   opacity?: number
+  collider?: RoomColliderTemplate
+  depthOffsetY?: number
 }
 
 export interface RoomCameraTemplate {

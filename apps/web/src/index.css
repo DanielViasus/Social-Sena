@@ -368,6 +368,12 @@ button {
   color: #f4f7ff;
 }
 
+.secondary-action-button.is-active {
+  background: rgba(156, 222, 113, 0.2);
+  color: #eaffd4;
+  box-shadow: inset 0 0 0 1px rgba(156, 222, 113, 0.45);
+}
+
 .chat-bubble-stack {
   position: absolute;
   right: 28px;
@@ -543,4 +549,205 @@ button {
   .chat-form {
     flex-direction: column;
   }
+}
+
+.react-world-viewport {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top left, rgba(255, 244, 219, 0.38), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0) 35%);
+}
+
+.react-world-surface {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+  will-change: transform;
+}
+
+.react-world-routes {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.plaza-ring,
+.plaza-axis,
+.plaza-ellipse {
+  position: absolute;
+  pointer-events: none;
+}
+
+.plaza-ring {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 160px;
+}
+
+.plaza-ring-outer {
+  width: 2360px;
+  height: 2360px;
+  background: #e9dfc6;
+}
+
+.plaza-ring-inner {
+  width: 1620px;
+  height: 1620px;
+  background: rgba(216, 204, 176, 0.82);
+}
+
+.plaza-axis-vertical {
+  left: calc(50% - 118px);
+  top: 0;
+  width: 236px;
+  height: 100%;
+  border-radius: 90px;
+  background: rgba(232, 226, 212, 0.95);
+}
+
+.plaza-axis-horizontal {
+  left: 0;
+  top: calc(50% - 118px);
+  width: 100%;
+  height: 236px;
+  border-radius: 90px;
+  background: rgba(232, 226, 212, 0.95);
+}
+
+.plaza-ellipse {
+  left: calc(50% - 380px);
+  top: calc(100% - 1350px);
+  width: 760px;
+  height: 220px;
+  border-radius: 50%;
+  background: rgba(245, 239, 221, 0.9);
+}
+
+.react-world-object-shadow {
+  position: absolute;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: rgba(12, 22, 32, 0.14);
+}
+
+.react-world-object {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border: 2px solid rgba(255, 255, 255, 0.55);
+}
+
+.react-world-object-portal,
+.react-world-object-landmark#fountain-core {
+  border-radius: 999px;
+}
+
+.react-world-object-portal {
+  border-radius: 999px;
+}
+
+.react-world-fountain-water {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  width: 62%;
+  height: 44%;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: rgba(187, 231, 255, 0.75);
+}
+
+.react-world-object-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(10, 20, 32, 0.45);
+  color: #f8fbff;
+  font-size: 18px;
+  white-space: nowrap;
+}
+
+.react-world-avatar {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+}
+
+.react-world-avatar-glow {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 120px;
+  height: 128px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: rgba(87, 166, 255, 0.14);
+  filter: blur(10px);
+}
+
+.react-world-avatar-glow.is-self {
+  background: rgba(255, 210, 111, 0.16);
+}
+
+.react-world-avatar-sprite {
+  position: relative;
+  display: block;
+  image-rendering: pixelated;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.react-world-avatar-label {
+  position: absolute;
+  left: 50%;
+  top: -22px;
+  transform: translate(-50%, -100%);
+  padding: 7px 12px;
+  border-radius: 12px;
+  background: #eef5ff;
+  color: #102033;
+  font-size: 18px;
+  white-space: nowrap;
+}
+
+.react-world-avatar-label.is-self {
+  background: #fff1dc;
+}
+
+.react-world-debug-collider,
+.react-world-debug-player {
+  position: absolute;
+  border: 3px solid #3ab7ff;
+  pointer-events: none;
+}
+
+.react-world-debug-collider.is-blocking {
+  border-color: #ff5d5d;
+}
+
+.react-world-debug-collider.is-passable {
+  border-color: #37d99a;
+}
+
+.react-world-debug-player.is-self {
+  border-color: #ffd166;
+}
+
+.react-world-debug-player.is-other {
+  border-color: #3ab7ff;
+}
+
+.react-world-debug-dot {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
 }
