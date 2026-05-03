@@ -11,7 +11,7 @@ El sistema se basa en una arquitectura cliente-servidor:
 
 CLIENTE:
 - Aplicación web desarrollada en React + Vite
-- Render del entorno mediante motor 2D (Phaser)
+- Render del entorno mediante React y componentes visuales del mundo
 - Manejo de interfaz de usuario
 - Captura de inputs del jugador
 

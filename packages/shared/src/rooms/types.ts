@@ -9,6 +9,13 @@ export interface RoomColliderTemplate {
   height: number
 }
 
+export interface RoomZIndexReferenceTemplate {
+  offsetX: number
+  offsetY: number
+  width: number
+  thickness?: number
+}
+
 export interface RoomObjectTemplate {
   id: string
   kind: RoomObjectKind
@@ -16,13 +23,14 @@ export interface RoomObjectTemplate {
   y: number
   width: number
   height: number
-  blocksMovement: boolean
   label?: string
   fillColor?: number
   strokeColor?: number
   opacity?: number
+  spriteAssetId?: string
   collider?: RoomColliderTemplate
-  depthOffsetY?: number
+  colliders?: RoomColliderTemplate[]
+  zIndexRef?: RoomZIndexReferenceTemplate
 }
 
 export interface RoomCameraTemplate {

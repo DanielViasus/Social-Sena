@@ -16,7 +16,6 @@ import {
   type Direction,
   type Position,
   type Presence,
-  type RoomObjectTemplate,
   type RoomState,
   type UserProfile,
 } from '@social-sena/shared'
@@ -27,11 +26,27 @@ interface SessionState {
   roomId: string | null
 }
 
+interface RectBounds {
+  left: number
+  right: number
+  top: number
+  bottom: number
+}
+
 const port = Number(process.env.PORT ?? 3001)
 const allowedOriginPatterns = (process.env.CORS_ALLOWED_ORIGINS ?? 'http://localhost:5173')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean)
+
+const PLAYER_COLLIDER_WIDTH = 68
+const PLAYER_COLLIDER_HEIGHT = 24
+const ROUTE_SAMPLE_STEP = 8
+const PATH_GRID_SIZE = 32
+const PATH_SEARCH_MAX_RADIUS = 6
+const PATH_START_SEARCH_MAX_RADIUS = 4
+const PATH_TARGET_SEARCH_MAX_RADIUS = 10
+const PATH_COLLIDER_MARGIN = 2
 
 function matchesOriginPattern(origin: string, pattern: string) {
   if (pattern === '*') {
@@ -82,20 +97,22 @@ const io = new Server(httpServer, {
 const sessions = new Map<string, SessionState>()
 const rooms = new Map<string, RoomState>()
 let lastSimulationTick = Date.now()
-const PLAYER_FOOT_WIDTH = 30
-const PLAYER_FOOT_HEIGHT = 14
-
-interface RectBounds {
-  left: number
-  right: number
-  top: number
-  bottom: number
-}
 
 function getOrCreateRoom(roomId: string, templateId: string): RoomState | null {
   const existingRoom = rooms.get(roomId)
   if (existingRoom) {
-    return existingRoom.templateId === templateId ? existingRoom : null
+    if (existingRoom.templateId !== templateId) {
+      return null
+    }
+
+    const latestTemplate = getRoomTemplateById(templateId)
+    if (!latestTemplate) {
+      return null
+    }
+
+    existingRoom.template = latestTemplate
+    existingRoom.name = latestTemplate.name
+    return existingRoom
   }
 
   const template = getRoomTemplateById(templateId)
@@ -137,39 +154,45 @@ function clonePosition(position: Position): Position {
 }
 
 function clampPositionToRoom(room: RoomState, position: Position): Position {
-  const halfFootWidth = PLAYER_FOOT_WIDTH / 2
   return {
-    x: Math.min(Math.max(position.x, halfFootWidth + 16), room.template.world.width - halfFootWidth - 16),
-    y: Math.min(Math.max(position.y, PLAYER_FOOT_HEIGHT + 16), room.template.world.height - 20),
+    x: Math.min(Math.max(position.x, PLAYER_COLLIDER_WIDTH / 2), room.template.world.width - PLAYER_COLLIDER_WIDTH / 2),
+    y: Math.min(Math.max(position.y, PLAYER_COLLIDER_HEIGHT), room.template.world.height - 20),
   }
 }
 
-function getObjectColliderBounds(objectTemplate: RoomObjectTemplate): RectBounds {
-  const collider = objectTemplate.collider ?? {
-    offsetX: 0,
-    offsetY: 0,
-    width: objectTemplate.width,
-    height: objectTemplate.height,
-  }
-
-  const centerX = objectTemplate.x + collider.offsetX
-  const centerY = objectTemplate.y + collider.offsetY
-
+function getPlayerColliderBounds(position: Position): RectBounds {
   return {
-    left: centerX - collider.width / 2,
-    right: centerX + collider.width / 2,
-    top: centerY - collider.height / 2,
-    bottom: centerY + collider.height / 2,
-  }
-}
-
-function getPlayerFootBounds(position: Position): RectBounds {
-  return {
-    left: position.x - PLAYER_FOOT_WIDTH / 2,
-    right: position.x + PLAYER_FOOT_WIDTH / 2,
-    top: position.y - PLAYER_FOOT_HEIGHT,
+    left: position.x - PLAYER_COLLIDER_WIDTH / 2,
+    right: position.x + PLAYER_COLLIDER_WIDTH / 2,
+    top: position.y - PLAYER_COLLIDER_HEIGHT,
     bottom: position.y,
   }
+}
+
+function getObjectColliderBoundsList(roomObject: RoomState['template']['objects'][number]): RectBounds[] {
+  const colliders = roomObject.colliders?.length
+    ? roomObject.colliders.slice(0, 4)
+    : roomObject.collider
+      ? [roomObject.collider]
+      : []
+
+  return colliders
+    .filter((collider) => collider.width > 0 && collider.height > 0)
+    .map((collider) => ({
+      left: roomObject.x + collider.offsetX - collider.width / 2,
+      right: roomObject.x + collider.offsetX + collider.width / 2,
+      top: roomObject.y + collider.offsetY - collider.height / 2,
+      bottom: roomObject.y + collider.offsetY + collider.height / 2,
+    }))
+}
+
+function getObjectNavigationBoundsList(roomObject: RoomState['template']['objects'][number]): RectBounds[] {
+  return getObjectColliderBoundsList(roomObject).map((bounds) => ({
+    left: bounds.left - PATH_COLLIDER_MARGIN,
+    right: bounds.right + PATH_COLLIDER_MARGIN,
+    top: bounds.top - PATH_COLLIDER_MARGIN,
+    bottom: bounds.bottom + PATH_COLLIDER_MARGIN,
+  }))
 }
 
 function overlapsRect(a: RectBounds, b: RectBounds) {
@@ -177,15 +200,494 @@ function overlapsRect(a: RectBounds, b: RectBounds) {
 }
 
 function isBlockedByRoomObjects(room: RoomState, position: Position) {
-  const playerFootBounds = getPlayerFootBounds(position)
+  const playerBounds = getPlayerColliderBounds(position)
+  return room.template.objects.some((roomObject) => getObjectNavigationBoundsList(roomObject).some((bounds) => overlapsRect(playerBounds, bounds)))
+}
 
-  return room.template.objects.some((objectTemplate) => {
-    if (!objectTemplate.blocksMovement) {
+function expandBoundsForPlayer(bounds: RectBounds): RectBounds {
+  return {
+    left: bounds.left - PLAYER_COLLIDER_WIDTH / 2,
+    right: bounds.right + PLAYER_COLLIDER_WIDTH / 2,
+    top: bounds.top,
+    bottom: bounds.bottom + PLAYER_COLLIDER_HEIGHT,
+  }
+}
+
+function segmentIntersectsExpandedBounds(from: Position, to: Position, bounds: RectBounds) {
+  const expanded = expandBoundsForPlayer(bounds)
+
+  if (
+    from.x >= expanded.left &&
+    from.x <= expanded.right &&
+    from.y >= expanded.top &&
+    from.y <= expanded.bottom
+  ) {
+    return true
+  }
+
+  if (
+    to.x >= expanded.left &&
+    to.x <= expanded.right &&
+    to.y >= expanded.top &&
+    to.y <= expanded.bottom
+  ) {
+    return true
+  }
+
+  const deltaX = to.x - from.x
+  const deltaY = to.y - from.y
+  let entry = 0
+  let exit = 1
+
+  const updateInterval = (p: number, q: number) => {
+    if (Math.abs(p) < 0.000001) {
+      return q >= 0
+    }
+
+    const ratio = q / p
+
+    if (p < 0) {
+      if (ratio > exit) {
+        return false
+      }
+      if (ratio > entry) {
+        entry = ratio
+      }
+      return true
+    }
+
+    if (ratio < entry) {
+      return false
+    }
+    if (ratio < exit) {
+      exit = ratio
+    }
+    return true
+  }
+
+  if (!updateInterval(-deltaX, from.x - expanded.left)) {
+    return false
+  }
+  if (!updateInterval(deltaX, expanded.right - from.x)) {
+    return false
+  }
+  if (!updateInterval(-deltaY, from.y - expanded.top)) {
+    return false
+  }
+  if (!updateInterval(deltaY, expanded.bottom - from.y)) {
+    return false
+  }
+
+  return entry <= exit && exit >= 0 && entry <= 1
+}
+
+function isRouteSegmentBlocked(room: RoomState, from: Position, to: Position) {
+  if (room.template.objects.some((roomObject) => getObjectNavigationBoundsList(roomObject).some((bounds) => segmentIntersectsExpandedBounds(from, to, bounds)))) {
+    return true
+  }
+
+  const deltaX = to.x - from.x
+  const deltaY = to.y - from.y
+  const distance = Math.hypot(deltaX, deltaY)
+
+  if (distance <= 0.001) {
+    return isBlockedByRoomObjects(room, to)
+  }
+
+  const totalSamples = Math.max(1, Math.ceil(distance / ROUTE_SAMPLE_STEP))
+
+  for (let sampleIndex = 1; sampleIndex <= totalSamples; sampleIndex += 1) {
+    const factor = sampleIndex / totalSamples
+    const samplePosition = clampPositionToRoom(room, {
+      x: from.x + deltaX * factor,
+      y: from.y + deltaY * factor,
+    })
+
+    if (isBlockedByRoomObjects(room, samplePosition)) {
+      return true
+    }
+  }
+
+  return false
+}
+
+
+function isSamePosition(a: Position, b: Position) {
+  return Math.abs(a.x - b.x) < 0.001 && Math.abs(a.y - b.y) < 0.001
+}
+
+function isPointNavigable(room: RoomState, position: Position) {
+  const clamped = clampPositionToRoom(room, position)
+  return isSamePosition(clamped, position) && !isBlockedByRoomObjects(room, position)
+}
+
+interface GridCell {
+  column: number
+  row: number
+}
+
+interface PathResult {
+  resolvedTarget: Position
+  waypoints: Position[]
+}
+
+function createCellKey(cell: GridCell) {
+  return `${cell.column}:${cell.row}`
+}
+
+function getCellCenter(room: RoomState, cell: GridCell): Position {
+  return clampPositionToRoom(room, {
+    x: cell.column * PATH_GRID_SIZE + PATH_GRID_SIZE / 2,
+    y: cell.row * PATH_GRID_SIZE + PATH_GRID_SIZE / 2,
+  })
+}
+
+function getCellFromPosition(position: Position): GridCell {
+  return {
+    column: Math.max(0, Math.floor(position.x / PATH_GRID_SIZE)),
+    row: Math.max(0, Math.floor(position.y / PATH_GRID_SIZE)),
+  }
+}
+
+function getGridDimensions(room: RoomState) {
+  return {
+    columns: Math.max(1, Math.ceil(room.template.world.width / PATH_GRID_SIZE)),
+    rows: Math.max(1, Math.ceil(room.template.world.height / PATH_GRID_SIZE)),
+  }
+}
+
+function buildBlockedCellSet(room: RoomState) {
+  const { columns, rows } = getGridDimensions(room)
+  const blocked = new Set<string>()
+
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      const cell = { column, row }
+      const center = getCellCenter(room, cell)
+      if (!isPointNavigable(room, center)) {
+        blocked.add(createCellKey(cell))
+      }
+    }
+  }
+
+  return blocked
+}
+
+function findNearestWalkableCell(room: RoomState, position: Position, blocked: Set<string>, maxRadius = PATH_SEARCH_MAX_RADIUS) {
+  const { columns, rows } = getGridDimensions(room)
+  const origin = getCellFromPosition(position)
+
+  const isWalkable = (cell: GridCell) => {
+    if (cell.column < 0 || cell.column >= columns || cell.row < 0 || cell.row >= rows) {
       return false
     }
 
-    return overlapsRect(playerFootBounds, getObjectColliderBounds(objectTemplate))
+    return !blocked.has(createCellKey(cell))
+  }
+
+  if (isWalkable(origin)) {
+    return origin
+  }
+
+  for (let radius = 1; radius <= maxRadius; radius += 1) {
+    let bestCell: GridCell | null = null
+    let bestDistance = Number.POSITIVE_INFINITY
+
+    for (let row = origin.row - radius; row <= origin.row + radius; row += 1) {
+      for (let column = origin.column - radius; column <= origin.column + radius; column += 1) {
+        const isBorder = row === origin.row - radius || row === origin.row + radius || column === origin.column - radius || column === origin.column + radius
+        if (!isBorder) {
+          continue
+        }
+
+        const candidate = { column, row }
+        if (!isWalkable(candidate)) {
+          continue
+        }
+
+        const center = getCellCenter(room, candidate)
+        const distance = Math.hypot(center.x - position.x, center.y - position.y)
+        if (distance < bestDistance) {
+          bestCell = candidate
+          bestDistance = distance
+        }
+      }
+    }
+
+    if (bestCell) {
+      return bestCell
+    }
+  }
+
+  return null
+}
+
+
+function findReachableStartCells(room: RoomState, start: Position, blocked: Set<string>, maxRadius = PATH_START_SEARCH_MAX_RADIUS) {
+  const { columns, rows } = getGridDimensions(room)
+  const origin = getCellFromPosition(start)
+  const candidates: Array<{ cell: GridCell; approachCost: number }> = []
+  const seen = new Set<string>()
+
+  for (let radius = 0; radius <= maxRadius; radius += 1) {
+    for (let row = origin.row - radius; row <= origin.row + radius; row += 1) {
+      for (let column = origin.column - radius; column <= origin.column + radius; column += 1) {
+        const isBorder = radius === 0 || row === origin.row - radius || row === origin.row + radius || column === origin.column - radius || column === origin.column + radius
+        if (!isBorder) {
+          continue
+        }
+
+        if (column < 0 || column >= columns || row < 0 || row >= rows) {
+          continue
+        }
+
+        const cell = { column, row }
+        const key = createCellKey(cell)
+        if (seen.has(key) || blocked.has(key)) {
+          continue
+        }
+
+        const center = getCellCenter(room, cell)
+        if (isRouteSegmentBlocked(room, start, center)) {
+          continue
+        }
+
+        seen.add(key)
+        candidates.push({
+          cell,
+          approachCost: Math.hypot(center.x - start.x, center.y - start.y),
+        })
+      }
+    }
+  }
+
+  return candidates.sort((left, right) => left.approachCost - right.approachCost)
+}
+
+function getNeighborCells(room: RoomState, cell: GridCell, blocked: Set<string>) {
+  const { columns, rows } = getGridDimensions(room)
+  const neighbors: Array<{ cell: GridCell; cost: number }> = []
+
+  for (let rowOffset = -1; rowOffset <= 1; rowOffset += 1) {
+    for (let columnOffset = -1; columnOffset <= 1; columnOffset += 1) {
+      if (rowOffset === 0 && columnOffset === 0) {
+        continue
+      }
+
+      const nextCell = {
+        column: cell.column + columnOffset,
+        row: cell.row + rowOffset,
+      }
+
+      if (nextCell.column < 0 || nextCell.column >= columns || nextCell.row < 0 || nextCell.row >= rows) {
+        continue
+      }
+
+      if (blocked.has(createCellKey(nextCell))) {
+        continue
+      }
+
+      if (rowOffset !== 0 && columnOffset !== 0) {
+        const sideA = { column: cell.column + columnOffset, row: cell.row }
+        const sideB = { column: cell.column, row: cell.row + rowOffset }
+        if (blocked.has(createCellKey(sideA)) || blocked.has(createCellKey(sideB))) {
+          continue
+        }
+      }
+
+      neighbors.push({
+        cell: nextCell,
+        cost: rowOffset !== 0 && columnOffset !== 0 ? Math.SQRT2 : 1,
+      })
+    }
+  }
+
+  return neighbors
+}
+
+function estimateCellDistance(a: GridCell, b: GridCell) {
+  const deltaColumn = Math.abs(a.column - b.column)
+  const deltaRow = Math.abs(a.row - b.row)
+  const diagonal = Math.min(deltaColumn, deltaRow)
+  const straight = Math.max(deltaColumn, deltaRow) - diagonal
+  return diagonal * Math.SQRT2 + straight
+}
+
+function reconstructCellPath(cameFrom: Map<string, string>, endCell: GridCell) {
+  const cells = [endCell]
+  let currentKey = createCellKey(endCell)
+
+  while (cameFrom.has(currentKey)) {
+    const parentKey = cameFrom.get(currentKey)
+    if (!parentKey) {
+      break
+    }
+
+    const [column, row] = parentKey.split(':').map(Number)
+    cells.push({ column, row })
+    currentKey = parentKey
+  }
+
+  return cells.reverse()
+}
+
+function findPathBetweenCells(
+  room: RoomState,
+  blocked: Set<string>,
+  start: Position,
+  startCell: GridCell,
+  targetCell: GridCell,
+  destination: Position,
+) {
+  const startKey = createCellKey(startCell)
+  const targetKey = createCellKey(targetCell)
+  const openSet = new Set([startKey])
+  const cameFrom = new Map<string, string>()
+  const gScore = new Map<string, number>([[startKey, 0]])
+  const fScore = new Map<string, number>([[startKey, estimateCellDistance(startCell, targetCell)]])
+
+  while (openSet.size > 0) {
+    let currentKey: string | null = null
+    let currentScore = Number.POSITIVE_INFINITY
+
+    for (const candidateKey of openSet) {
+      const score = fScore.get(candidateKey) ?? Number.POSITIVE_INFINITY
+      if (score < currentScore) {
+        currentKey = candidateKey
+        currentScore = score
+      }
+    }
+
+    if (!currentKey) {
+      break
+    }
+
+    if (currentKey === targetKey) {
+      const cellPath = reconstructCellPath(cameFrom, targetCell)
+      const cellCenters = cellPath.map((cell) => getCellCenter(room, cell))
+      const roughPoints: Position[] = [start]
+
+      for (const point of cellCenters) {
+        const previousPoint = roughPoints[roughPoints.length - 1]
+        if (!isSamePosition(previousPoint, point)) {
+          roughPoints.push(point)
+        }
+      }
+
+      const lastPoint = roughPoints[roughPoints.length - 1]
+      const finalPoints = isSamePosition(lastPoint, destination) || isRouteSegmentBlocked(room, lastPoint, destination)
+        ? roughPoints
+        : [...roughPoints, destination]
+      const waypoints = finalPoints.slice(1).filter((point, index, array) => index === 0 || !isSamePosition(point, array[index - 1]))
+      return waypoints.length > 0 ? waypoints : [destination]
+    }
+
+    openSet.delete(currentKey)
+    const [currentColumn, currentRow] = currentKey.split(':').map(Number)
+    const currentCell = { column: currentColumn, row: currentRow }
+    const currentG = gScore.get(currentKey) ?? Number.POSITIVE_INFINITY
+
+    for (const neighbor of getNeighborCells(room, currentCell, blocked)) {
+      const neighborKey = createCellKey(neighbor.cell)
+      const tentativeG = currentG + neighbor.cost
+
+      if (tentativeG >= (gScore.get(neighborKey) ?? Number.POSITIVE_INFINITY)) {
+        continue
+      }
+
+      cameFrom.set(neighborKey, currentKey)
+      gScore.set(neighborKey, tentativeG)
+      fScore.set(neighborKey, tentativeG + estimateCellDistance(neighbor.cell, targetCell))
+      openSet.add(neighborKey)
+    }
+  }
+
+  return null
+}
+
+function findPath(room: RoomState, start: Position, destination: Position): PathResult | null {
+  const blocked = buildBlockedCellSet(room)
+  const destinationIsNavigable = isPointNavigable(room, destination)
+  const targetCell = findNearestWalkableCell(room, destination, blocked, PATH_TARGET_SEARCH_MAX_RADIUS)
+
+  if (!targetCell) {
+    return null
+  }
+
+  const cellTargetCenter = getCellCenter(room, targetCell)
+  const resolvedTarget = destinationIsNavigable && !isRouteSegmentBlocked(room, cellTargetCenter, destination)
+    ? destination
+    : cellTargetCenter
+
+  if (!isRouteSegmentBlocked(room, start, resolvedTarget)) {
+    return {
+      resolvedTarget,
+      waypoints: [resolvedTarget],
+    }
+  }
+
+  const candidateStartCells = findReachableStartCells(room, start, blocked)
+  if (candidateStartCells.length === 0) {
+    return null
+  }
+
+  const rankedStartCells = candidateStartCells.sort((left, right) => {
+    const leftScore = left.approachCost + estimateCellDistance(left.cell, targetCell)
+    const rightScore = right.approachCost + estimateCellDistance(right.cell, targetCell)
+    return leftScore - rightScore
   })
+
+  for (const candidate of rankedStartCells) {
+    const path = findPathBetweenCells(room, blocked, start, candidate.cell, targetCell, resolvedTarget)
+    if (path && path.length > 0) {
+      return {
+        resolvedTarget,
+        waypoints: path,
+      }
+    }
+  }
+
+  return null
+}
+
+
+function ensureNavigablePlayerPosition(room: RoomState, player: Presence) {
+  if (!isBlockedByRoomObjects(room, player.position)) {
+    return true
+  }
+
+  const blocked = buildBlockedCellSet(room)
+  const safeCell = findNearestWalkableCell(room, player.position, blocked, PATH_SEARCH_MAX_RADIUS * 2)
+  if (!safeCell) {
+    return false
+  }
+
+  player.position = getCellCenter(room, safeCell)
+  return true
+}
+
+function setPlayerDestination(player: Presence, destination: Position) {
+  player.destination = destination
+  player.direction = resolveDirection(player.position, destination)
+  player.animation = `walk-${player.direction}`
+  player.moving = true
+}
+
+function advancePlayerRoute(player: Presence) {
+  if (!player.route || player.route.waypoints.length === 0) {
+    stopPlayer(player)
+    return false
+  }
+
+  player.route.waypoints.shift()
+
+  if (player.route.waypoints.length === 0) {
+    stopPlayer(player)
+    return false
+  }
+
+  setPlayerDestination(player, player.route.waypoints[0])
+  return true
 }
 
 function resolveDirection(from: Position, to: Position): Direction {
@@ -200,23 +702,26 @@ function resolveDirection(from: Position, to: Position): Direction {
 }
 
 function updateRoute(room: RoomState, player: Presence, target: Position) {
-  const start = clonePosition(player.position)
-  const destination = clampPositionToRoom(room, target)
-
-  if (isBlockedByRoomObjects(room, destination)) {
+  if (!ensureNavigablePlayerPosition(room, player)) {
     stopPlayer(player)
     return false
   }
 
-  player.destination = destination
+  const start = clonePosition(player.position)
+  const desiredTarget = clampPositionToRoom(room, target)
+  const path = findPath(room, start, desiredTarget)
+
+  if (!path || path.waypoints.length === 0) {
+    stopPlayer(player)
+    return false
+  }
+
   player.route = {
     start,
-    target: destination,
-    waypoints: [start, destination],
+    target: path.resolvedTarget,
+    waypoints: path.waypoints,
   }
-  player.direction = resolveDirection(start, destination)
-  player.animation = `walk-${player.direction}`
-  player.moving = true
+  setPlayerDestination(player, path.waypoints[0])
   return true
 }
 
@@ -240,7 +745,12 @@ function simulateMovement(deltaSeconds: number) {
 
       if (distance <= PLAYER_REACH_THRESHOLD) {
         player.position = clonePosition(player.destination)
-        stopPlayer(player)
+
+        if (!advancePlayerRoute(player)) {
+          io.to(room.roomId).emit(serverEvents.playerMoved, player)
+          return
+        }
+
         io.to(room.roomId).emit(serverEvents.playerMoved, player)
         return
       }
@@ -252,7 +762,7 @@ function simulateMovement(deltaSeconds: number) {
         y: player.position.y + deltaY * factor,
       })
 
-      if (isBlockedByRoomObjects(room, nextPosition)) {
+      if (isBlockedByRoomObjects(room, nextPosition) || isRouteSegmentBlocked(room, player.position, nextPosition)) {
         stopPlayer(player)
         io.to(room.roomId).emit(serverEvents.playerMoved, player)
         return
@@ -384,18 +894,20 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     const session = sessions.get(socket.id)
-    if (!session?.roomId) {
-      sessions.delete(socket.id)
+    if (!session) {
       return
     }
 
-    const room = rooms.get(session.roomId)
-    if (room) {
-      room.players = room.players.filter((presence) => presence.sessionId !== socket.id)
-      socket.to(session.roomId).emit(serverEvents.playerLeft, {
-        sessionId: socket.id,
-        userId: session.profile.userId,
-      })
+    if (session.roomId) {
+      const room = rooms.get(session.roomId)
+      if (room) {
+        room.players = room.players.filter((presence) => presence.sessionId !== socket.id)
+        socket.to(room.roomId).emit(serverEvents.playerLeft, { sessionId: socket.id, userId: session.profile.userId })
+
+        if (room.players.length === 0) {
+          rooms.delete(room.roomId)
+        }
+      }
     }
 
     sessions.delete(socket.id)

@@ -1,6 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Position, Presence, RoomObjectTemplate, RoomState, RoomTemplate } from '@social-sena/shared'
+import type {
+  Position,
+  Presence,
+  RoomObjectTemplate,
+  RoomState,
+  RoomTemplate
+} from '@social-sena/shared'
 import { resolveAvatarPreset } from '../game/avatar/avatarSprites'
+import bkGarden from '../assets/Places/bk_garden.svg'
+import plazaSeparator1 from '../assets/Decoration/Plaza/Separador_Plaza_1.svg'
+import plazaSeparator2 from '../assets/Decoration/Plaza/Separador_Plaza_2.svg'
+import plazaSeparator3 from '../assets/Decoration/Plaza/Separador_Plaza_3.svg'
+import plazaSeparator4 from '../assets/Decoration/Plaza/Separador_Plaza_4.svg'
+import { ObjectDecoration, getObjectNavigationBoundsList, getObjectPerspectiveY } from './world/ObjectDecoration'
+import {
+  WorldPlayer,
+  getPlayerPerspectiveY,
+  PLAYER_COLLIDER_HEIGHT,
+  PLAYER_COLLIDER_WIDTH,
+} from './world/WorldPlayer'
 
 interface ReactWorldProps {
   room: RoomState | null
@@ -25,8 +43,30 @@ interface WorldRuntimeState {
   facingBySession: Record<string, FacingPose>
 }
 
-const PLAYER_FOOT_WIDTH = 30
-const PLAYER_FOOT_HEIGHT = 14
+type RenderLayerItem =
+  | {
+      kind: 'object'
+      key: string
+      perspectiveY: number
+      objectTemplate: RoomObjectTemplate
+      spriteSrc?: string
+    }
+  | {
+      kind: 'player'
+      key: string
+      perspectiveY: number
+      player: Presence
+      animatedPosition: AnimatedPlayerPosition
+      frame: ReturnType<typeof getAvatarFrame>
+      isSelf: boolean
+    }
+
+const ROOM_OBJECT_SPRITES: Record<string, string> = {
+  'plaza-separator-1': plazaSeparator1,
+  'plaza-separator-2': plazaSeparator2,
+  'plaza-separator-3': plazaSeparator3,
+  'plaza-separator-4': plazaSeparator4,
+}
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
@@ -38,18 +78,6 @@ function colorToCss(value: number | undefined, fallback: string) {
   }
 
   return `#${value.toString(16).padStart(6, '0')}`
-}
-
-function getObjectSortY(objectTemplate: RoomObjectTemplate) {
-  if (typeof objectTemplate.depthOffsetY === 'number') {
-    return objectTemplate.y + objectTemplate.depthOffsetY
-  }
-
-  if (objectTemplate.collider) {
-    return objectTemplate.y + objectTemplate.collider.offsetY + objectTemplate.collider.height / 2
-  }
-
-  return objectTemplate.y + objectTemplate.height / 2
 }
 
 function resolveFacingPoseFromVector(deltaX: number, deltaY: number): FacingPose {
@@ -64,16 +92,16 @@ function resolveFacingPoseFromVector(deltaX: number, deltaY: number): FacingPose
 }
 
 function resolveFacingPose(player: Presence, fallback: FacingPose): FacingPose {
-  const routeStart = player.route?.start ?? player.position
-  const routeTarget = player.route?.target ?? player.destination ?? player.position
-  const deltaX = routeTarget.x - routeStart.x
-  const deltaY = routeTarget.y - routeStart.y
+  if (player.moving && player.destination) {
+    const deltaX = player.destination.x - player.position.x
+    const deltaY = player.destination.y - player.position.y
 
-  if (!player.moving && Math.abs(deltaX) < 0.001 && Math.abs(deltaY) < 0.001) {
-    return fallback
+    if (Math.abs(deltaX) >= 0.001 || Math.abs(deltaY) >= 0.001) {
+      return resolveFacingPoseFromVector(deltaX, deltaY)
+    }
   }
 
-  return resolveFacingPoseFromVector(deltaX, deltaY)
+  return fallback
 }
 
 function getAvatarFrame(player: Presence, now: number, facingPose: FacingPose) {
@@ -87,7 +115,7 @@ function getAvatarFrame(player: Presence, now: number, facingPose: FacingPose) {
     : useBack && preset.idleBackFrames?.length
       ? preset.idleBackFrames
       : preset.idleFrames
-  const frameDuration = 200
+  const frameDuration = 160
   const frameIndex = Math.floor(now / frameDuration) % frames.length
 
   return {
@@ -96,6 +124,133 @@ function getAvatarFrame(player: Presence, now: number, facingPose: FacingPose) {
     frameIndex,
     flipX,
   }
+}
+
+function getPlayerColliderBounds(position: Position) {
+  return {
+    left: position.x - PLAYER_COLLIDER_WIDTH / 2,
+    right: position.x + PLAYER_COLLIDER_WIDTH / 2,
+    top: position.y - PLAYER_COLLIDER_HEIGHT,
+    bottom: position.y,
+  }
+}
+
+function overlapsRect(
+  a: { left: number; right: number; top: number; bottom: number },
+  b: { left: number; right: number; top: number; bottom: number },
+) {
+  return !(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom)
+}
+
+function expandBoundsForPlayer(bounds: { left: number; right: number; top: number; bottom: number }) {
+  return {
+    left: bounds.left - PLAYER_COLLIDER_WIDTH / 2,
+    right: bounds.right + PLAYER_COLLIDER_WIDTH / 2,
+    top: bounds.top,
+    bottom: bounds.bottom + PLAYER_COLLIDER_HEIGHT,
+  }
+}
+
+function segmentIntersectsExpandedBounds(
+  from: Position,
+  to: Position,
+  bounds: { left: number; right: number; top: number; bottom: number },
+) {
+  const expanded = expandBoundsForPlayer(bounds)
+
+  if (from.x >= expanded.left && from.x <= expanded.right && from.y >= expanded.top && from.y <= expanded.bottom) {
+    return true
+  }
+
+  if (to.x >= expanded.left && to.x <= expanded.right && to.y >= expanded.top && to.y <= expanded.bottom) {
+    return true
+  }
+
+  const deltaX = to.x - from.x
+  const deltaY = to.y - from.y
+  let entry = 0
+  let exit = 1
+
+  const updateInterval = (p: number, q: number) => {
+    if (Math.abs(p) < 0.000001) {
+      return q >= 0
+    }
+
+    const ratio = q / p
+
+    if (p < 0) {
+      if (ratio > exit) {
+        return false
+      }
+      if (ratio > entry) {
+        entry = ratio
+      }
+      return true
+    }
+
+    if (ratio < entry) {
+      return false
+    }
+    if (ratio < exit) {
+      exit = ratio
+    }
+    return true
+  }
+
+  if (!updateInterval(-deltaX, from.x - expanded.left)) {
+    return false
+  }
+  if (!updateInterval(deltaX, expanded.right - from.x)) {
+    return false
+  }
+  if (!updateInterval(-deltaY, from.y - expanded.top)) {
+    return false
+  }
+  if (!updateInterval(deltaY, expanded.bottom - from.y)) {
+    return false
+  }
+
+  return entry <= exit && exit >= 0 && entry <= 1
+}
+
+function getPerspectiveAwareRenderItems(
+  template: RoomTemplate,
+  playerViews: Array<{
+    player: Presence
+    animatedPosition: AnimatedPlayerPosition
+    frame: ReturnType<typeof getAvatarFrame>
+    isSelf: boolean
+  }>,
+) {
+  const objectItems: RenderLayerItem[] = template.objects.map((objectTemplate) => ({
+    kind: 'object',
+    key: objectTemplate.id,
+    perspectiveY: getObjectPerspectiveY(objectTemplate),
+    objectTemplate,
+    spriteSrc: objectTemplate.spriteAssetId ? ROOM_OBJECT_SPRITES[objectTemplate.spriteAssetId] : undefined,
+  }))
+
+  const playerItems: RenderLayerItem[] = playerViews.map(({ player, animatedPosition, frame, isSelf }) => ({
+    kind: 'player',
+    key: player.sessionId,
+    perspectiveY: getPlayerPerspectiveY(animatedPosition.y),
+    player,
+    animatedPosition,
+    frame,
+    isSelf,
+  }))
+
+  return [...objectItems, ...playerItems].sort((left, right) => {
+    if (left.perspectiveY !== right.perspectiveY) {
+      return left.perspectiveY - right.perspectiveY
+    }
+
+    if (left.kind === right.kind) {
+      return left.key.localeCompare(right.key)
+    }
+
+    return left.kind === 'object' ? -1 : 1
+  })
 }
 
 function ReactWorld({ room, currentUserId, template, onNavigate, debugEnabled }: ReactWorldProps) {
@@ -213,21 +368,23 @@ function ReactWorld({ room, currentUserId, template, onNavigate, debugEnabled }:
         player,
         animatedPosition,
         frame,
-        facingPose,
         isSelf,
       }
     })
   }, [currentUserId, room?.players, runtime.facingBySession, runtime.now, runtime.playersBySession])
 
+  const renderItems = useMemo(() => getPerspectiveAwareRenderItems(template, playerViews), [template, playerViews])
+
   const handleWorldPointerDown = (event: React.MouseEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect()
     const worldX = runtime.cameraX + (event.clientX - rect.left)
     const worldY = runtime.cameraY + (event.clientY - rect.top)
-
-    onNavigate({
+    const target = {
       x: clamp(worldX, 32, template.world.width - 32),
       y: clamp(worldY, 24, template.world.height - 20),
-    })
+    }
+
+    onNavigate(target)
   }
 
   return (
@@ -238,19 +395,13 @@ function ReactWorld({ room, currentUserId, template, onNavigate, debugEnabled }:
           width: `${template.world.width}px`,
           height: `${template.world.height}px`,
           backgroundColor: colorToCss(template.world.backgroundColor, '#dfe8d2'),
+          backgroundImage: template.id === 'Room_1909' ? `url(${bkGarden})` : undefined,
+          backgroundSize: template.id === 'Room_1909' ? '100% 100%' : undefined,
+          backgroundRepeat: template.id === 'Room_1909' ? 'no-repeat' : undefined,
+          backgroundPosition: template.id === 'Room_1909' ? 'center center' : undefined,
           transform: `translate3d(${-runtime.cameraX}px, ${-runtime.cameraY}px, 0)`,
         }}
       >
-        {template.id === 'Room_1909' ? (
-          <>
-            <div className="plaza-ring plaza-ring-outer" />
-            <div className="plaza-ring plaza-ring-inner" />
-            <div className="plaza-axis plaza-axis-vertical" />
-            <div className="plaza-axis plaza-axis-horizontal" />
-            <div className="plaza-ellipse" />
-          </>
-        ) : null}
-
         {debugEnabled ? (
           <svg className="react-world-routes" width={template.world.width} height={template.world.height}>
             {(room?.players ?? []).map((player) => {
@@ -258,21 +409,23 @@ function ReactWorld({ room, currentUserId, template, onNavigate, debugEnabled }:
                 return null
               }
 
-              const [start, target] = player.route.waypoints
+              const points = [player.position, ...player.route.waypoints]
               const color = player.userId === currentUserId ? '#ff8d3a' : '#2574ff'
               const radius = player.userId === currentUserId ? 12 : 8
               const opacity = player.userId === currentUserId ? 0.85 : 0.45
+              const pathDefinition = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ')
+              const target = points[points.length - 1]
 
               return (
                 <g key={`${player.sessionId}-route`}>
-                  <line
-                    x1={start.x}
-                    y1={start.y}
-                    x2={target.x}
-                    y2={target.y}
+                  <path
+                    d={pathDefinition}
+                    fill="none"
                     stroke={color}
                     strokeWidth={player.userId === currentUserId ? 4 : 2}
                     strokeOpacity={opacity}
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
                   />
                   <circle
                     cx={target.x}
@@ -287,114 +440,28 @@ function ReactWorld({ room, currentUserId, template, onNavigate, debugEnabled }:
           </svg>
         ) : null}
 
-        {template.objects.map((objectTemplate) => {
-          const sortY = getObjectSortY(objectTemplate)
-          const hasVisual = (objectTemplate.opacity ?? (objectTemplate.blocksMovement ? 0.9 : 0.72)) > 0.02 || objectTemplate.label
-          const collider = objectTemplate.collider ?? {
-            offsetX: 0,
-            offsetY: 0,
-            width: objectTemplate.width,
-            height: objectTemplate.height,
+        {renderItems.map((item, index) => {
+          if (item.kind === 'object') {
+            return (
+              <div key={item.key} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 20 + index }}>
+                <ObjectDecoration objectTemplate={item.objectTemplate} spriteSrc={item.spriteSrc} debugEnabled={debugEnabled} />
+              </div>
+            )
           }
 
           return (
-            <div key={objectTemplate.id} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: Math.round(80 + sortY) }}>
-              {hasVisual ? (
-                <>
-                  <div
-                    className="react-world-object-shadow"
-                    style={{
-                      left: `${objectTemplate.x}px`,
-                      top: `${sortY + 6}px`,
-                      width: `${Math.max(56, objectTemplate.width * 0.65)}px`,
-                    }}
-                  />
-                  <div
-                    className={`react-world-object react-world-object-${objectTemplate.kind}`}
-                    style={{
-                      left: `${objectTemplate.x}px`,
-                      top: `${objectTemplate.y}px`,
-                      width: `${objectTemplate.width}px`,
-                      height: `${objectTemplate.height}px`,
-                      background: colorToCss(objectTemplate.fillColor, '#17304a'),
-                      borderColor: colorToCss(objectTemplate.strokeColor, '#ffffff'),
-                      opacity: objectTemplate.opacity ?? (objectTemplate.blocksMovement ? 0.9 : 0.72),
-                    }}
-                  >
-                    {objectTemplate.id === 'fountain-core' ? <div className="react-world-fountain-water" /> : null}
-                  </div>
-                  {objectTemplate.label ? (
-                    <div
-                      className="react-world-object-label"
-                      style={{
-                        left: `${objectTemplate.x}px`,
-                        top: `${objectTemplate.y - objectTemplate.height / 2 - 26}px`,
-                      }}
-                    >
-                      {objectTemplate.label}
-                    </div>
-                  ) : null}
-                </>
-              ) : null}
-
-              {debugEnabled ? (
-                <div
-                  className={`react-world-debug-collider ${objectTemplate.blocksMovement ? 'is-blocking' : 'is-passable'}`}
-                  style={{
-                    left: `${objectTemplate.x + collider.offsetX - collider.width / 2}px`,
-                    top: `${objectTemplate.y + collider.offsetY - collider.height / 2}px`,
-                    width: `${collider.width}px`,
-                    height: `${collider.height}px`,
-                  }}
-                >
-                  <span
-                    className="react-world-debug-dot"
-                    style={{ left: `${collider.width / 2 - 4}px`, top: `${collider.height / 2 - 4}px` }}
-                  />
-                </div>
-              ) : null}
+            <div key={item.key} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 20 + index }}>
+              <WorldPlayer
+                player={item.player}
+                displayX={item.animatedPosition.x}
+                displayY={item.animatedPosition.y}
+                isSelf={item.isSelf}
+                frame={item.frame}
+                debugEnabled={debugEnabled}
+              />
             </div>
           )
         })}
-
-        {playerViews.map(({ player, animatedPosition, frame, isSelf }) => (
-          <div
-            key={player.sessionId}
-            className="react-world-avatar"
-            style={{
-              left: `${animatedPosition.x}px`,
-              top: `${animatedPosition.y}px`,
-              zIndex: Math.round(100 + animatedPosition.y),
-            }}
-          >
-            <div className={`react-world-avatar-glow ${isSelf ? 'is-self' : ''}`} />
-            <img
-              src={frame.texture.url}
-              alt={player.displayName}
-              draggable={false}
-              className="react-world-avatar-sprite"
-              style={{
-                width: `${32 * frame.preset.scale}px`,
-                height: `${32 * frame.preset.scale}px`,
-                transform: frame.flipX ? 'scaleX(-1)' : 'scaleX(1)',
-              }}
-            />
-            <div className={`react-world-avatar-label ${isSelf ? 'is-self' : ''}`}>{player.displayName}</div>
-            {debugEnabled ? (
-              <div
-                className={`react-world-debug-player ${isSelf ? 'is-self' : 'is-other'}`}
-                style={{
-                  left: `${-PLAYER_FOOT_WIDTH / 2}px`,
-                  top: `${-PLAYER_FOOT_HEIGHT}px`,
-                  width: `${PLAYER_FOOT_WIDTH}px`,
-                  height: `${PLAYER_FOOT_HEIGHT}px`,
-                }}
-              >
-                <span className="react-world-debug-dot" style={{ left: `${PLAYER_FOOT_WIDTH / 2 - 4}px`, top: `${PLAYER_FOOT_HEIGHT / 2 - 4}px` }} />
-              </div>
-            ) : null}
-          </div>
-        ))}
       </div>
     </div>
   )

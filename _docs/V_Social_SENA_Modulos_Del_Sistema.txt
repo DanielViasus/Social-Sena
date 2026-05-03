@@ -109,7 +109,7 @@ Responsabilidad:
 - representar el mundo
 
 Tecnología prevista:
-- Phaser
+- React
 
 Funciones base:
 - render de mapa

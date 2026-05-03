@@ -155,41 +155,6 @@ button {
   height: 100vh;
 }
 
-.phaser-frame {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-}
-
-.phaser-mount {
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  background:
-    radial-gradient(circle at top left, rgba(255, 244, 219, 0.38), transparent 24%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0) 35%);
-}
-
-.phaser-mount canvas {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.phaser-loading {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  display: grid;
-  place-items: center;
-  font-family: 'Space Grotesk', sans-serif;
-  font-size: 1rem;
-  color: #dce7ff;
-  background:
-    radial-gradient(circle at top left, rgba(38, 79, 140, 0.72), transparent 26%),
-    linear-gradient(180deg, rgba(8, 16, 29, 0.96) 0%, rgba(11, 18, 32, 0.88) 100%);
-}
 
 .hud-layer {
   position: absolute;
@@ -637,6 +602,15 @@ button {
   background: rgba(12, 22, 32, 0.14);
 }
 
+.react-world-object-sprite {
+  position: absolute;
+  display: block;
+  transform: translate(-50%, -50%);
+  image-rendering: pixelated;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
 .react-world-object {
   position: absolute;
   transform: translate(-50%, -50%);
@@ -676,14 +650,15 @@ button {
 
 .react-world-avatar {
   position: absolute;
-  transform: translate(-50%, -100%);
+  width: 0;
+  height: 0;
   pointer-events: none;
 }
 
 .react-world-avatar-glow {
   position: absolute;
-  left: 50%;
-  top: 50%;
+  left: 0;
+  top: -66px;
   width: 120px;
   height: 128px;
   transform: translate(-50%, -50%);
@@ -697,17 +672,20 @@ button {
 }
 
 .react-world-avatar-sprite {
-  position: relative;
+  position: absolute;
+  left: 50%;
+  bottom: 0;
   display: block;
   image-rendering: pixelated;
   user-select: none;
   -webkit-user-drag: none;
+  transform-origin: center bottom;
 }
 
 .react-world-avatar-label {
   position: absolute;
-  left: 50%;
-  top: -22px;
+  left: 0;
+  top: -132px;
   transform: translate(-50%, -100%);
   padding: 7px 12px;
   border-radius: 12px;
@@ -721,33 +699,78 @@ button {
   background: #fff1dc;
 }
 
-.react-world-debug-collider,
-.react-world-debug-player {
+.react-world-debug-avatar-bounds {
   position: absolute;
-  border: 3px solid #3ab7ff;
   pointer-events: none;
 }
 
-.react-world-debug-collider.is-blocking {
-  border-color: #ff5d5d;
+.react-world-debug-avatar-bounds {
+  border: 2px solid rgba(255, 209, 102, 0.95);
 }
 
-.react-world-debug-collider.is-passable {
-  border-color: #37d99a;
+.react-world-debug-avatar-bounds.is-other {
+  border-color: rgba(58, 183, 255, 0.95);
 }
 
-.react-world-debug-player.is-self {
-  border-color: #ffd166;
-}
 
-.react-world-debug-player.is-other {
-  border-color: #3ab7ff;
-}
-
-.react-world-debug-dot {
+.world-decoration {
   position: absolute;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: currentColor;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.debug-object-total,
+.debug-object-collider,
+.debug-player-total,
+.debug-player-collider,
+.debug-object-zref {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.debug-object-total {
+  border: 2px solid rgba(255, 178, 43, 0.95);
+}
+
+.debug-object-collider {
+  border: 2px solid rgba(255, 72, 72, 0.95);
+  background: rgba(255, 72, 72, 0.24);
+}
+
+.debug-object-zref {
+  background: #00ef8b;
+}
+
+.debug-player-total {
+  border: 2px solid rgba(84, 145, 255, 0.95);
+}
+
+.debug-player-total.is-self {
+  border-color: rgba(84, 145, 255, 1);
+}
+
+.debug-player-total.is-other {
+  border-color: rgba(84, 145, 255, 0.7);
+}
+
+.debug-player-collider {
+  border: 2px solid rgba(255, 0, 183, 0.95);
+  background: rgba(255, 0, 183, 0.28);
+}
+
+
+.debug-object-axis {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.debug-object-axis-horizontal {
+  height: 1px;
+}
+
+.debug-object-axis-vertical {
+  width: 1px;
 }

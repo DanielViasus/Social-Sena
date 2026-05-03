@@ -71,15 +71,3 @@ export function resolveAvatarPreset(skinId: string | null | undefined): AvatarPr
   return avatarPresetBySkinId[normalizedSkinId] ?? crockPreset
 }
 
-export const avatarTextureEntries: AvatarTextureDefinition[] = Array.from(
-  new Map(
-    [crockPreset]
-      .flatMap((preset) => [
-        ...preset.idleFrames,
-        ...(preset.idleBackFrames ?? []),
-        ...preset.walkFrames,
-        ...(preset.walkBackFrames ?? []),
-      ])
-      .map((texture) => [texture.key, texture]),
-  ).values(),
-)
