@@ -15,11 +15,14 @@ interface AnimatedPlayerPosition {
   y: number
 }
 
+type FacingPose = 'front-right' | 'front-left' | 'back-right' | 'back-left'
+
 interface WorldRuntimeState {
   now: number
   cameraX: number
   cameraY: number
   playersBySession: Record<string, AnimatedPlayerPosition>
+  facingBySession: Record<string, FacingPose>
 }
 
 const PLAYER_FOOT_WIDTH = 30
@@ -49,19 +52,41 @@ function getObjectSortY(objectTemplate: RoomObjectTemplate) {
   return objectTemplate.y + objectTemplate.height / 2
 }
 
-function getAvatarFrame(player: Presence, now: number) {
-  const preset = resolveAvatarPreset(player.skinId)
+function resolveFacingPoseFromVector(deltaX: number, deltaY: number): FacingPose {
+  const isLeft = deltaX < 0
+  const isBack = deltaY < 0 && Math.abs(deltaY) >= Math.abs(deltaX) * 0.65
+
+  if (isBack) {
+    return isLeft ? 'back-left' : 'back-right'
+  }
+
+  return isLeft ? 'front-left' : 'front-right'
+}
+
+function resolveFacingPose(player: Presence, fallback: FacingPose): FacingPose {
   const routeStart = player.route?.start ?? player.position
   const routeTarget = player.route?.target ?? player.destination ?? player.position
   const deltaX = routeTarget.x - routeStart.x
   const deltaY = routeTarget.y - routeStart.y
-  const useBackWalk = player.moving && deltaY < 0 && Math.abs(deltaY) >= Math.abs(deltaX) * 0.65
-  const flipX = deltaX < 0
+
+  if (!player.moving && Math.abs(deltaX) < 0.001 && Math.abs(deltaY) < 0.001) {
+    return fallback
+  }
+
+  return resolveFacingPoseFromVector(deltaX, deltaY)
+}
+
+function getAvatarFrame(player: Presence, now: number, facingPose: FacingPose) {
+  const preset = resolveAvatarPreset(player.skinId)
+  const useBack = facingPose === 'back-left' || facingPose === 'back-right'
+  const flipX = facingPose === 'front-left' || facingPose === 'back-left'
   const frames = player.moving
-    ? useBackWalk && preset.walkBackFrames?.length
+    ? useBack && preset.walkBackFrames?.length
       ? preset.walkBackFrames
       : preset.walkFrames
-    : preset.idleFrames
+    : useBack && preset.idleBackFrames?.length
+      ? preset.idleBackFrames
+      : preset.idleFrames
   const frameDuration = 200
   const frameIndex = Math.floor(now / frameDuration) % frames.length
 
@@ -80,6 +105,7 @@ function ReactWorld({ room, currentUserId, template, onNavigate, debugEnabled }:
     cameraX: 0,
     cameraY: 0,
     playersBySession: {},
+    facingBySession: {},
   })
   const [viewportSize, setViewportSize] = useState({ width: 1600, height: 900 })
   const [runtime, setRuntime] = useState<WorldRuntimeState>(runtimeRef.current)
@@ -115,6 +141,7 @@ function ReactWorld({ room, currentUserId, template, onNavigate, debugEnabled }:
 
       const previousState = runtimeRef.current
       const nextPlayersBySession: Record<string, AnimatedPlayerPosition> = { ...previousState.playersBySession }
+      const nextFacingBySession: Record<string, FacingPose> = { ...previousState.facingBySession }
       const targetPlayers = room?.players ?? []
       const activeSessionIds = new Set(targetPlayers.map((player) => player.sessionId))
       const playerLerp = 1 - Math.exp(-delta / 120)
@@ -122,6 +149,7 @@ function ReactWorld({ room, currentUserId, template, onNavigate, debugEnabled }:
       Object.keys(nextPlayersBySession).forEach((sessionId) => {
         if (!activeSessionIds.has(sessionId)) {
           delete nextPlayersBySession[sessionId]
+          delete nextFacingBySession[sessionId]
         }
       })
 
@@ -131,6 +159,9 @@ function ReactWorld({ room, currentUserId, template, onNavigate, debugEnabled }:
           x: previousPosition.x + (player.position.x - previousPosition.x) * playerLerp,
           y: previousPosition.y + (player.position.y - previousPosition.y) * playerLerp,
         }
+
+        const previousFacing = nextFacingBySession[player.sessionId] ?? 'front-right'
+        nextFacingBySession[player.sessionId] = resolveFacingPose(player, previousFacing)
       })
 
       const currentPlayer = targetPlayers.find((player) => player.userId === currentUserId)
@@ -159,6 +190,7 @@ function ReactWorld({ room, currentUserId, template, onNavigate, debugEnabled }:
         cameraX: nextCameraX,
         cameraY: nextCameraY,
         playersBySession: nextPlayersBySession,
+        facingBySession: nextFacingBySession,
       }
 
       runtimeRef.current = nextState
@@ -173,17 +205,19 @@ function ReactWorld({ room, currentUserId, template, onNavigate, debugEnabled }:
   const playerViews = useMemo(() => {
     return (room?.players ?? []).map((player) => {
       const animatedPosition = runtime.playersBySession[player.sessionId] ?? player.position
-      const frame = getAvatarFrame(player, runtime.now)
+      const facingPose = runtime.facingBySession[player.sessionId] ?? 'front-right'
+      const frame = getAvatarFrame(player, runtime.now, facingPose)
       const isSelf = player.userId === currentUserId
 
       return {
         player,
         animatedPosition,
         frame,
+        facingPose,
         isSelf,
       }
     })
-  }, [currentUserId, room?.players, runtime.now, runtime.playersBySession])
+  }, [currentUserId, room?.players, runtime.facingBySession, runtime.now, runtime.playersBySession])
 
   const handleWorldPointerDown = (event: React.MouseEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect()

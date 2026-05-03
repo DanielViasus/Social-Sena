@@ -2,6 +2,10 @@ import crockIdle0 from '../../assets/characters/crock/crock_idle_0.svg'
 import crockIdle1 from '../../assets/characters/crock/crock_idle_1.svg'
 import crockIdle2 from '../../assets/characters/crock/crock_idle_2.svg'
 import crockIdle3 from '../../assets/characters/crock/crock_idle_3.svg'
+import crockBackIdle0 from '../../assets/characters/crock/crockBack_Idle_0.svg'
+import crockBackIdle1 from '../../assets/characters/crock/crockBack_Idle_1.svg'
+import crockBackIdle2 from '../../assets/characters/crock/crockBack_Idle_2.svg'
+import crockBackIdle3 from '../../assets/characters/crock/crockBack_Idle_3.svg'
 import crockWalk0 from '../../assets/characters/crock/crock_walk_0.svg'
 import crockWalk1 from '../../assets/characters/crock/crock_walk_1.svg'
 import crockWalk2 from '../../assets/characters/crock/crock_walk_2.svg'
@@ -21,6 +25,7 @@ export interface AvatarPreset {
   label: string
   scale: number
   idleFrames: AvatarTextureDefinition[]
+  idleBackFrames?: AvatarTextureDefinition[]
   walkFrames: AvatarTextureDefinition[]
   walkBackFrames?: AvatarTextureDefinition[]
 }
@@ -34,6 +39,12 @@ const crockPreset: AvatarPreset = {
     { key: 'avatar-crock-idle-1', url: crockIdle1 },
     { key: 'avatar-crock-idle-2', url: crockIdle2 },
     { key: 'avatar-crock-idle-3', url: crockIdle3 },
+  ],
+  idleBackFrames: [
+    { key: 'avatar-crock-back-idle-0', url: crockBackIdle0 },
+    { key: 'avatar-crock-back-idle-1', url: crockBackIdle1 },
+    { key: 'avatar-crock-back-idle-2', url: crockBackIdle2 },
+    { key: 'avatar-crock-back-idle-3', url: crockBackIdle3 },
   ],
   walkFrames: [
     { key: 'avatar-crock-walk-0', url: crockWalk0 },
@@ -63,7 +74,12 @@ export function resolveAvatarPreset(skinId: string | null | undefined): AvatarPr
 export const avatarTextureEntries: AvatarTextureDefinition[] = Array.from(
   new Map(
     [crockPreset]
-      .flatMap((preset) => [...preset.idleFrames, ...preset.walkFrames, ...(preset.walkBackFrames ?? [])])
+      .flatMap((preset) => [
+        ...preset.idleFrames,
+        ...(preset.idleBackFrames ?? []),
+        ...preset.walkFrames,
+        ...(preset.walkBackFrames ?? []),
+      ])
       .map((texture) => [texture.key, texture]),
   ).values(),
 )
