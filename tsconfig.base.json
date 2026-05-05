@@ -9,13 +9,12 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "baseUrl": ".",
     "paths": {
       "@social-sena/shared": [
-        "packages/shared/src/index.ts"
+        "./packages/shared/src/index.ts"
       ],
       "@social-sena/shared/*": [
-        "packages/shared/src/*"
+        "./packages/shared/src/*"
       ]
     }
   }

@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { io, type Socket } from 'socket.io-client'
-import { clientEvents, serverEvents, type ChatMessage, type Position, type Presence, type RoomState } from '@social-sena/shared'
+import { clientEvents, serverEvents, type ChatMessage, type Position, type Presence, type RoomNpcTemplate, type RoomState } from '@social-sena/shared'
 import type { AuthSession } from '../auth/localSession'
 import ReactWorld from './ReactWorld'
 import { availableRoomRoutes, resolveRoomTemplateFromPath } from '../rooms/registry'
@@ -223,6 +223,15 @@ function GameClient({ session, onLogout }: GameClientProps) {
     })
   }
 
+  const handleNpcInteract = (npc: RoomNpcTemplate) => {
+    console.info('[NPC] Interaccion ejecutada', {
+      npcId: npc.id,
+      interactionId: npc.interactionId ?? null,
+      roomId: room?.roomId ?? null,
+      userId: session.profile.userId,
+    })
+  }
+
   const handleChatSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const socket = socketRef.current
@@ -244,6 +253,7 @@ function GameClient({ session, onLogout }: GameClientProps) {
           template={activeTemplate}
           onNavigate={handleNavigate}
           debugEnabled={debugEnabled}
+          onNpcInteract={handleNpcInteract}
         />
 
         <div className="hud-layer">

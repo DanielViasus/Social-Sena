@@ -16,6 +16,13 @@ export interface RoomZIndexReferenceTemplate {
   thickness?: number
 }
 
+export interface RoomInteractionAreaTemplate {
+  offsetX: number
+  offsetY: number
+  width: number
+  height: number
+}
+
 export interface RoomObjectTemplate {
   id: string
   kind: RoomObjectKind
@@ -31,6 +38,33 @@ export interface RoomObjectTemplate {
   collider?: RoomColliderTemplate
   colliders?: RoomColliderTemplate[]
   zIndexRef?: RoomZIndexReferenceTemplate
+}
+
+export interface RoomNpcTemplate {
+  id: string
+  x: number
+  y: number
+  width: number
+  height: number
+  label?: string
+  fillColor?: number
+  opacity?: number
+  spriteAssetIds?: string[]
+  spriteFrameDurationMs?: number
+  iconWarningAssetIds?: string[]
+  iconInteractionAssetIds?: string[]
+  iconFrameDurationMs?: number
+  iconOffsetX?: number
+  iconOffsetY?: number
+  iconWidth?: number
+  iconHeight?: number
+  iconWarningFillColor?: number
+  iconInteractionFillColor?: number
+  collider?: RoomColliderTemplate
+  zIndexRef?: RoomZIndexReferenceTemplate
+  warningArea?: RoomInteractionAreaTemplate
+  interactionArea?: RoomInteractionAreaTemplate
+  interactionId?: string
 }
 
 export interface RoomCameraTemplate {
@@ -58,4 +92,5 @@ export interface RoomTemplate {
   world: RoomWorldTemplate
   camera: RoomCameraTemplate
   objects: RoomObjectTemplate[]
+  npcs?: RoomNpcTemplate[]
 }

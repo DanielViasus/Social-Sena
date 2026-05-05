@@ -699,6 +699,55 @@ button {
   background: #fff1dc;
 }
 
+.world-npc {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.react-world-npc-sprite,
+.react-world-npc-fallback {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  image-rendering: pixelated;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.react-world-npc-fallback {
+  border-radius: 12px;
+  opacity: 0.92;
+}
+
+.react-world-npc-label {
+  position: absolute;
+  left: 0;
+  top: -132px;
+  transform: translate(-50%, -100%);
+  padding: 7px 12px;
+  border-radius: 12px;
+  background: #f8f2dc;
+  color: #102033;
+  font-size: 18px;
+  white-space: nowrap;
+}
+
+.react-world-npc-icon {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  image-rendering: pixelated;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.react-world-npc-icon-fallback {
+  border-radius: 12px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
+}
+
 .react-world-debug-avatar-bounds {
   position: absolute;
   pointer-events: none;
@@ -723,7 +772,12 @@ button {
 .debug-object-collider,
 .debug-player-total,
 .debug-player-collider,
-.debug-object-zref {
+.debug-object-zref,
+.debug-npc-total,
+.debug-npc-collider,
+.debug-npc-zref,
+.debug-npc-warning,
+.debug-npc-interaction {
   position: absolute;
   transform: translate(-50%, -50%);
   pointer-events: none;
@@ -757,6 +811,29 @@ button {
 .debug-player-collider {
   border: 2px solid rgba(255, 0, 183, 0.95);
   background: rgba(255, 0, 183, 0.28);
+}
+
+.debug-npc-total {
+  border: 2px solid rgba(86, 225, 89, 0.95);
+}
+
+.debug-npc-collider {
+  border: 2px solid rgba(255, 0, 183, 0.95);
+  background: rgba(255, 0, 183, 0.28);
+}
+
+.debug-npc-zref {
+  background: rgba(255, 0, 183, 0.95);
+}
+
+.debug-npc-warning {
+  border: 2px solid rgba(235, 221, 78, 0.95);
+  background: rgba(235, 221, 78, 0.14);
+}
+
+.debug-npc-interaction {
+  border: 2px solid rgba(185, 126, 56, 0.95);
+  background: rgba(185, 126, 56, 0.18);
 }
 
 

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type {
   Position,
   Presence,
+  RoomNpcTemplate,
   RoomObjectTemplate,
   RoomState,
   RoomTemplate
@@ -12,13 +13,32 @@ import plazaSeparator1 from '../assets/Decoration/Plaza/Separador_Plaza_1.svg'
 import plazaSeparator2 from '../assets/Decoration/Plaza/Separador_Plaza_2.svg'
 import plazaSeparator3 from '../assets/Decoration/Plaza/Separador_Plaza_3.svg'
 import plazaSeparator4 from '../assets/Decoration/Plaza/Separador_Plaza_4.svg'
-import { ObjectDecoration, getObjectNavigationBoundsList, getObjectPerspectiveY } from './world/ObjectDecoration'
+import npcMagoFrame0 from '../assets/npc/mago/NPC_MAGO_FRAME_0.svg'
+import npcMagoFrame1 from '../assets/npc/mago/NPC_MAGO_FRAME_1.svg'
+import npcMagoFrame2 from '../assets/npc/mago/NPC_MAGO_FRAME_2.svg'
+import npcMagoFrame3 from '../assets/npc/mago/NPC_MAGO_FRAME_3.svg'
+import npcAlert0 from '../assets/npc/icons/alert/ALERT_0.svg'
+import npcAlert1 from '../assets/npc/icons/alert/ALERT_1.svg'
+import npcAlert2 from '../assets/npc/icons/alert/ALERT_2.svg'
+import npcAlert3 from '../assets/npc/icons/alert/ALERT_3.svg'
+import npcInteractionE0 from '../assets/npc/icons/interaction/INTERACTION_E_0.svg'
+import npcInteractionE1 from '../assets/npc/icons/interaction/INTERACTION_E_1.svg'
+import { ObjectDecoration, getObjectPerspectiveY } from './world/ObjectDecoration'
 import {
   WorldPlayer,
   getPlayerPerspectiveY,
   PLAYER_COLLIDER_HEIGHT,
   PLAYER_COLLIDER_WIDTH,
 } from './world/WorldPlayer'
+import {
+  WorldNpc,
+  type NpcInteractionState,
+  type WorldNpcFrameDefinition,
+  getNpcAreaBounds,
+  getNpcPerspectiveY,
+  getNpcWarningArea,
+  getNpcInteractionArea,
+} from './world/WorldNpc'
 
 interface ReactWorldProps {
   room: RoomState | null
@@ -26,6 +46,7 @@ interface ReactWorldProps {
   template: RoomTemplate
   onNavigate: (target: Position) => void
   debugEnabled: boolean
+  onNpcInteract?: (npc: RoomNpcTemplate) => void
 }
 
 interface AnimatedPlayerPosition {
@@ -60,6 +81,16 @@ type RenderLayerItem =
       frame: ReturnType<typeof getAvatarFrame>
       isSelf: boolean
     }
+  | {
+      kind: 'npc'
+      key: string
+      perspectiveY: number
+      npcTemplate: RoomNpcTemplate
+      state: NpcInteractionState
+      spriteFrame: WorldNpcFrameDefinition | null
+      iconFrame: WorldNpcFrameDefinition | null
+      flipX: boolean
+    }
 
 const ROOM_OBJECT_SPRITES: Record<string, string> = {
   'plaza-separator-1': plazaSeparator1,
@@ -67,6 +98,27 @@ const ROOM_OBJECT_SPRITES: Record<string, string> = {
   'plaza-separator-3': plazaSeparator3,
   'plaza-separator-4': plazaSeparator4,
 }
+
+const CROCK_PRESET = resolveAvatarPreset('crock')
+const NPC_SPRITES: Record<string, string> = Object.fromEntries(
+  [
+    ...CROCK_PRESET.idleFrames,
+    ...(CROCK_PRESET.idleBackFrames ?? []),
+    ...CROCK_PRESET.walkFrames,
+    ...(CROCK_PRESET.walkBackFrames ?? []),
+  ].map((frame) => [frame.key, frame.url]),
+)
+
+NPC_SPRITES['npc-mago-frame-0'] = npcMagoFrame0
+NPC_SPRITES['npc-mago-frame-1'] = npcMagoFrame1
+NPC_SPRITES['npc-mago-frame-2'] = npcMagoFrame2
+NPC_SPRITES['npc-mago-frame-3'] = npcMagoFrame3
+NPC_SPRITES['npc-alert-0'] = npcAlert0
+NPC_SPRITES['npc-alert-1'] = npcAlert1
+NPC_SPRITES['npc-alert-2'] = npcAlert2
+NPC_SPRITES['npc-alert-3'] = npcAlert3
+NPC_SPRITES['npc-interaction-e-0'] = npcInteractionE0
+NPC_SPRITES['npc-interaction-e-1'] = npcInteractionE1
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
@@ -102,6 +154,27 @@ function resolveFacingPose(player: Presence, fallback: FacingPose): FacingPose {
   }
 
   return fallback
+}
+
+function getAnimatedNpcFrame(
+  assetIds: string[] | undefined,
+  now: number,
+  frameDurationMs: number | undefined,
+): WorldNpcFrameDefinition | null {
+  const frames = (assetIds ?? [])
+    .map((assetId) => {
+      const url = NPC_SPRITES[assetId]
+      return url ? { key: assetId, url } : null
+    })
+    .filter((frame): frame is WorldNpcFrameDefinition => Boolean(frame))
+
+  if (frames.length === 0) {
+    return null
+  }
+
+  const frameDuration = Math.max(80, frameDurationMs ?? 180)
+  const frameIndex = Math.floor(now / frameDuration) % frames.length
+  return frames[frameIndex]
 }
 
 function getAvatarFrame(player: Presence, now: number, facingPose: FacingPose) {
@@ -221,6 +294,13 @@ function getPerspectiveAwareRenderItems(
     frame: ReturnType<typeof getAvatarFrame>
     isSelf: boolean
   }>,
+  npcViews: Array<{
+    npcTemplate: RoomNpcTemplate
+    state: NpcInteractionState
+    spriteFrame: WorldNpcFrameDefinition | null
+    iconFrame: WorldNpcFrameDefinition | null
+    flipX: boolean
+  }>,
 ) {
   const objectItems: RenderLayerItem[] = template.objects.map((objectTemplate) => ({
     kind: 'object',
@@ -240,7 +320,24 @@ function getPerspectiveAwareRenderItems(
     isSelf,
   }))
 
-  return [...objectItems, ...playerItems].sort((left, right) => {
+  const npcItems: RenderLayerItem[] = npcViews.map(({ npcTemplate, state, spriteFrame, iconFrame, flipX }) => ({
+    kind: 'npc',
+    key: npcTemplate.id,
+    perspectiveY: getNpcPerspectiveY(npcTemplate),
+    npcTemplate,
+    state,
+    spriteFrame,
+    iconFrame,
+    flipX,
+  }))
+
+  const layerPriority: Record<RenderLayerItem['kind'], number> = {
+    object: 0,
+    npc: 1,
+    player: 2,
+  }
+
+  return [...objectItems, ...npcItems, ...playerItems].sort((left, right) => {
     if (left.perspectiveY !== right.perspectiveY) {
       return left.perspectiveY - right.perspectiveY
     }
@@ -249,11 +346,11 @@ function getPerspectiveAwareRenderItems(
       return left.key.localeCompare(right.key)
     }
 
-    return left.kind === 'object' ? -1 : 1
+    return layerPriority[left.kind] - layerPriority[right.kind]
   })
 }
 
-function ReactWorld({ room, currentUserId, template, onNavigate, debugEnabled }: ReactWorldProps) {
+function ReactWorld({ room, currentUserId, template, onNavigate, debugEnabled, onNpcInteract }: ReactWorldProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const runtimeRef = useRef<WorldRuntimeState>({
     now: performance.now(),
@@ -373,7 +470,110 @@ function ReactWorld({ room, currentUserId, template, onNavigate, debugEnabled }:
     })
   }, [currentUserId, room?.players, runtime.facingBySession, runtime.now, runtime.playersBySession])
 
-  const renderItems = useMemo(() => getPerspectiveAwareRenderItems(template, playerViews), [template, playerViews])
+  const currentPlayerView = useMemo(
+    () => playerViews.find((playerView) => playerView.isSelf) ?? null,
+    [playerViews],
+  )
+
+  const currentPlayerBounds = useMemo(
+    () => (currentPlayerView ? getPlayerColliderBounds(currentPlayerView.animatedPosition) : null),
+    [currentPlayerView],
+  )
+
+  const npcViews = useMemo(() => {
+    return (template.npcs ?? []).map((npcTemplate) => {
+      const warningBounds = getNpcAreaBounds(npcTemplate, getNpcWarningArea(npcTemplate))
+      const interactionBounds = getNpcAreaBounds(npcTemplate, getNpcInteractionArea(npcTemplate))
+      const state: NpcInteractionState =
+        currentPlayerBounds && overlapsRect(currentPlayerBounds, interactionBounds)
+          ? 'interaction'
+          : currentPlayerBounds && overlapsRect(currentPlayerBounds, warningBounds)
+            ? 'warning'
+            : 'out'
+
+      const spriteFrame = getAnimatedNpcFrame(
+        npcTemplate.spriteAssetIds,
+        runtime.now,
+        npcTemplate.spriteFrameDurationMs,
+      )
+      const iconFrame = getAnimatedNpcFrame(
+        state === 'interaction' ? npcTemplate.iconInteractionAssetIds : npcTemplate.iconWarningAssetIds,
+        runtime.now,
+        npcTemplate.iconFrameDurationMs,
+      )
+      const flipX =
+        state !== 'out' && currentPlayerView
+          ? npcTemplate.x > currentPlayerView.animatedPosition.x
+          : false
+
+      return {
+        npcTemplate,
+        state,
+        spriteFrame,
+        iconFrame,
+        flipX,
+      }
+    })
+  }, [currentPlayerBounds, runtime.now, template.npcs])
+
+  const activeInteractableNpc = useMemo(() => {
+    if (!currentPlayerView) {
+      return null
+    }
+
+    return npcViews
+      .filter((npcView) => npcView.state === 'interaction')
+      .sort((left, right) => {
+        const leftDistance = Math.hypot(
+          currentPlayerView.animatedPosition.x - left.npcTemplate.x,
+          currentPlayerView.animatedPosition.y - left.npcTemplate.y,
+        )
+        const rightDistance = Math.hypot(
+          currentPlayerView.animatedPosition.x - right.npcTemplate.x,
+          currentPlayerView.animatedPosition.y - right.npcTemplate.y,
+        )
+        return leftDistance - rightDistance
+      })[0] ?? null
+  }, [currentPlayerView, npcViews])
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat || event.key.toLowerCase() !== 'e') {
+        return
+      }
+
+      const target = event.target as HTMLElement | null
+      const tagName = target?.tagName?.toLowerCase()
+      const isTyping =
+        tagName === 'input' ||
+        tagName === 'textarea' ||
+        target?.isContentEditable === true
+
+      if (isTyping || !activeInteractableNpc) {
+        return
+      }
+
+      event.preventDefault()
+
+      if (onNpcInteract) {
+        onNpcInteract(activeInteractableNpc.npcTemplate)
+        return
+      }
+
+      console.info('[NPC] Interaccion activada', {
+        npcId: activeInteractableNpc.npcTemplate.id,
+        interactionId: activeInteractableNpc.npcTemplate.interactionId ?? null,
+      })
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [activeInteractableNpc, onNpcInteract])
+
+  const renderItems = useMemo(
+    () => getPerspectiveAwareRenderItems(template, playerViews, npcViews),
+    [template, playerViews, npcViews],
+  )
 
   const handleWorldPointerDown = (event: React.MouseEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect()
@@ -445,6 +645,21 @@ function ReactWorld({ room, currentUserId, template, onNavigate, debugEnabled }:
             return (
               <div key={item.key} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 20 + index }}>
                 <ObjectDecoration objectTemplate={item.objectTemplate} spriteSrc={item.spriteSrc} debugEnabled={debugEnabled} />
+              </div>
+            )
+          }
+
+          if (item.kind === 'npc') {
+            return (
+              <div key={item.key} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 20 + index }}>
+                <WorldNpc
+                  npcTemplate={item.npcTemplate}
+                  debugEnabled={debugEnabled}
+                  state={item.state}
+                  spriteFrame={item.spriteFrame}
+                  iconFrame={item.iconFrame}
+                  flipX={item.flipX}
+                />
               </div>
             )
           }

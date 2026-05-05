@@ -195,13 +195,40 @@ function getObjectNavigationBoundsList(roomObject: RoomState['template']['object
   }))
 }
 
+function getNpcColliderBoundsList(roomNpc: NonNullable<RoomState['template']['npcs']>[number]): RectBounds[] {
+  if (!roomNpc.collider || roomNpc.collider.width <= 0 || roomNpc.collider.height <= 0) {
+    return []
+  }
+
+  return [
+    {
+      left: roomNpc.x + roomNpc.collider.offsetX - roomNpc.collider.width / 2,
+      right: roomNpc.x + roomNpc.collider.offsetX + roomNpc.collider.width / 2,
+      top: roomNpc.y + roomNpc.collider.offsetY - roomNpc.collider.height / 2,
+      bottom: roomNpc.y + roomNpc.collider.offsetY + roomNpc.collider.height / 2,
+    },
+  ]
+}
+
+function getNpcNavigationBoundsList(roomNpc: NonNullable<RoomState['template']['npcs']>[number]): RectBounds[] {
+  return getNpcColliderBoundsList(roomNpc).map((bounds) => ({
+    left: bounds.left - PATH_COLLIDER_MARGIN,
+    right: bounds.right + PATH_COLLIDER_MARGIN,
+    top: bounds.top - PATH_COLLIDER_MARGIN,
+    bottom: bounds.bottom + PATH_COLLIDER_MARGIN,
+  }))
+}
+
 function overlapsRect(a: RectBounds, b: RectBounds) {
   return !(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom)
 }
 
 function isBlockedByRoomObjects(room: RoomState, position: Position) {
   const playerBounds = getPlayerColliderBounds(position)
-  return room.template.objects.some((roomObject) => getObjectNavigationBoundsList(roomObject).some((bounds) => overlapsRect(playerBounds, bounds)))
+  return (
+    room.template.objects.some((roomObject) => getObjectNavigationBoundsList(roomObject).some((bounds) => overlapsRect(playerBounds, bounds))) ||
+    (room.template.npcs ?? []).some((roomNpc) => getNpcNavigationBoundsList(roomNpc).some((bounds) => overlapsRect(playerBounds, bounds)))
+  )
 }
 
 function expandBoundsForPlayer(bounds: RectBounds): RectBounds {
@@ -282,7 +309,10 @@ function segmentIntersectsExpandedBounds(from: Position, to: Position, bounds: R
 }
 
 function isRouteSegmentBlocked(room: RoomState, from: Position, to: Position) {
-  if (room.template.objects.some((roomObject) => getObjectNavigationBoundsList(roomObject).some((bounds) => segmentIntersectsExpandedBounds(from, to, bounds)))) {
+  if (
+    room.template.objects.some((roomObject) => getObjectNavigationBoundsList(roomObject).some((bounds) => segmentIntersectsExpandedBounds(from, to, bounds))) ||
+    (room.template.npcs ?? []).some((roomNpc) => getNpcNavigationBoundsList(roomNpc).some((bounds) => segmentIntersectsExpandedBounds(from, to, bounds)))
+  ) {
     return true
   }
 
