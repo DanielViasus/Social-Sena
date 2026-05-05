@@ -1,0 +1,33 @@
+SOCIAL SENA - PLAYER JUGABLE
+
+Render del player:
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/components/world/WorldPlayer.tsx
+
+Registro de sprites del avatar:
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/game/avatar/avatarSprites.ts
+
+Sistema actual del personaje:
+- sprite basado en frames completos SVG
+- idle frontal
+- idle trasero
+- walk frontal
+- walk trasero
+- inversion horizontal para izquierda
+- anclaje por pies
+- caja visual debug
+- collider debug
+
+Dimensiones actuales:
+- sprite visual: 128 x 128
+- collider: 68 x 24
+
+Orientacion:
+- front-right
+- front-left
+- back-right
+- back-left
+
+Logica de animacion:
+- ReactWorld calcula el frame segun moving y facing pose.
+- El tiempo actual por frame del avatar es 160 ms.
+- El sprite se invierte en X cuando la pose es izquierda.

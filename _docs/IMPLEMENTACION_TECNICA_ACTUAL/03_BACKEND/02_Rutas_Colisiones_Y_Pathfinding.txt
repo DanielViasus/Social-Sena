@@ -1,0 +1,49 @@
+SOCIAL SENA - RUTAS, COLISIONES Y PATHFINDING
+
+Archivo principal:
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/game-server/src/index.ts
+
+Parametros actuales relevantes:
+- PLAYER_COLLIDER_WIDTH = 68
+- PLAYER_COLLIDER_HEIGHT = 24
+- ROUTE_SAMPLE_STEP = 8
+- PATH_GRID_SIZE = 32
+- PATH_SEARCH_MAX_RADIUS = 6
+- PATH_START_SEARCH_MAX_RADIUS = 4
+- PATH_TARGET_SEARCH_MAX_RADIUS = 10
+- PATH_COLLIDER_MARGIN = 2
+- PLAYER_SPEED = 204
+- PLAYER_REACH_THRESHOLD = 6
+
+Comportamiento actual del sistema:
+1. El cliente hace click en un destino.
+2. El backend ajusta el punto al mundo valido.
+3. Si el punto no es navegable, busca un punto libre cercano.
+4. Si el tramo directo esta libre, usa ruta directa.
+5. Si el tramo directo cruza colliders, calcula una ruta por grilla.
+6. Si el personaje esta atrapado cerca de una esquina, busca celdas de arranque cercanas para salir y recalcular.
+7. El movimiento se procesa waypoint por waypoint.
+8. Si el siguiente tramo colisiona durante el movimiento, la ruta se cancela.
+
+Elementos que bloquean rutas:
+- colliders de objetos de decoracion
+- colliders de NPCs
+
+Reglas actuales importantes:
+- un objeto solo bloquea donde tiene collider explicito
+- si una zona visual no tiene collider, se puede atravesar
+- las areas de warning e interaccion del NPC no bloquean ruta
+
+Helpers importantes del backend:
+- getObjectColliderBoundsList
+- getObjectNavigationBoundsList
+- getNpcColliderBoundsList
+- getNpcNavigationBoundsList
+- isBlockedByRoomObjects
+- isRouteSegmentBlocked
+- findNearestWalkableCell
+- findReachableStartCells
+- findPathBetweenCells
+- findPath
+- updateRoute
+- simulateMovement

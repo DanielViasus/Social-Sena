@@ -1,0 +1,25 @@
+SOCIAL SENA - AUTENTICACION Y SESION
+
+Archivos principales:
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/auth/auth0Config.ts
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/auth/localSession.ts
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/components/Auth0App.tsx
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/App.tsx
+
+Modos de acceso actuales:
+- login local
+- login Auth0
+
+Sesion local:
+- se guarda en localStorage
+- storage key: social-sena-auth-session
+- crea userId y username automaticamente
+
+Sesion Auth0:
+- usa Auth0Provider desde main.tsx
+- genera AuthSession a partir del usuario autenticado
+- redirige al lobby o a la ruta de retorno
+
+Decision actual del frontend:
+- si Auth0 esta configurado, App usa Auth0App
+- si no, App usa LocalApp

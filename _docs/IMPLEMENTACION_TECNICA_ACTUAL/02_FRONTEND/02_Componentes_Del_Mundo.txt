@@ -1,0 +1,40 @@
+SOCIAL SENA - COMPONENTES DEL MUNDO REACT
+
+Componentes de mundo actuales:
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/components/world/ObjectDecoration.tsx
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/components/world/WorldPlayer.tsx
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/components/world/WorldNpc.tsx
+
+ObjectDecoration:
+Responsabilidad:
+- Renderizar objetos decorativos y landmarks del mapa.
+- Mostrar sprite o fallback visual.
+- Renderizar colliders de debug.
+- Renderizar linea de referencia zIndex.
+- Soportar hasta 4 colliders por objeto.
+
+Props y capacidades relevantes:
+- width y height del objeto.
+- spriteAssetId opcional.
+- collider unico o colliders multiples.
+- zIndexRef.
+- eje central visual en debug.
+
+WorldPlayer:
+Responsabilidad:
+- Renderizar el personaje jugable.
+- Mostrar el sprite actual segun la animacion.
+- Invertir horizontalmente cuando corresponde.
+- Mostrar caja visual y collider en debug.
+
+Valores actuales del player:
+- area visual: 128 x 128
+- collider: 68 x 24
+
+WorldNpc:
+Responsabilidad:
+- Renderizar NPCs del mundo.
+- Reproducir sprites por frames.
+- Detectar warning e interaction.
+- Mostrar icono sobre la cabeza.
+- Participar en perspectiva y colision.

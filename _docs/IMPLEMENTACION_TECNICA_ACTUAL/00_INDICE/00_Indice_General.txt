@@ -1,0 +1,33 @@
+SOCIAL SENA - DOCUMENTACION TECNICA ACTUAL
+
+Objetivo:
+Este bloque de documentacion concentra el estado tecnico actual del proyecto, separado por modulos y temas. Todos los archivos estan en formato TXT para que puedan abrirse facil desde cualquier editor.
+
+Estructura general:
+- 01_ARQUITECTURA
+  Vision general del proyecto, paquetes, apps y flujo general.
+- 02_FRONTEND
+  React, componentes principales, render del mundo y UI.
+- 03_BACKEND
+  Game server, sockets, simulacion y navegacion.
+- 04_SHARED
+  Tipos, eventos, constantes y contratos compartidos.
+- 05_SALAS_Y_MUNDO
+  Plantillas de salas, room actual y composicion del mapa.
+- 06_PERSONAJES_Y_NPCS
+  Player jugable, NPC guia, interaccion y comportamiento visual.
+- 07_ASSETS_Y_ANIMACIONES
+  Sprites, registros de assets y animaciones actuales.
+- 08_AUTENTICACION_Y_SESION
+  Flujo local, Auth0 y persistencia de sesion.
+- 09_DEPLOY_Y_ENTORNOS
+  Ejecucion local, Vercel y Render.
+- 10_PENDIENTES
+  Pendientes tecnicos y puntos a vigilar.
+
+Archivos recomendados para empezar:
+- 01_ARQUITECTURA/01_Vision_General.txt
+- 02_FRONTEND/01_Frontend_React.txt
+- 03_BACKEND/02_Rutas_Colisiones_Y_Pathfinding.txt
+- 06_PERSONAJES_Y_NPCS/02_NPC_Guia.txt
+- 09_DEPLOY_Y_ENTORNOS/02_Produccion_Vercel_Render.txt

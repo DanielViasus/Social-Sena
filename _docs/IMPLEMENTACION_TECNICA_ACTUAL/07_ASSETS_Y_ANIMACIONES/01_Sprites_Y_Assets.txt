@@ -1,0 +1,26 @@
+SOCIAL SENA - SPRITES Y ASSETS
+
+Fondos y decoracion:
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/assets/Places/bk_garden.svg
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/assets/Decoration/Plaza
+
+Jugador actual:
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/assets/characters/crock
+
+NPC actual:
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/assets/npc/mago
+
+Iconos NPC:
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/assets/npc/icons/alert
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/assets/npc/icons/interaction
+
+Notas sobre animaciones:
+- El player usa 4 frames para idle y 4 para walk.
+- Tambien existen variantes back para mirada hacia arriba.
+- El NPC mago usa 4 frames de animacion.
+- El icono de alert usa 4 frames.
+- El icono de interaction usa 2 frames.
+
+Normalizacion importante:
+- Los iconos pueden verse distintos si sus viewBox no coinciden.
+- Actualmente los alert fueron normalizados a 128 px para mantener consistencia visual.

@@ -1,0 +1,21 @@
+SOCIAL SENA - ENTORNO LOCAL
+
+Rutas principales:
+- frontend local esperado: http://localhost:5173
+- backend local esperado: http://localhost:3001
+
+Comandos recomendados:
+- desde la raiz del repositorio:
+  npm run dev:server
+  npm run dev:web
+
+Comando combinado disponible:
+- npm run dev:full
+
+Recomendacion para depuracion:
+- usar backend y frontend en terminales separadas
+- asi es mas facil saber si el problema esta en Vite o en el game server
+
+Variable local importante del frontend:
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/.env.local
+- VITE_GAME_SERVER_URL debe apuntar a http://localhost:3001 cuando se quiera probar local de verdad

@@ -1,0 +1,43 @@
+SOCIAL SENA - VISION GENERAL DE LA ARQUITECTURA
+
+Stack actual:
+- Frontend: React + Vite.
+- Tiempo real: Socket.IO.
+- Backend: Node.js.
+- Monorepo: npm workspaces.
+- Paquete compartido: @social-sena/shared.
+- Produccion frontend: Vercel.
+- Produccion backend: Render.
+
+Estructura principal del repositorio:
+- apps/web
+  Cliente React, UI, render del mundo y assets web.
+- apps/game-server
+  Servidor realtime, movimiento, colisiones y rutas.
+- packages/shared
+  Tipos, constantes, eventos, schemas y plantillas de salas.
+
+Punto de entrada por app:
+- Frontend:
+  /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/main.tsx
+- Backend:
+  /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/game-server/src/index.ts
+- Shared:
+  /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/packages/shared/src/index.ts
+
+Flujo general del sistema:
+1. El usuario entra al frontend.
+2. Se autentica por login local o Auth0.
+3. GameClient abre un socket al backend.
+4. El backend acepta la sesion y une al jugador a una sala.
+5. ReactWorld renderiza el mapa, objetos, NPCs y jugadores.
+6. El backend simula el movimiento y emite cambios por Socket.IO.
+7. El frontend interpola posiciones y actualiza animaciones.
+
+Scripts raiz:
+- npm run dev:web
+- npm run dev:server
+- npm run dev:full
+- npm run build
+- npm run typecheck
+- npm run lint

@@ -1,0 +1,45 @@
+SOCIAL SENA - GAME SERVER
+
+Archivo principal:
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/game-server/src/index.ts
+
+Tecnologias:
+- Node.js
+- http nativo
+- Socket.IO
+
+Responsabilidades del servidor:
+- aceptar conexiones socket
+- validar payloads con schemas compartidos
+- crear sesiones por socket
+- crear o recuperar salas
+- registrar presencia de jugadores
+- procesar rutas
+- simular movimiento
+- emitir estado y eventos del juego
+- enviar mensajes de chat
+
+Mapas internos principales:
+- sessions: Map de socket id a SessionState
+- rooms: Map de roomId a RoomState
+
+Eventos de cliente manejados:
+- connect_to_game
+- join_room
+- navigate_to
+- send_chat_message
+
+Eventos enviados al cliente:
+- connection_accepted
+- room_joined
+- room_state
+- player_joined
+- player_moved
+- player_left
+- chat_message
+- server_error
+
+Simulacion:
+- tick del servidor: 20 veces por segundo
+- el movimiento se resuelve en backend
+- el frontend solo solicita destino y renderiza el resultado

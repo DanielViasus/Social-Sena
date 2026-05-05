@@ -1,0 +1,31 @@
+SOCIAL SENA - FRONTEND REACT
+
+Archivos base del frontend:
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/main.tsx
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/App.tsx
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/index.css
+
+Arquitectura actual del cliente:
+- App.tsx decide si corre login local o Auth0.
+- Auth0App.tsx encapsula el flujo autenticado con Auth0.
+- GameClient.tsx centraliza:
+  conexion socket,
+  estado de la sala,
+  chat,
+  opciones,
+  debug,
+  interaccion con NPCs,
+  y render del mundo.
+- ReactWorld.tsx renderiza el mundo 2D completo en React.
+
+Componentes principales:
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/components/LoginScreen.tsx
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/components/GameClient.tsx
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/components/ReactWorld.tsx
+
+Decisiones tecnicas importantes:
+- Phaser fue retirado del proyecto.
+- El mundo actual se renderiza 100 por ciento con React y CSS.
+- La camara se mueve con translate3d sobre la superficie del mapa.
+- El modo debug se activa con la tecla P.
+- La interaccion con NPCs se activa con la tecla E.

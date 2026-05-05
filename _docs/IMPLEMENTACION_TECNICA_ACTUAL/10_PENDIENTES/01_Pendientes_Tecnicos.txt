@@ -1,0 +1,15 @@
+SOCIAL SENA - PENDIENTES TECNICOS ACTUALES
+
+Pendientes naturales del proyecto:
+- abrir una UI real de interaccion con NPC en vez de usar console.info
+- documentar mejor la configuracion final de Auth0 y produccion
+- seguir afinando colliders por objeto conforme el mapa crezca
+- evaluar instancias de salas por capacidad si se quiere escalar a varias copias del mismo lobby
+- crear mas NPCs reutilizando el sistema generico
+- incorporar acciones reales del NPC guia sobre estado o UI
+- revisar assets SVG para mantener viewBox consistentes
+
+Puntos tecnicos a vigilar:
+- el pathfinding depende de una grilla de 32 px y un margen de collider de 2 px
+- cambios de velocidad y animacion deben validarse en frontend y backend juntos
+- cualquier cambio de room template afecta tanto render como colision y navegacion

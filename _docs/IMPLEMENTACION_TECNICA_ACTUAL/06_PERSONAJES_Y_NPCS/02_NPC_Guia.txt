@@ -1,0 +1,47 @@
+SOCIAL SENA - NPC GUIA
+
+Componente base:
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/components/world/WorldNpc.tsx
+
+Integracion del mundo:
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/components/ReactWorld.tsx
+
+Configuracion actual del NPC guia:
+- sala: Room_1909
+- id: lobby-guide
+- posicion: x 1000, y 1000
+- tamano: 128 x 128
+- sprite actual: Mago
+
+Sprites del NPC:
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/assets/npc/mago
+
+Iconos del NPC:
+- warning:
+  /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/assets/npc/icons/alert
+- interaccion:
+  /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/assets/npc/icons/interaction
+
+Areas del NPC:
+- collider
+- zIndexRef
+- warningArea
+- interactionArea
+
+Comportamiento actual:
+- fuera de rango: no muestra icono
+- en warning: muestra icono de alerta
+- en interaction: muestra icono de interaccion
+- tecla E: ejecuta callback de interaccion
+- por defecto ahora la accion solo hace console.info desde GameClient
+- el NPC solo mira al jugador cuando el jugador entra en warning o interaction
+
+Donde ajustar rangos del NPC actual:
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/packages/shared/src/rooms/templates/Room_1909.ts
+- propiedades:
+  warningArea
+  interactionArea
+  iconOffsetX
+  iconOffsetY
+  iconWidth
+  iconHeight

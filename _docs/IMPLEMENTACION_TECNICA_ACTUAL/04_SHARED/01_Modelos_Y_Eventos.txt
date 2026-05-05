@@ -1,0 +1,51 @@
+SOCIAL SENA - MODELOS, CONSTANTES Y EVENTOS SHARED
+
+Carpeta base:
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/packages/shared/src
+
+Archivos importantes:
+- constants.ts
+- events.ts
+- rooms/types.ts
+- rooms/templates/Room_1909.ts
+- rooms/registry.ts
+- schemas.ts
+- types.ts
+
+Constantes destacadas:
+- WORLD_WIDTH
+- WORLD_HEIGHT
+- DEFAULT_ROOM_CAPACITY
+- PLAYER_SPEED
+- PLAYER_REACH_THRESHOLD
+
+Tipos de salas y mundo:
+- RoomTemplate
+- RoomObjectTemplate
+- RoomNpcTemplate
+- RoomColliderTemplate
+- RoomZIndexReferenceTemplate
+- RoomInteractionAreaTemplate
+
+Contratos de eventos:
+Cliente a servidor:
+- connect_to_game
+- join_room
+- navigate_to
+- send_chat_message
+
+Servidor a cliente:
+- connection_accepted
+- room_joined
+- room_state
+- player_joined
+- player_moved
+- player_left
+- chat_message
+- server_error
+
+Importancia del paquete shared:
+- evita duplicar tipos entre frontend y backend
+- centraliza las plantillas de salas
+- define el contrato realtime
+- reduce errores de integracion entre apps

@@ -1,0 +1,37 @@
+SOCIAL SENA - ROOM 1909
+
+Template principal:
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/packages/shared/src/rooms/templates/Room_1909.ts
+
+Replica web:
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/apps/web/src/rooms/templates/Room_1909.tsx
+
+Configuracion actual del mundo:
+- id: Room_1909
+- nombre: Lobby Garden 1909
+- tamano del mundo: 2000 x 2000
+- spawn: x 1000, y 1600
+- fondo visual: bk_garden.svg
+
+Objetos actuales del mapa:
+- plaza-separator-nw
+- plaza-separator-ne
+- plaza-separator-sw
+- plaza-separator-se
+- spawn-ring
+
+Cada objeto puede definir:
+- posicion x e y
+- width y height
+- spriteAssetId
+- collider unico o colliders multiples
+- zIndexRef
+
+Sistema de profundidad:
+- el orden visual se calcula con perspectiveY
+- objetos, NPCs y players se mezclan y se ordenan por esa referencia
+
+Notas importantes:
+- Room_1909 ya es la sala principal de prueba.
+- El spawn ring es decorativo y de referencia, no bloquea paso.
+- Los separadores de plaza si tienen colliders configurados.

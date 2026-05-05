@@ -1,0 +1,28 @@
+SOCIAL SENA - PRODUCCION CON VERCEL Y RENDER
+
+Arquitectura de despliegue:
+- Vercel sirve el frontend React.
+- Render sirve el backend realtime Node + Socket.IO.
+
+Archivos de referencia:
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/render.yaml
+- /Users/danielviasus/Documents/proyectosVSCode/Unity/Social-Sena/docs/deploy/vercel-render.md
+
+Punto critico operativo:
+- Si Vercel tiene un commit nuevo pero Render sigue con un commit viejo, la logica de rutas y colisiones en produccion se vera vieja.
+- La razon es que las rutas y colisiones viven en el backend, no en Vercel.
+
+Variables de entorno importantes:
+Frontend:
+- VITE_GAME_SERVER_URL
+- VITE_AUTH0_DOMAIN
+- VITE_AUTH0_CLIENT_ID
+- VITE_AUTH0_CALLBACK_URL
+
+Backend:
+- CORS_ALLOWED_ORIGINS
+- PORT
+
+Comportamiento esperado en produccion:
+- Vercel y Render deben estar alineados con el mismo estado del repositorio.
+- Si se tocan rutas, colisiones o pathfinding, se debe revisar el deploy de Render.
