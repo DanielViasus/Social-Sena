@@ -9,6 +9,7 @@ export interface DialoguePromptFrame {
 export interface DialogueDefinition {
   id: string
   lines: string[]
+  typewriterMsPerChar?: number
   promptFrames?: DialoguePromptFrame[]
   promptFrameDurationMs?: number
   promptWidth?: number
@@ -31,6 +32,7 @@ const dialogueRegistry: Record<string, DialogueDefinition> = {
       'Puedo ayudarte a entender este lobby y a encontrar puntos clave del mundo.',
       'Acercate a los elementos del mapa y sigue explorando. Siempre podras volver si necesitas orientacion.',
     ],
+    typewriterMsPerChar: 50,
     promptFrames: DEFAULT_PROMPT_FRAMES,
     promptFrameDurationMs: 320,
     promptWidth: 128,

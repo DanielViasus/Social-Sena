@@ -33,6 +33,7 @@ function GameClient({ session, onLogout }: GameClientProps) {
   const [chatOpen, setChatOpen] = useState(false)
   const [debugEnabled, setDebugEnabled] = useState(false)
   const [activeDialogue, setActiveDialogue] = useState<ActiveDialogueState | null>(null)
+  const [dialogueVisibleChars, setDialogueVisibleChars] = useState(0)
   const [npcInteractionLocked, setNpcInteractionLocked] = useState(false)
   const [mobileInteractionEnabled, setMobileInteractionEnabled] = useState(false)
   const [activeInteractableNpc, setActiveInteractableNpc] = useState<RoomNpcTemplate | null>(null)
@@ -41,6 +42,12 @@ function GameClient({ session, onLogout }: GameClientProps) {
   const chatOpenRef = useRef(false)
   const floatingTimeoutsRef = useRef<Map<string, number>>(new Map())
   const dialogueCooldownTimeoutRef = useRef<number | null>(null)
+  const dialogueAudioContextRef = useRef<AudioContext | null>(null)
+  const dialogueAudioUnlockedRef = useRef(false)
+  const lastDialogueAudioProgressRef = useRef<{ lineKey: string; visibleChars: number }>({
+    lineKey: '',
+    visibleChars: 0,
+  })
   const activeTemplate = resolveRoomTemplateFromPath(pathname)
   const playerInitial = session.profile.displayName.slice(0, 1).toUpperCase()
 
@@ -146,6 +153,9 @@ function GameClient({ session, onLogout }: GameClientProps) {
       if (dialogueCooldownTimeoutRef.current) {
         window.clearTimeout(dialogueCooldownTimeoutRef.current)
       }
+      if (dialogueAudioContextRef.current && dialogueAudioContextRef.current.state !== 'closed') {
+        void dialogueAudioContextRef.current.close()
+      }
     }
   }, [])
 
@@ -246,6 +256,10 @@ function GameClient({ session, onLogout }: GameClientProps) {
   const currentPlayer =
     room?.players.find((player) => player.userId === session.profile.userId) ?? null
   const activePlayers = room?.players ?? []
+  const currentDialogueLine = activeDialogue
+    ? activeDialogue.dialogue.lines[activeDialogue.lineIndex] ?? ''
+    : ''
+  const isDialogueLineComplete = dialogueVisibleChars >= currentDialogueLine.length
 
   const handleOpenChat = () => {
     floatingTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId))
@@ -265,6 +279,49 @@ function GameClient({ session, onLogout }: GameClientProps) {
     })
   })
 
+  const ensureDialogueAudioUnlocked = useEffectEvent(async () => {
+    if (typeof window === 'undefined' || typeof window.AudioContext === 'undefined') {
+      return
+    }
+
+    if (!dialogueAudioContextRef.current) {
+      dialogueAudioContextRef.current = new window.AudioContext()
+    }
+
+    if (dialogueAudioContextRef.current.state === 'suspended') {
+      try {
+        await dialogueAudioContextRef.current.resume()
+      } catch {
+        return
+      }
+    }
+
+    dialogueAudioUnlockedRef.current = dialogueAudioContextRef.current.state === 'running'
+  })
+
+  const playDialogueBlip = useEffectEvent(() => {
+    const audioContext = dialogueAudioContextRef.current
+    if (!audioContext || !dialogueAudioUnlockedRef.current) {
+      return
+    }
+
+    const oscillator = audioContext.createOscillator()
+    const gainNode = audioContext.createGain()
+
+    oscillator.type = 'square'
+    oscillator.frequency.setValueAtTime(880, audioContext.currentTime)
+    oscillator.frequency.exponentialRampToValueAtTime(660, audioContext.currentTime + 0.035)
+
+    gainNode.gain.setValueAtTime(0.0001, audioContext.currentTime)
+    gainNode.gain.exponentialRampToValueAtTime(0.018, audioContext.currentTime + 0.005)
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + 0.045)
+
+    oscillator.connect(gainNode)
+    gainNode.connect(audioContext.destination)
+    oscillator.start(audioContext.currentTime)
+    oscillator.stop(audioContext.currentTime + 0.05)
+  })
+
   const startNpcInteractionCooldown = useEffectEvent((cooldownMs: number) => {
     if (dialogueCooldownTimeoutRef.current) {
       window.clearTimeout(dialogueCooldownTimeoutRef.current)
@@ -279,12 +336,21 @@ function GameClient({ session, onLogout }: GameClientProps) {
 
   const finishDialogue = useEffectEvent((dialogue: DialogueDefinition) => {
     setActiveDialogue(null)
+    setDialogueVisibleChars(0)
+    lastDialogueAudioProgressRef.current = { lineKey: '', visibleChars: 0 }
     dialogue.onComplete?.()
     startNpcInteractionCooldown(dialogue.cooldownMs ?? 1500)
   })
 
   const advanceDialogue = useEffectEvent(() => {
     if (!activeDialogue) {
+      return
+    }
+
+    void ensureDialogueAudioUnlocked()
+
+    if (!isDialogueLineComplete) {
+      setDialogueVisibleChars(currentDialogueLine.length)
       return
     }
 
@@ -298,6 +364,59 @@ function GameClient({ session, onLogout }: GameClientProps) {
       lineIndex: activeDialogue.lineIndex + 1,
     })
   })
+
+  useEffect(() => {
+    if (!activeDialogue) {
+      setDialogueVisibleChars(0)
+      lastDialogueAudioProgressRef.current = { lineKey: '', visibleChars: 0 }
+      return
+    }
+
+    setDialogueVisibleChars(0)
+    lastDialogueAudioProgressRef.current = {
+      lineKey: `${activeDialogue.dialogue.id}:${activeDialogue.lineIndex}`,
+      visibleChars: 0,
+    }
+  }, [activeDialogue?.dialogue.id, activeDialogue?.lineIndex, activeDialogue?.npcId])
+
+  useEffect(() => {
+    if (!activeDialogue || currentDialogueLine.length === 0 || isDialogueLineComplete) {
+      return
+    }
+
+    const intervalId = window.setInterval(() => {
+      setDialogueVisibleChars((currentValue) => Math.min(currentValue + 1, currentDialogueLine.length))
+    }, Math.max(16, activeDialogue.dialogue.typewriterMsPerChar ?? 50))
+
+    return () => window.clearInterval(intervalId)
+  }, [activeDialogue, currentDialogueLine.length, isDialogueLineComplete])
+
+  useEffect(() => {
+    if (!activeDialogue || dialogueVisibleChars <= 0) {
+      return
+    }
+
+    const lineKey = `${activeDialogue.dialogue.id}:${activeDialogue.lineIndex}`
+    const previousProgress = lastDialogueAudioProgressRef.current
+
+    if (previousProgress.lineKey !== lineKey) {
+      lastDialogueAudioProgressRef.current = { lineKey, visibleChars: 0 }
+    }
+
+    const previousVisibleChars =
+      lastDialogueAudioProgressRef.current.lineKey === lineKey
+        ? lastDialogueAudioProgressRef.current.visibleChars
+        : 0
+
+    if (dialogueVisibleChars > previousVisibleChars) {
+      const latestChar = currentDialogueLine.charAt(dialogueVisibleChars - 1)
+      if (latestChar.trim().length > 0) {
+        playDialogueBlip()
+      }
+    }
+
+    lastDialogueAudioProgressRef.current = { lineKey, visibleChars: dialogueVisibleChars }
+  }, [activeDialogue, currentDialogueLine, dialogueVisibleChars, playDialogueBlip])
 
   useEffect(() => {
     if (!activeDialogue) {
@@ -345,6 +464,7 @@ function GameClient({ session, onLogout }: GameClientProps) {
       return
     }
 
+    void ensureDialogueAudioUnlocked()
     requestStopMovement()
 
     const dialogue = getDialogueById(npc.dialogueId)
@@ -553,7 +673,8 @@ function GameClient({ session, onLogout }: GameClientProps) {
             <DialogueOverlay
               dialogue={activeDialogue.dialogue}
               lineIndex={activeDialogue.lineIndex}
-              pointerAdvanceEnabled={mobileInteractionEnabled}
+              fullText={currentDialogueLine}
+              visibleText={currentDialogueLine.slice(0, dialogueVisibleChars)}
               onAdvance={advanceDialogue}
             />
           ) : null}

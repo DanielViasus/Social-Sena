@@ -4,7 +4,8 @@ import type { DialogueDefinition } from '../../dialogue/registry'
 interface DialogueOverlayProps {
   dialogue: DialogueDefinition
   lineIndex: number
-  pointerAdvanceEnabled?: boolean
+  fullText: string
+  visibleText: string
   onAdvance?: () => void
 }
 
@@ -15,7 +16,8 @@ function clampIndex(index: number, max: number) {
 export default function DialogueOverlay({
   dialogue,
   lineIndex,
-  pointerAdvanceEnabled = false,
+  fullText,
+  visibleText,
   onAdvance,
 }: DialogueOverlayProps) {
   const [now, setNow] = useState(() => performance.now())
@@ -33,7 +35,6 @@ export default function DialogueOverlay({
   }, [])
 
   const safeLineIndex = clampIndex(lineIndex, dialogue.lines.length)
-  const currentLine = dialogue.lines[safeLineIndex] ?? ''
   const promptFrames = dialogue.promptFrames ?? []
   const promptFrameDurationMs = Math.max(120, dialogue.promptFrameDurationMs ?? 320)
   const promptWidth = dialogue.promptWidth ?? 128
@@ -46,11 +47,16 @@ export default function DialogueOverlay({
     <div className="dialogue-overlay" aria-live="polite" aria-modal="true" role="dialog">
       <div className="dialogue-letterbox dialogue-letterbox-top" />
       <div
-        className={`dialogue-letterbox dialogue-letterbox-bottom ${pointerAdvanceEnabled ? 'is-clickable' : ''}`}
-        onClick={pointerAdvanceEnabled ? onAdvance : undefined}
+        className={`dialogue-letterbox dialogue-letterbox-bottom ${onAdvance ? 'is-clickable' : ''}`}
+        onClick={onAdvance}
       >
         <div className="dialogue-panel-content">
-          <p className="dialogue-panel-text">{currentLine}</p>
+          <div className="dialogue-panel-text-shell">
+            <p className="dialogue-panel-text dialogue-panel-text-measure" aria-hidden="true">
+              {fullText}
+            </p>
+            <p className="dialogue-panel-text dialogue-panel-text-visible">{visibleText}</p>
+          </div>
           {promptFrame ? (
             <img
               src={promptFrame.url}

@@ -357,6 +357,11 @@ button {
   gap: 24px;
 }
 
+.dialogue-panel-text-shell {
+  position: relative;
+  width: 100%;
+}
+
 .dialogue-panel-text {
   margin: 0;
   color: #ffffff;
@@ -366,6 +371,15 @@ button {
   letter-spacing: 0.02em;
   white-space: pre-wrap;
   text-wrap: balance;
+}
+
+.dialogue-panel-text-measure {
+  visibility: hidden;
+}
+
+.dialogue-panel-text-visible {
+  position: absolute;
+  inset: 0;
 }
 
 .dialogue-panel-prompt {
