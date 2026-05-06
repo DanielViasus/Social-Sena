@@ -4,13 +4,20 @@ import type { DialogueDefinition } from '../../dialogue/registry'
 interface DialogueOverlayProps {
   dialogue: DialogueDefinition
   lineIndex: number
+  pointerAdvanceEnabled?: boolean
+  onAdvance?: () => void
 }
 
 function clampIndex(index: number, max: number) {
   return Math.min(Math.max(index, 0), Math.max(0, max - 1))
 }
 
-export default function DialogueOverlay({ dialogue, lineIndex }: DialogueOverlayProps) {
+export default function DialogueOverlay({
+  dialogue,
+  lineIndex,
+  pointerAdvanceEnabled = false,
+  onAdvance,
+}: DialogueOverlayProps) {
   const [now, setNow] = useState(() => performance.now())
 
   useEffect(() => {
@@ -38,7 +45,10 @@ export default function DialogueOverlay({ dialogue, lineIndex }: DialogueOverlay
   return (
     <div className="dialogue-overlay" aria-live="polite" aria-modal="true" role="dialog">
       <div className="dialogue-letterbox dialogue-letterbox-top" />
-      <div className="dialogue-letterbox dialogue-letterbox-bottom">
+      <div
+        className={`dialogue-letterbox dialogue-letterbox-bottom ${pointerAdvanceEnabled ? 'is-clickable' : ''}`}
+        onClick={pointerAdvanceEnabled ? onAdvance : undefined}
+      >
         <div className="dialogue-panel-content">
           <p className="dialogue-panel-text">{currentLine}</p>
           {promptFrame ? (

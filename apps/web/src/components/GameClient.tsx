@@ -33,6 +33,7 @@ function GameClient({ session, onLogout }: GameClientProps) {
   const [debugEnabled, setDebugEnabled] = useState(false)
   const [activeDialogue, setActiveDialogue] = useState<ActiveDialogueState | null>(null)
   const [npcInteractionLocked, setNpcInteractionLocked] = useState(false)
+  const [mobileInteractionEnabled, setMobileInteractionEnabled] = useState(false)
   const socketRef = useRef<Socket | null>(null)
   const optionsMenuRef = useRef<HTMLDivElement | null>(null)
   const chatOpenRef = useRef(false)
@@ -115,6 +116,26 @@ function GameClient({ session, onLogout }: GameClientProps) {
     return () => {
       timeouts.forEach((timeoutId) => window.clearTimeout(timeoutId))
       timeouts.clear()
+    }
+  }, [])
+
+  useEffect(() => {
+    const mobileMedia = window.matchMedia('(max-width: 820px)')
+    const coarseMedia = window.matchMedia('(pointer: coarse)')
+
+    const updateMobileInteractionMode = () => {
+      const hasTouchSupport = navigator.maxTouchPoints > 0 || 'ontouchstart' in window
+      setMobileInteractionEnabled(mobileMedia.matches || coarseMedia.matches || hasTouchSupport)
+    }
+
+    updateMobileInteractionMode()
+
+    mobileMedia.addEventListener?.('change', updateMobileInteractionMode)
+    coarseMedia.addEventListener?.('change', updateMobileInteractionMode)
+
+    return () => {
+      mobileMedia.removeEventListener?.('change', updateMobileInteractionMode)
+      coarseMedia.removeEventListener?.('change', updateMobileInteractionMode)
     }
   }, [])
 
@@ -367,6 +388,7 @@ function GameClient({ session, onLogout }: GameClientProps) {
           navigationEnabled={!activeDialogue}
           npcInteractionEnabled={!activeDialogue && !npcInteractionLocked}
           suppressNpcIconForId={activeDialogue?.npcId ?? null}
+          pointerNpcInteractionEnabled={mobileInteractionEnabled}
         />
 
         <div className="hud-layer">
@@ -524,6 +546,8 @@ function GameClient({ session, onLogout }: GameClientProps) {
             <DialogueOverlay
               dialogue={activeDialogue.dialogue}
               lineIndex={activeDialogue.lineIndex}
+              pointerAdvanceEnabled={mobileInteractionEnabled}
+              onAdvance={advanceDialogue}
             />
           ) : null}
         </div>

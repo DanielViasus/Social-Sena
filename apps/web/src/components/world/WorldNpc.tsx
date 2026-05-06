@@ -15,6 +15,8 @@ interface WorldNpcProps {
   iconFrame?: WorldNpcFrameDefinition | null
   flipX?: boolean
   hideIcon?: boolean
+  interactive?: boolean
+  onInteractClick?: () => void
 }
 
 function colorToCss(value: number | undefined, fallback: string) {
@@ -85,7 +87,17 @@ export function getNpcAreaBounds(
   }
 }
 
-export function WorldNpc({ npcTemplate, debugEnabled, state, spriteFrame, iconFrame, flipX = false, hideIcon = false }: WorldNpcProps) {
+export function WorldNpc({
+  npcTemplate,
+  debugEnabled,
+  state,
+  spriteFrame,
+  iconFrame,
+  flipX = false,
+  hideIcon = false,
+  interactive = false,
+  onInteractClick,
+}: WorldNpcProps) {
   const collider = getNpcCollider(npcTemplate)
   const zIndexRef = getNpcZIndexRef(npcTemplate, collider)
   const warningArea = getNpcWarningArea(npcTemplate)
@@ -100,9 +112,52 @@ export function WorldNpc({ npcTemplate, debugEnabled, state, spriteFrame, iconFr
     state === 'interaction'
       ? colorToCss(npcTemplate.iconInteractionFillColor, '#6354ff')
       : colorToCss(npcTemplate.iconWarningFillColor, '#e85050')
+  const npcBounds = {
+    left: -npcTemplate.width / 2,
+    right: npcTemplate.width / 2,
+    top: -npcTemplate.height,
+    bottom: 0,
+  }
+  const iconBounds = shouldShowIcon
+    ? {
+        left: iconOffsetX - iconWidth / 2,
+        right: iconOffsetX + iconWidth / 2,
+        top: iconOffsetY - iconHeight / 2,
+        bottom: iconOffsetY + iconHeight / 2,
+      }
+    : null
+  const hitBounds = {
+    left: Math.min(npcBounds.left, iconBounds?.left ?? npcBounds.left),
+    right: Math.max(npcBounds.right, iconBounds?.right ?? npcBounds.right),
+    top: Math.min(npcBounds.top, iconBounds?.top ?? npcBounds.top),
+    bottom: Math.max(npcBounds.bottom, iconBounds?.bottom ?? npcBounds.bottom),
+  }
+  const hitCenterX = (hitBounds.left + hitBounds.right) / 2
+  const hitCenterY = (hitBounds.top + hitBounds.bottom) / 2
+  const hitWidth = hitBounds.right - hitBounds.left
+  const hitHeight = hitBounds.bottom - hitBounds.top
 
   return (
-    <div className="world-npc" style={{ left: `${npcTemplate.x}px`, top: `${npcTemplate.y}px` }}>
+    <div
+      className={`world-npc ${interactive ? 'is-interactive' : ''}`}
+      style={{ left: `${npcTemplate.x}px`, top: `${npcTemplate.y}px` }}
+    >
+      {interactive ? (
+        <button
+          type="button"
+          className="world-npc-hitbox"
+          aria-label={`Interactuar con ${npcTemplate.label || npcTemplate.id}`}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={onInteractClick}
+          style={{
+            left: `${hitCenterX}px`,
+            top: `${hitCenterY}px`,
+            width: `${hitWidth}px`,
+            height: `${hitHeight}px`,
+          }}
+        />
+      ) : null}
+
       {spriteFrame ? (
         <img
           src={spriteFrame.url}

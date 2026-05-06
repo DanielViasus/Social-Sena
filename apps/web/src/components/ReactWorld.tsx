@@ -50,6 +50,7 @@ interface ReactWorldProps {
   navigationEnabled?: boolean
   npcInteractionEnabled?: boolean
   suppressNpcIconForId?: string | null
+  pointerNpcInteractionEnabled?: boolean
 }
 
 interface AnimatedPlayerPosition {
@@ -363,6 +364,7 @@ function ReactWorld({
   navigationEnabled = true,
   npcInteractionEnabled = true,
   suppressNpcIconForId = null,
+  pointerNpcInteractionEnabled = false,
 }: ReactWorldProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const runtimeRef = useRef<WorldRuntimeState>({
@@ -588,7 +590,7 @@ function ReactWorld({
     [template, playerViews, npcViews],
   )
 
-  const handleWorldPointerDown = (event: React.MouseEvent<HTMLDivElement>) => {
+  const handleWorldPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!navigationEnabled) {
       return
     }
@@ -605,7 +607,7 @@ function ReactWorld({
   }
 
   return (
-    <div ref={viewportRef} className="react-world-viewport" onMouseDown={handleWorldPointerDown}>
+    <div ref={viewportRef} className="react-world-viewport" onPointerDown={handleWorldPointerDown}>
       <div
         className="react-world-surface"
         style={{
@@ -677,6 +679,12 @@ function ReactWorld({
                   iconFrame={item.iconFrame}
                   flipX={item.flipX}
                   hideIcon={suppressNpcIconForId === item.npcTemplate.id}
+                  interactive={pointerNpcInteractionEnabled && npcInteractionEnabled && item.state === 'interaction'}
+                  onInteractClick={
+                    pointerNpcInteractionEnabled && npcInteractionEnabled && item.state === 'interaction' && onNpcInteract
+                      ? () => onNpcInteract(item.npcTemplate)
+                      : undefined
+                  }
                 />
               </div>
             )

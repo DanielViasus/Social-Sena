@@ -291,6 +291,10 @@ button {
   padding: 24px 32px;
 }
 
+.dialogue-letterbox-bottom.is-clickable {
+  cursor: pointer;
+}
+
 .dialogue-panel-content {
   width: min(1400px, 100%);
   display: grid;
@@ -768,6 +772,19 @@ button {
   width: 0;
   height: 0;
   pointer-events: none;
+}
+
+.world-npc.is-interactive {
+  pointer-events: auto;
+}
+
+.world-npc-hitbox {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
 }
 
 .react-world-npc-sprite,
