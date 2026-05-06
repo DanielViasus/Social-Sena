@@ -148,7 +148,10 @@ export function WorldNpc({
           className="world-npc-hitbox"
           aria-label={`Interactuar con ${npcTemplate.label || npcTemplate.id}`}
           onPointerDown={(event) => event.stopPropagation()}
-          onClick={onInteractClick}
+          onClick={(event) => {
+            event.stopPropagation()
+            onInteractClick?.()
+          }}
           style={{
             left: `${hitCenterX}px`,
             top: `${hitCenterY}px`,

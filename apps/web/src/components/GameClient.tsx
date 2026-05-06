@@ -6,6 +6,7 @@ import type { DialogueDefinition } from '../dialogue/registry'
 import { getDialogueById } from '../dialogue/registry'
 import ReactWorld from './ReactWorld'
 import DialogueOverlay from './dialogue/DialogueOverlay'
+import MobileNpcInteractButton from './MobileNpcInteractButton'
 import { availableRoomRoutes, resolveRoomTemplateFromPath } from '../rooms/registry'
 
 const SERVER_URL = import.meta.env.VITE_GAME_SERVER_URL ?? 'http://localhost:3001'
@@ -34,6 +35,7 @@ function GameClient({ session, onLogout }: GameClientProps) {
   const [activeDialogue, setActiveDialogue] = useState<ActiveDialogueState | null>(null)
   const [npcInteractionLocked, setNpcInteractionLocked] = useState(false)
   const [mobileInteractionEnabled, setMobileInteractionEnabled] = useState(false)
+  const [activeInteractableNpc, setActiveInteractableNpc] = useState<RoomNpcTemplate | null>(null)
   const socketRef = useRef<Socket | null>(null)
   const optionsMenuRef = useRef<HTMLDivElement | null>(null)
   const chatOpenRef = useRef(false)
@@ -385,10 +387,11 @@ function GameClient({ session, onLogout }: GameClientProps) {
           onNavigate={handleNavigate}
           debugEnabled={debugEnabled}
           onNpcInteract={handleNpcInteract}
+          onActiveInteractableNpcChange={setActiveInteractableNpc}
           navigationEnabled={!activeDialogue}
           npcInteractionEnabled={!activeDialogue && !npcInteractionLocked}
           suppressNpcIconForId={activeDialogue?.npcId ?? null}
-          pointerNpcInteractionEnabled={mobileInteractionEnabled}
+          pointerNpcInteractionEnabled={false}
         />
 
         <div className="hud-layer">
@@ -498,6 +501,10 @@ function GameClient({ session, onLogout }: GameClientProps) {
           >
             Chat
           </button>
+
+          {mobileInteractionEnabled && activeInteractableNpc && !activeDialogue && !npcInteractionLocked ? (
+            <MobileNpcInteractButton onInteract={() => handleNpcInteract(activeInteractableNpc)} />
+          ) : null}
 
           {chatOpen ? (
             <section className="chat-panel-floating">

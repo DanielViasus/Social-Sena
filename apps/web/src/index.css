@@ -264,6 +264,33 @@ button {
   color: #fff2f2;
 }
 
+.mobile-npc-interact-button {
+  position: absolute;
+  left: 50%;
+  bottom: 28px;
+  width: 128px;
+  height: 128px;
+  transform: translateX(-50%);
+  display: grid;
+  place-items: center;
+  border: 2px solid #4d515f;
+  border-radius: 8px;
+  padding: 0;
+  background: #d3c7ad;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+.mobile-npc-interact-button-image {
+  width: 128px;
+  height: 128px;
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
 .dialogue-overlay {
   position: absolute;
   inset: 0;
@@ -785,6 +812,7 @@ button {
   padding: 0;
   background: transparent;
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 .react-world-npc-sprite,

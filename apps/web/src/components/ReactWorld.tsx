@@ -47,6 +47,7 @@ interface ReactWorldProps {
   onNavigate: (target: Position) => void
   debugEnabled: boolean
   onNpcInteract?: (npc: RoomNpcTemplate) => void
+  onActiveInteractableNpcChange?: (npc: RoomNpcTemplate | null) => void
   navigationEnabled?: boolean
   npcInteractionEnabled?: boolean
   suppressNpcIconForId?: string | null
@@ -361,6 +362,7 @@ function ReactWorld({
   onNavigate,
   debugEnabled,
   onNpcInteract,
+  onActiveInteractableNpcChange,
   navigationEnabled = true,
   npcInteractionEnabled = true,
   suppressNpcIconForId = null,
@@ -552,6 +554,10 @@ function ReactWorld({
   }, [currentPlayerView, npcViews])
 
   useEffect(() => {
+    onActiveInteractableNpcChange?.(activeInteractableNpc?.npcTemplate ?? null)
+  }, [activeInteractableNpc, onActiveInteractableNpcChange])
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.repeat || event.key.toLowerCase() !== 'e') {
         return
@@ -669,8 +675,19 @@ function ReactWorld({
           }
 
           if (item.kind === 'npc') {
+            const npcAllowsPointerInteraction =
+              pointerNpcInteractionEnabled && npcInteractionEnabled && item.state === 'interaction'
+
             return (
-              <div key={item.key} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 20 + index }}>
+              <div
+                key={item.key}
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  pointerEvents: npcAllowsPointerInteraction ? 'auto' : 'none',
+                  zIndex: 20 + index,
+                }}
+              >
                 <WorldNpc
                   npcTemplate={item.npcTemplate}
                   debugEnabled={debugEnabled}
@@ -679,9 +696,9 @@ function ReactWorld({
                   iconFrame={item.iconFrame}
                   flipX={item.flipX}
                   hideIcon={suppressNpcIconForId === item.npcTemplate.id}
-                  interactive={pointerNpcInteractionEnabled && npcInteractionEnabled && item.state === 'interaction'}
+                  interactive={npcAllowsPointerInteraction}
                   onInteractClick={
-                    pointerNpcInteractionEnabled && npcInteractionEnabled && item.state === 'interaction' && onNpcInteract
+                    npcAllowsPointerInteraction && onNpcInteract
                       ? () => onNpcInteract(item.npcTemplate)
                       : undefined
                   }
