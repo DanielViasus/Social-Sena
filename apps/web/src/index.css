@@ -1,3 +1,11 @@
+@font-face {
+  font-family: 'Press Start 2P';
+  src: url('./assets/fonts/PressStart2P-Regular.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
 :root {
   font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif;
   line-height: 1.5;
@@ -254,6 +262,62 @@ button {
   width: 172px;
   background: #ff0000;
   color: #fff2f2;
+}
+
+.dialogue-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1000000;
+  pointer-events: auto;
+}
+
+.dialogue-letterbox {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 264px;
+  background: #000000;
+}
+
+.dialogue-letterbox-top {
+  top: 0;
+}
+
+.dialogue-letterbox-bottom {
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 32px;
+}
+
+.dialogue-panel-content {
+  width: min(1400px, 100%);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 128px;
+  align-items: center;
+  gap: 24px;
+}
+
+.dialogue-panel-text {
+  margin: 0;
+  color: #ffffff;
+  font-family: 'Press Start 2P', monospace;
+  font-size: clamp(1rem, 1.6vw, 1.75rem);
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  white-space: pre-wrap;
+  text-wrap: balance;
+}
+
+.dialogue-panel-prompt {
+  justify-self: end;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.dialogue-panel-prompt-fallback {
+  border-radius: 12px;
 }
 
 .dropdown-panel {

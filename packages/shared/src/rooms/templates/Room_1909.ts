@@ -194,6 +194,7 @@ export const room1909Template: RoomTemplate = {
         height: 350,
       },
       interactionId: 'lobby-guide',
+      dialogueId: 'lobby-guide-intro',
     },
   ],
 }

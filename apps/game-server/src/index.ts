@@ -10,6 +10,7 @@ import {
   getRoomTemplateById,
   joinRoomSchema,
   navigateToSchema,
+  stopNavigationSchema,
   sendChatMessageSchema,
   serverEvents,
   type ChatMessage,
@@ -900,6 +901,25 @@ io.on('connection', (socket) => {
     if (routeAccepted) {
       io.to(room.roomId).emit(serverEvents.playerMoved, player)
     }
+  })
+
+  socket.on(clientEvents.stopNavigation, (rawPayload) => {
+    const parsed = stopNavigationSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session?.roomId) {
+      return
+    }
+
+    const room = rooms.get(session.roomId)
+    const player = room?.players.find((presence) => presence.sessionId === socket.id)
+
+    if (!room || !player || parsed.data.roomId !== room.roomId) {
+      return
+    }
+
+    stopPlayer(player)
+    io.to(room.roomId).emit(serverEvents.playerMoved, player)
   })
 
   socket.on(clientEvents.sendChatMessage, (rawPayload) => {

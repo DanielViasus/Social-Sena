@@ -2,6 +2,7 @@ export const clientEvents = {
   connectToGame: 'connect_to_game',
   joinRoom: 'join_room',
   navigateTo: 'navigate_to',
+  stopNavigation: 'stop_navigation',
   sendChatMessage: 'send_chat_message',
   ping: 'ping',
 } as const

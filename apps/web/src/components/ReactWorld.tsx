@@ -47,6 +47,9 @@ interface ReactWorldProps {
   onNavigate: (target: Position) => void
   debugEnabled: boolean
   onNpcInteract?: (npc: RoomNpcTemplate) => void
+  navigationEnabled?: boolean
+  npcInteractionEnabled?: boolean
+  suppressNpcIconForId?: string | null
 }
 
 interface AnimatedPlayerPosition {
@@ -350,7 +353,17 @@ function getPerspectiveAwareRenderItems(
   })
 }
 
-function ReactWorld({ room, currentUserId, template, onNavigate, debugEnabled, onNpcInteract }: ReactWorldProps) {
+function ReactWorld({
+  room,
+  currentUserId,
+  template,
+  onNavigate,
+  debugEnabled,
+  onNpcInteract,
+  navigationEnabled = true,
+  npcInteractionEnabled = true,
+  suppressNpcIconForId = null,
+}: ReactWorldProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const runtimeRef = useRef<WorldRuntimeState>({
     now: performance.now(),
@@ -549,7 +562,7 @@ function ReactWorld({ room, currentUserId, template, onNavigate, debugEnabled, o
         tagName === 'textarea' ||
         target?.isContentEditable === true
 
-      if (isTyping || !activeInteractableNpc) {
+      if (isTyping || !npcInteractionEnabled || !activeInteractableNpc) {
         return
       }
 
@@ -568,7 +581,7 @@ function ReactWorld({ room, currentUserId, template, onNavigate, debugEnabled, o
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [activeInteractableNpc, onNpcInteract])
+  }, [activeInteractableNpc, npcInteractionEnabled, onNpcInteract])
 
   const renderItems = useMemo(
     () => getPerspectiveAwareRenderItems(template, playerViews, npcViews),
@@ -576,6 +589,10 @@ function ReactWorld({ room, currentUserId, template, onNavigate, debugEnabled, o
   )
 
   const handleWorldPointerDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!navigationEnabled) {
+      return
+    }
+
     const rect = event.currentTarget.getBoundingClientRect()
     const worldX = runtime.cameraX + (event.clientX - rect.left)
     const worldY = runtime.cameraY + (event.clientY - rect.top)
@@ -659,6 +676,7 @@ function ReactWorld({ room, currentUserId, template, onNavigate, debugEnabled, o
                   spriteFrame={item.spriteFrame}
                   iconFrame={item.iconFrame}
                   flipX={item.flipX}
+                  hideIcon={suppressNpcIconForId === item.npcTemplate.id}
                 />
               </div>
             )

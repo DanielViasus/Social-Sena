@@ -2,7 +2,10 @@ import { FormEvent, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { io, type Socket } from 'socket.io-client'
 import { clientEvents, serverEvents, type ChatMessage, type Position, type Presence, type RoomNpcTemplate, type RoomState } from '@social-sena/shared'
 import type { AuthSession } from '../auth/localSession'
+import type { DialogueDefinition } from '../dialogue/registry'
+import { getDialogueById } from '../dialogue/registry'
 import ReactWorld from './ReactWorld'
+import DialogueOverlay from './dialogue/DialogueOverlay'
 import { availableRoomRoutes, resolveRoomTemplateFromPath } from '../rooms/registry'
 
 const SERVER_URL = import.meta.env.VITE_GAME_SERVER_URL ?? 'http://localhost:3001'
@@ -10,6 +13,12 @@ const SERVER_URL = import.meta.env.VITE_GAME_SERVER_URL ?? 'http://localhost:300
 interface GameClientProps {
   onLogout: () => void
   session: AuthSession
+}
+
+interface ActiveDialogueState {
+  npcId: string
+  dialogue: DialogueDefinition
+  lineIndex: number
 }
 
 function GameClient({ session, onLogout }: GameClientProps) {
@@ -22,10 +31,13 @@ function GameClient({ session, onLogout }: GameClientProps) {
   const [optionsOpen, setOptionsOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   const [debugEnabled, setDebugEnabled] = useState(false)
+  const [activeDialogue, setActiveDialogue] = useState<ActiveDialogueState | null>(null)
+  const [npcInteractionLocked, setNpcInteractionLocked] = useState(false)
   const socketRef = useRef<Socket | null>(null)
   const optionsMenuRef = useRef<HTMLDivElement | null>(null)
   const chatOpenRef = useRef(false)
   const floatingTimeoutsRef = useRef<Map<string, number>>(new Map())
+  const dialogueCooldownTimeoutRef = useRef<number | null>(null)
   const activeTemplate = resolveRoomTemplateFromPath(pathname)
   const playerInitial = session.profile.displayName.slice(0, 1).toUpperCase()
 
@@ -103,6 +115,14 @@ function GameClient({ session, onLogout }: GameClientProps) {
     return () => {
       timeouts.forEach((timeoutId) => window.clearTimeout(timeoutId))
       timeouts.clear()
+    }
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (dialogueCooldownTimeoutRef.current) {
+        window.clearTimeout(dialogueCooldownTimeoutRef.current)
+      }
     }
   }, [])
 
@@ -211,9 +231,83 @@ function GameClient({ session, onLogout }: GameClientProps) {
     setChatOpen(true)
   }
 
-  const handleNavigate = (target: Position) => {
+  const requestStopMovement = useEffectEvent(() => {
     const socket = socketRef.current
     if (!socket || !room || !connected) {
+      return
+    }
+
+    socket.emit(clientEvents.stopNavigation, {
+      roomId: room.roomId,
+    })
+  })
+
+  const startNpcInteractionCooldown = useEffectEvent((cooldownMs: number) => {
+    if (dialogueCooldownTimeoutRef.current) {
+      window.clearTimeout(dialogueCooldownTimeoutRef.current)
+    }
+
+    setNpcInteractionLocked(true)
+    dialogueCooldownTimeoutRef.current = window.setTimeout(() => {
+      setNpcInteractionLocked(false)
+      dialogueCooldownTimeoutRef.current = null
+    }, cooldownMs)
+  })
+
+  const finishDialogue = useEffectEvent((dialogue: DialogueDefinition) => {
+    setActiveDialogue(null)
+    dialogue.onComplete?.()
+    startNpcInteractionCooldown(dialogue.cooldownMs ?? 1500)
+  })
+
+  const advanceDialogue = useEffectEvent(() => {
+    if (!activeDialogue) {
+      return
+    }
+
+    if (activeDialogue.lineIndex >= activeDialogue.dialogue.lines.length - 1) {
+      finishDialogue(activeDialogue.dialogue)
+      return
+    }
+
+    setActiveDialogue({
+      ...activeDialogue,
+      lineIndex: activeDialogue.lineIndex + 1,
+    })
+  })
+
+  useEffect(() => {
+    if (!activeDialogue) {
+      return
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat || event.key.toLowerCase() !== 'e') {
+        return
+      }
+
+      const target = event.target as HTMLElement | null
+      const tagName = target?.tagName?.toLowerCase()
+      const isTyping =
+        tagName === 'input' ||
+        tagName === 'textarea' ||
+        target?.isContentEditable === true
+
+      if (isTyping) {
+        return
+      }
+
+      event.preventDefault()
+      advanceDialogue()
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [activeDialogue, advanceDialogue])
+
+  const handleNavigate = (target: Position) => {
+    const socket = socketRef.current
+    if (!socket || !room || !connected || activeDialogue) {
       return
     }
 
@@ -223,14 +317,30 @@ function GameClient({ session, onLogout }: GameClientProps) {
     })
   }
 
-  const handleNpcInteract = (npc: RoomNpcTemplate) => {
+  const handleNpcInteract = useEffectEvent((npc: RoomNpcTemplate) => {
+    if (activeDialogue || npcInteractionLocked) {
+      return
+    }
+
+    requestStopMovement()
+
+    const dialogue = getDialogueById(npc.dialogueId)
+    if (dialogue) {
+      setActiveDialogue({
+        npcId: npc.id,
+        dialogue,
+        lineIndex: 0,
+      })
+      return
+    }
+
     console.info('[NPC] Interaccion ejecutada', {
       npcId: npc.id,
       interactionId: npc.interactionId ?? null,
       roomId: room?.roomId ?? null,
       userId: session.profile.userId,
     })
-  }
+  })
 
   const handleChatSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -254,6 +364,9 @@ function GameClient({ session, onLogout }: GameClientProps) {
           onNavigate={handleNavigate}
           debugEnabled={debugEnabled}
           onNpcInteract={handleNpcInteract}
+          navigationEnabled={!activeDialogue}
+          npcInteractionEnabled={!activeDialogue && !npcInteractionLocked}
+          suppressNpcIconForId={activeDialogue?.npcId ?? null}
         />
 
         <div className="hud-layer">
@@ -405,6 +518,13 @@ function GameClient({ session, onLogout }: GameClientProps) {
                 <button type="submit">Enviar</button>
               </form>
             </section>
+          ) : null}
+
+          {activeDialogue ? (
+            <DialogueOverlay
+              dialogue={activeDialogue.dialogue}
+              lineIndex={activeDialogue.lineIndex}
+            />
           ) : null}
         </div>
       </div>

@@ -14,6 +14,7 @@ interface WorldNpcProps {
   spriteFrame?: WorldNpcFrameDefinition | null
   iconFrame?: WorldNpcFrameDefinition | null
   flipX?: boolean
+  hideIcon?: boolean
 }
 
 function colorToCss(value: number | undefined, fallback: string) {
@@ -84,7 +85,7 @@ export function getNpcAreaBounds(
   }
 }
 
-export function WorldNpc({ npcTemplate, debugEnabled, state, spriteFrame, iconFrame, flipX = false }: WorldNpcProps) {
+export function WorldNpc({ npcTemplate, debugEnabled, state, spriteFrame, iconFrame, flipX = false, hideIcon = false }: WorldNpcProps) {
   const collider = getNpcCollider(npcTemplate)
   const zIndexRef = getNpcZIndexRef(npcTemplate, collider)
   const warningArea = getNpcWarningArea(npcTemplate)
@@ -93,7 +94,7 @@ export function WorldNpc({ npcTemplate, debugEnabled, state, spriteFrame, iconFr
   const iconHeight = npcTemplate.iconHeight ?? 56
   const iconOffsetX = npcTemplate.iconOffsetX ?? 0
   const iconOffsetY = npcTemplate.iconOffsetY ?? -144
-  const shouldShowIcon = state !== 'out'
+  const shouldShowIcon = !hideIcon && state !== 'out'
   const npcFill = colorToCss(npcTemplate.fillColor, '#51e052')
   const iconFill =
     state === 'interaction'

@@ -29,6 +29,10 @@ export const navigateToSchema = z.object({
   target: positionSchema,
 })
 
+export const stopNavigationSchema = z.object({
+  roomId: z.string().min(1),
+})
+
 export const sendChatMessageSchema = z.object({
   roomId: z.string().min(1),
   content: z.string().trim().min(1).max(280),

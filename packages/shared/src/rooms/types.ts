@@ -65,6 +65,7 @@ export interface RoomNpcTemplate {
   warningArea?: RoomInteractionAreaTemplate
   interactionArea?: RoomInteractionAreaTemplate
   interactionId?: string
+  dialogueId?: string
 }
 
 export interface RoomCameraTemplate {
