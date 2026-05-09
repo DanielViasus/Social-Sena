@@ -10,6 +10,7 @@ import {
   getRoomTemplateById,
   joinRoomSchema,
   navigateToSchema,
+  setTypingStateSchema,
   stopNavigationSchema,
   sendChatMessageSchema,
   serverEvents,
@@ -930,6 +931,12 @@ io.on('connection', (socket) => {
       return
     }
 
+    io.to(session.roomId).emit(serverEvents.typingStateChanged, {
+      roomId: session.roomId,
+      userId: session.profile.userId,
+      isTyping: false,
+    })
+
     const message: ChatMessage = {
       messageId: randomUUID(),
       roomId: session.roomId,
@@ -942,6 +949,25 @@ io.on('connection', (socket) => {
     io.to(session.roomId).emit(serverEvents.chatMessage, message)
   })
 
+  socket.on(clientEvents.setTypingState, (rawPayload) => {
+    const parsed = setTypingStateSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session?.roomId) {
+      return
+    }
+
+    if (parsed.data.roomId !== session.roomId) {
+      return
+    }
+
+    io.to(session.roomId).emit(serverEvents.typingStateChanged, {
+      roomId: session.roomId,
+      userId: session.profile.userId,
+      isTyping: parsed.data.isTyping,
+    })
+  })
+
   socket.on('disconnect', () => {
     const session = sessions.get(socket.id)
     if (!session) {
@@ -952,6 +978,11 @@ io.on('connection', (socket) => {
       const room = rooms.get(session.roomId)
       if (room) {
         room.players = room.players.filter((presence) => presence.sessionId !== socket.id)
+        io.to(room.roomId).emit(serverEvents.typingStateChanged, {
+          roomId: room.roomId,
+          userId: session.profile.userId,
+          isTyping: false,
+        })
         socket.to(room.roomId).emit(serverEvents.playerLeft, { sessionId: socket.id, userId: session.profile.userId })
 
         if (room.players.length === 0) {

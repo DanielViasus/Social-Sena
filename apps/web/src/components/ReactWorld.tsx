@@ -46,6 +46,9 @@ interface ReactWorldProps {
   template: RoomTemplate
   onNavigate: (target: Position) => void
   debugEnabled: boolean
+  activeSpeechByUserId?: Record<string, string>
+  typingByUserId?: Record<string, boolean>
+  typingIndicatorText?: string
   onNpcInteract?: (npc: RoomNpcTemplate) => void
   onActiveInteractableNpcChange?: (npc: RoomNpcTemplate | null) => void
   navigationEnabled?: boolean
@@ -361,6 +364,9 @@ function ReactWorld({
   template,
   onNavigate,
   debugEnabled,
+  activeSpeechByUserId = {},
+  typingByUserId = {},
+  typingIndicatorText = '...',
   onNpcInteract,
   onActiveInteractableNpcChange,
   navigationEnabled = true,
@@ -714,6 +720,9 @@ function ReactWorld({
                 displayX={item.animatedPosition.x}
                 displayY={item.animatedPosition.y}
                 isSelf={item.isSelf}
+                speechText={activeSpeechByUserId[item.player.userId] ?? null}
+                isTyping={Boolean(typingByUserId[item.player.userId])}
+                typingIndicatorText={typingIndicatorText}
                 frame={item.frame}
                 debugEnabled={debugEnabled}
               />

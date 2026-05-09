@@ -3,6 +3,7 @@ export const clientEvents = {
   joinRoom: 'join_room',
   navigateTo: 'navigate_to',
   stopNavigation: 'stop_navigation',
+  setTypingState: 'set_typing_state',
   sendChatMessage: 'send_chat_message',
   ping: 'ping',
 } as const
@@ -14,6 +15,7 @@ export const serverEvents = {
   playerJoined: 'player_joined',
   playerMoved: 'player_moved',
   playerLeft: 'player_left',
+  typingStateChanged: 'typing_state_changed',
   chatMessage: 'chat_message',
   serverError: 'server_error',
 } as const

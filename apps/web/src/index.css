@@ -831,12 +831,41 @@ button {
   border-radius: 12px;
   background: #eef5ff;
   color: #102033;
-  font-size: 18px;
+  max-width: 220px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: center;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  overflow: hidden;
 }
 
 .react-world-avatar-label.is-self {
   background: #fff1dc;
+}
+
+.react-world-avatar-label.is-speech {
+  width: 128px;
+  max-width: 128px;
+  max-height: 50px;
+  min-height: 50px;
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  line-height: 1.35;
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  overflow: hidden;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+}
+
+.react-world-avatar-label.is-typing {
+  letter-spacing: 0.12em;
 }
 
 .world-npc {

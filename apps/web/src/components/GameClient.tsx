@@ -1,6 +1,15 @@
 import { FormEvent, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { io, type Socket } from 'socket.io-client'
-import { clientEvents, serverEvents, type ChatMessage, type Position, type Presence, type RoomNpcTemplate, type RoomState } from '@social-sena/shared'
+import {
+  clientEvents,
+  serverEvents,
+  type ChatMessage,
+  type Position,
+  type Presence,
+  type RoomNpcTemplate,
+  type RoomState,
+  type TypingStateChangedPayload,
+} from '@social-sena/shared'
 import type { AuthSession } from '../auth/localSession'
 import type { DialogueDefinition } from '../dialogue/registry'
 import { getDialogueById } from '../dialogue/registry'
@@ -28,6 +37,9 @@ function GameClient({ session, onLogout }: GameClientProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [floatingMessages, setFloatingMessages] = useState<ChatMessage[]>([])
   const [chatInput, setChatInput] = useState('')
+  const [activeSpeechByUserId, setActiveSpeechByUserId] = useState<Record<string, string>>({})
+  const [typingByUserId, setTypingByUserId] = useState<Record<string, boolean>>({})
+  const [typingIndicatorFrame, setTypingIndicatorFrame] = useState(0)
   const [connected, setConnected] = useState(false)
   const [optionsOpen, setOptionsOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
@@ -41,6 +53,9 @@ function GameClient({ session, onLogout }: GameClientProps) {
   const optionsMenuRef = useRef<HTMLDivElement | null>(null)
   const chatOpenRef = useRef(false)
   const floatingTimeoutsRef = useRef<Map<string, number>>(new Map())
+  const speechTimeoutsRef = useRef<Map<string, number>>(new Map())
+  const typingIdleTimeoutRef = useRef<number | null>(null)
+  const localTypingStateRef = useRef(false)
   const dialogueCooldownTimeoutRef = useRef<number | null>(null)
   const dialogueAudioContextRef = useRef<AudioContext | null>(null)
   const dialogueAudioUnlockedRef = useRef(false)
@@ -50,6 +65,7 @@ function GameClient({ session, onLogout }: GameClientProps) {
   })
   const activeTemplate = resolveRoomTemplateFromPath(pathname)
   const playerInitial = session.profile.displayName.slice(0, 1).toUpperCase()
+  const typingIndicatorText = ['.', '..', '...'][typingIndicatorFrame] ?? '...'
 
   const clearFloatingMessage = useEffectEvent((messageId: string) => {
     const timeoutId = floatingTimeoutsRef.current.get(messageId)
@@ -61,6 +77,104 @@ function GameClient({ session, onLogout }: GameClientProps) {
     setFloatingMessages((currentMessages) =>
       currentMessages.filter((message) => message.messageId !== messageId),
     )
+  })
+
+  const clearPlayerSpeech = useEffectEvent((userId: string) => {
+    const timeoutId = speechTimeoutsRef.current.get(userId)
+    if (timeoutId) {
+      window.clearTimeout(timeoutId)
+      speechTimeoutsRef.current.delete(userId)
+    }
+
+    setActiveSpeechByUserId((currentValue) => {
+      if (!(userId in currentValue)) {
+        return currentValue
+      }
+
+      const nextValue = { ...currentValue }
+      delete nextValue[userId]
+      return nextValue
+    })
+  })
+
+  const showPlayerSpeech = useEffectEvent((message: ChatMessage) => {
+    const normalizedText = message.content.trim()
+    const speechText = normalizedText.length <= 30 ? normalizedText : '...'
+
+    setActiveSpeechByUserId((currentValue) => ({
+      ...currentValue,
+      [message.userId]: speechText,
+    }))
+
+    const previousTimeout = speechTimeoutsRef.current.get(message.userId)
+    if (previousTimeout) {
+      window.clearTimeout(previousTimeout)
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      clearPlayerSpeech(message.userId)
+    }, 4000)
+
+    speechTimeoutsRef.current.set(message.userId, timeoutId)
+  })
+
+  const clearPlayerTyping = useEffectEvent((userId: string) => {
+    setTypingByUserId((currentValue) => {
+      if (!(userId in currentValue)) {
+        return currentValue
+      }
+
+      const nextValue = { ...currentValue }
+      delete nextValue[userId]
+      return nextValue
+    })
+  })
+
+  const setPlayerTyping = useEffectEvent((userId: string, isTyping: boolean) => {
+    if (isTyping) {
+      clearPlayerSpeech(userId)
+      setTypingByUserId((currentValue) => {
+        if (currentValue[userId]) {
+          return currentValue
+        }
+
+        return {
+          ...currentValue,
+          [userId]: true,
+        }
+      })
+      return
+    }
+
+    clearPlayerTyping(userId)
+  })
+
+  const emitLocalTypingState = useEffectEvent((isTyping: boolean) => {
+    if (localTypingStateRef.current === isTyping) {
+      return
+    }
+
+    localTypingStateRef.current = isTyping
+    setPlayerTyping(session.profile.userId, isTyping)
+
+    const socket = socketRef.current
+    if (!socket || !connected || !room) {
+      return
+    }
+
+    socket.emit(clientEvents.setTypingState, {
+      roomId: room.roomId,
+      isTyping,
+    })
+  })
+
+  const stopLocalTyping = useEffectEvent(() => {
+    if (typingIdleTimeoutRef.current) {
+      window.clearTimeout(typingIdleTimeoutRef.current)
+      typingIdleTimeoutRef.current = null
+    }
+
+    emitLocalTypingState(false)
   })
 
   const enqueueFloatingMessage = useEffectEvent((message: ChatMessage) => {
@@ -129,6 +243,22 @@ function GameClient({ session, onLogout }: GameClientProps) {
   }, [])
 
   useEffect(() => {
+    const speechTimeouts = speechTimeoutsRef.current
+    return () => {
+      speechTimeouts.forEach((timeoutId) => window.clearTimeout(timeoutId))
+      speechTimeouts.clear()
+    }
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (typingIdleTimeoutRef.current) {
+        window.clearTimeout(typingIdleTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
     const mobileMedia = window.matchMedia('(max-width: 820px)')
     const coarseMedia = window.matchMedia('(pointer: coarse)')
 
@@ -185,6 +315,20 @@ function GameClient({ session, onLogout }: GameClientProps) {
   }, [])
 
   useEffect(() => {
+    const hasTypingPlayers = Object.keys(typingByUserId).length > 0
+    if (!hasTypingPlayers) {
+      setTypingIndicatorFrame(0)
+      return
+    }
+
+    const intervalId = window.setInterval(() => {
+      setTypingIndicatorFrame((currentValue) => (currentValue + 1) % 3)
+    }, 350)
+
+    return () => window.clearInterval(intervalId)
+  }, [typingByUserId])
+
+  useEffect(() => {
     const nextSocket = io(SERVER_URL, {
       autoConnect: true,
     })
@@ -196,6 +340,9 @@ function GameClient({ session, onLogout }: GameClientProps) {
       setRoom(null)
       setMessages([])
       setFloatingMessages([])
+      setActiveSpeechByUserId({})
+      setTypingByUserId({})
+      localTypingStateRef.current = false
       nextSocket.emit(clientEvents.connectToGame, { profile: session.profile })
       nextSocket.emit(clientEvents.joinRoom, {
         roomId: activeTemplate.id,
@@ -205,6 +352,8 @@ function GameClient({ session, onLogout }: GameClientProps) {
 
     nextSocket.on('disconnect', () => {
       setConnected(false)
+      setTypingByUserId({})
+      localTypingStateRef.current = false
     })
 
     nextSocket.on(serverEvents.roomState, (nextRoom: RoomState) => {
@@ -233,6 +382,11 @@ function GameClient({ session, onLogout }: GameClientProps) {
     nextSocket.on(serverEvents.playerLeft, ({ sessionId }: { sessionId: string }) => {
       setRoom((currentRoom) => {
         if (!currentRoom) return currentRoom
+        const departedPlayer = currentRoom.players.find((player) => player.sessionId === sessionId)
+        if (departedPlayer) {
+          clearPlayerSpeech(departedPlayer.userId)
+          clearPlayerTyping(departedPlayer.userId)
+        }
         return {
           ...currentRoom,
           players: currentRoom.players.filter((player) => player.sessionId !== sessionId),
@@ -240,8 +394,14 @@ function GameClient({ session, onLogout }: GameClientProps) {
       })
     })
 
+    nextSocket.on(serverEvents.typingStateChanged, (payload: TypingStateChangedPayload) => {
+      setPlayerTyping(payload.userId, payload.isTyping)
+    })
+
     nextSocket.on(serverEvents.chatMessage, (message: ChatMessage) => {
+      clearPlayerTyping(message.userId)
       setMessages((currentMessages) => [...currentMessages, message])
+      showPlayerSpeech(message)
       if (!chatOpenRef.current) {
         enqueueFloatingMessage(message)
       }
@@ -490,11 +650,32 @@ function GameClient({ session, onLogout }: GameClientProps) {
     const socket = socketRef.current
     if (!socket || !chatInput.trim() || !room) return
 
+    stopLocalTyping()
     socket.emit(clientEvents.sendChatMessage, {
       roomId: room.roomId,
       content: chatInput,
     })
     setChatInput('')
+  }
+
+  const handleChatInputChange = (nextValue: string) => {
+    setChatInput(nextValue)
+
+    if (!nextValue.trim()) {
+      stopLocalTyping()
+      return
+    }
+
+    emitLocalTypingState(true)
+
+    if (typingIdleTimeoutRef.current) {
+      window.clearTimeout(typingIdleTimeoutRef.current)
+    }
+
+    typingIdleTimeoutRef.current = window.setTimeout(() => {
+      emitLocalTypingState(false)
+      typingIdleTimeoutRef.current = null
+    }, 2000)
   }
 
   return (
@@ -506,6 +687,9 @@ function GameClient({ session, onLogout }: GameClientProps) {
           template={activeTemplate}
           onNavigate={handleNavigate}
           debugEnabled={debugEnabled}
+          activeSpeechByUserId={activeSpeechByUserId}
+          typingByUserId={typingByUserId}
+          typingIndicatorText={typingIndicatorText}
           onNpcInteract={handleNpcInteract}
           onActiveInteractableNpcChange={setActiveInteractableNpc}
           navigationEnabled={!activeDialogue}
@@ -636,7 +820,10 @@ function GameClient({ session, onLogout }: GameClientProps) {
                 <button
                   type="button"
                   className="chat-close-button"
-                  onClick={() => setChatOpen(false)}
+                  onClick={() => {
+                    stopLocalTyping()
+                    setChatOpen(false)
+                  }}
                 >
                   Cerrar
                 </button>
@@ -661,7 +848,7 @@ function GameClient({ session, onLogout }: GameClientProps) {
               <form className="chat-form" onSubmit={handleChatSubmit}>
                 <input
                   value={chatInput}
-                  onChange={(event) => setChatInput(event.target.value)}
+                  onChange={(event) => handleChatInputChange(event.target.value)}
                   placeholder="Escribe un mensaje para la sala"
                 />
                 <button type="submit">Enviar</button>

@@ -72,6 +72,17 @@ export interface SendChatMessagePayload {
   content: string
 }
 
+export interface SetTypingStatePayload {
+  roomId: string
+  isTyping: boolean
+}
+
+export interface TypingStateChangedPayload {
+  roomId: string
+  userId: string
+  isTyping: boolean
+}
+
 export interface ServerErrorPayload {
   code: string
   message: string

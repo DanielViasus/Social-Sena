@@ -6,6 +6,9 @@ interface WorldPlayerProps {
   displayX: number
   displayY: number
   isSelf: boolean
+  speechText?: string | null
+  isTyping?: boolean
+  typingIndicatorText?: string
   frame: {
     preset: AvatarPreset
     texture: AvatarTextureDefinition
@@ -23,7 +26,20 @@ export function getPlayerPerspectiveY(positionY: number) {
   return positionY
 }
 
-export function WorldPlayer({ player, displayX, displayY, isSelf, frame, debugEnabled }: WorldPlayerProps) {
+export function WorldPlayer({
+  player,
+  displayX,
+  displayY,
+  isSelf,
+  speechText,
+  isTyping = false,
+  typingIndicatorText = '...',
+  frame,
+  debugEnabled,
+}: WorldPlayerProps) {
+  const isSpeechActive = Boolean(speechText) || isTyping
+  const labelText = isTyping ? typingIndicatorText : speechText || player.displayName
+
   return (
     <div
       className="react-world-avatar"
@@ -44,7 +60,11 @@ export function WorldPlayer({ player, displayX, displayY, isSelf, frame, debugEn
           transform: frame.flipX ? 'translateX(-50%) scaleX(-1)' : 'translateX(-50%) scaleX(1)',
         }}
       />
-      <div className={`react-world-avatar-label ${isSelf ? 'is-self' : ''}`}>{player.displayName}</div>
+      <div
+        className={`react-world-avatar-label ${isSelf ? 'is-self' : ''} ${isSpeechActive ? 'is-speech' : ''} ${isTyping ? 'is-typing' : ''}`}
+      >
+        {labelText}
+      </div>
 
       {debugEnabled ? (
         <>

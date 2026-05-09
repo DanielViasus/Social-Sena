@@ -33,6 +33,11 @@ export const stopNavigationSchema = z.object({
   roomId: z.string().min(1),
 })
 
+export const setTypingStateSchema = z.object({
+  roomId: z.string().min(1),
+  isTyping: z.boolean(),
+})
+
 export const sendChatMessageSchema = z.object({
   roomId: z.string().min(1),
   content: z.string().trim().min(1).max(280),
