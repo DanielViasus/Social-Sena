@@ -32,6 +32,7 @@ interface ActiveDialogueState {
 }
 
 function GameClient({ session, onLogout }: GameClientProps) {
+  const MAX_HEADLINE_SPEECH_CHARS = 30
   const [pathname, setPathname] = useState(() => window.location.pathname)
   const [room, setRoom] = useState<RoomState | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -99,7 +100,10 @@ function GameClient({ session, onLogout }: GameClientProps) {
 
   const showPlayerSpeech = useEffectEvent((message: ChatMessage) => {
     const normalizedText = message.content.trim()
-    const speechText = normalizedText.length <= 30 ? normalizedText : '...'
+    const speechText =
+      normalizedText.length <= MAX_HEADLINE_SPEECH_CHARS
+        ? normalizedText
+        : `${normalizedText.slice(0, MAX_HEADLINE_SPEECH_CHARS).trimEnd()}...`
 
     setActiveSpeechByUserId((currentValue) => ({
       ...currentValue,
