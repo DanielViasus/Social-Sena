@@ -40,6 +40,8 @@ interface ActiveDialogueState {
   lineIndex: number
 }
 
+type ControlMode = 'mouse' | 'keyboard'
+
 function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const MAX_HEADLINE_SPEECH_CHARS = 30
   const [pathname, setPathname] = useState(() => window.location.pathname)
@@ -60,6 +62,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const [mobileInteractionEnabled, setMobileInteractionEnabled] = useState(false)
   const [activeInteractableNpc, setActiveInteractableNpc] = useState<RoomNpcTemplate | null>(null)
   const [skinEditorOpen, setSkinEditorOpen] = useState(false)
+  const [controlMode, setControlMode] = useState<ControlMode>('mouse')
   const [selectedSkinId, setSelectedSkinId] = useState(() => resolveAvatarPreset(session.profile.skinId).id)
   const [selectedSkinColorsBySkinId, setSelectedSkinColorsBySkinId] = useState<Record<string, AvatarColorSelections>>(
     () => {
@@ -222,6 +225,28 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
   })
 
+  const setMovementKeyState = useEffectEvent(
+    (movementKey: 'up' | 'down' | 'left' | 'right', pressed: boolean) => {
+      if (!pressed && !movementInputRef.current[movementKey]) {
+        return
+      }
+
+      if (pressed && (activeDialogue || skinEditorOpen || controlMode !== 'keyboard')) {
+        return
+      }
+
+      const currentInput = movementInputRef.current
+      if (currentInput[movementKey] === pressed) {
+        return
+      }
+
+      emitMovementInput({
+        ...currentInput,
+        [movementKey]: pressed,
+      })
+    },
+  )
+
   const clearMovementInput = useEffectEvent(() => {
     const nextInput = {
       up: false,
@@ -383,6 +408,12 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
         return
       }
 
+      if (event.key.toLowerCase() === 'o') {
+        event.preventDefault()
+        setControlMode((currentValue) => (currentValue === 'mouse' ? 'keyboard' : 'mouse'))
+        return
+      }
+
       if (event.key.toLowerCase() === 'm' && !activeDialogue) {
         event.preventDefault()
         setSkinEditorOpen((currentValue) => !currentValue)
@@ -422,20 +453,12 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
         tagName === 'textarea' ||
         target?.isContentEditable === true
 
-      if (isTyping || activeDialogue || skinEditorOpen) {
-        return
-      }
-
-      const currentInput = movementInputRef.current
-      if (currentInput[movementKey]) {
+      if (isTyping || activeDialogue || skinEditorOpen || controlMode !== 'keyboard') {
         return
       }
 
       event.preventDefault()
-      emitMovementInput({
-        ...currentInput,
-        [movementKey]: true,
-      })
+      setMovementKeyState(movementKey, true)
     }
 
     const handleMovementKeyUp = (event: KeyboardEvent) => {
@@ -444,16 +467,8 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
         return
       }
 
-      const currentInput = movementInputRef.current
-      if (!currentInput[movementKey]) {
-        return
-      }
-
       event.preventDefault()
-      emitMovementInput({
-        ...currentInput,
-        [movementKey]: false,
-      })
+      setMovementKeyState(movementKey, false)
     }
 
     const handleWindowBlur = () => {
@@ -469,7 +484,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       window.removeEventListener('keyup', handleMovementKeyUp)
       window.removeEventListener('blur', handleWindowBlur)
     }
-  }, [activeDialogue, clearMovementInput, emitMovementInput, skinEditorOpen])
+  }, [activeDialogue, clearMovementInput, controlMode, setMovementKeyState, skinEditorOpen])
 
   useEffect(() => {
     if (activeDialogue || skinEditorOpen) {
@@ -783,7 +798,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
   const handleNavigate = (target: Position) => {
     const socket = socketRef.current
-    if (!socket || !room || !connected || activeDialogue) {
+    if (!socket || !room || !connected || activeDialogue || controlMode !== 'mouse') {
       return
     }
 
@@ -817,6 +832,33 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       roomId: room?.roomId ?? null,
       userId: session.profile.userId,
     })
+  })
+
+  const handleInteractShortcut = useEffectEvent(() => {
+    if (activeDialogue) {
+      advanceDialogue()
+      return
+    }
+
+    if (activeInteractableNpc && !npcInteractionLocked && !skinEditorOpen) {
+      handleNpcInteract(activeInteractableNpc)
+    }
+  })
+
+  const toggleDebug = useEffectEvent(() => {
+    setDebugEnabled((currentValue) => !currentValue)
+  })
+
+  const toggleSkinEditor = useEffectEvent(() => {
+    if (activeDialogue) {
+      return
+    }
+
+    setSkinEditorOpen((currentValue) => !currentValue)
+  })
+
+  const toggleControlMode = useEffectEvent(() => {
+    setControlMode((currentValue) => (currentValue === 'mouse' ? 'keyboard' : 'mouse'))
   })
 
   const handleSelectSkin = useEffectEvent((nextSkinId: string) => {
@@ -932,6 +974,15 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     }))
   }, [appliedSkinColorsKey, appliedSkinPreset.id, skinEditorOpen])
 
+  useEffect(() => {
+    if (controlMode === 'mouse') {
+      clearMovementInput()
+      return
+    }
+
+    requestStopMovement()
+  }, [clearMovementInput, controlMode, requestStopMovement])
+
   const handleChatSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const socket = socketRef.current
@@ -979,7 +1030,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
           typingIndicatorText={typingIndicatorText}
           onNpcInteract={handleNpcInteract}
           onActiveInteractableNpcChange={setActiveInteractableNpc}
-          navigationEnabled={!activeDialogue && !skinEditorOpen}
+          navigationEnabled={!activeDialogue && !skinEditorOpen && controlMode === 'mouse'}
           npcInteractionEnabled={!activeDialogue && !npcInteractionLocked && !skinEditorOpen}
           suppressNpcIconForId={activeDialogue?.npcId ?? null}
           pointerNpcInteractionEnabled={false}
@@ -1008,7 +1059,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
               aria-expanded={optionsOpen}
               aria-label="Abrir opciones de estado"
             >
-              O
+              MENU
             </button>
 
             {optionsOpen ? (
@@ -1058,12 +1109,27 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                     <strong>{debugEnabled ? 'Activo' : 'Inactivo'}</strong>
                     <small className="dropdown-subtext">Atajo rapido: tecla P</small>
                   </div>
+                  <div className="dropdown-row">
+                    <span>Control</span>
+                    <strong>{controlMode === 'mouse' ? 'Mouse' : 'Teclas'}</strong>
+                    <small className="dropdown-subtext">Atajo rapido: tecla O</small>
+                  </div>
                   <button
                     type="button"
                     className={`secondary-action-button ${debugEnabled ? 'is-active' : ''}`}
-                    onClick={() => setDebugEnabled((currentValue) => !currentValue)}
+                    onClick={toggleDebug}
                   >
                     {debugEnabled ? 'Ocultar coliders' : 'Mostrar coliders'}
+                  </button>
+                  <button
+                    type="button"
+                    className={`secondary-action-button ${controlMode === 'keyboard' ? 'is-active' : ''}`}
+                    onClick={toggleControlMode}
+                  >
+                    {controlMode === 'mouse' ? 'Usar teclas' : 'Usar mouse'}
+                  </button>
+                  <button type="button" className="secondary-action-button" onClick={toggleSkinEditor}>
+                    Personalizar skin
                   </button>
                   <button type="button" className="secondary-action-button" onClick={onLogout}>
                     Cerrar sesion
@@ -1095,6 +1161,80 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
           {mobileInteractionEnabled && activeInteractableNpc && !activeDialogue && !npcInteractionLocked && !skinEditorOpen ? (
             <MobileNpcInteractButton onInteract={() => handleNpcInteract(activeInteractableNpc)} />
+          ) : null}
+
+          {!mobileInteractionEnabled ? (
+            <section className="shortcut-board" aria-label="Atajos de teclado">
+              <header className="shortcut-board-header">
+                <h2>Atajos</h2>
+                <span className="shortcut-board-mode">{controlMode === 'mouse' ? 'mouse' : 'teclas'}</span>
+              </header>
+              <div className="shortcut-board-actions">
+                <button type="button" className="shortcut-chip" onClick={toggleDebug}>
+                  <span className="shortcut-key">P</span>
+                  <span className="shortcut-label">coliders</span>
+                </button>
+                <button type="button" className="shortcut-chip" onClick={toggleSkinEditor}>
+                  <span className="shortcut-key">M</span>
+                  <span className="shortcut-label">skins</span>
+                </button>
+                <button type="button" className="shortcut-chip" onClick={toggleControlMode}>
+                  <span className="shortcut-key">O</span>
+                  <span className="shortcut-label">{controlMode === 'mouse' ? 'usar teclas' : 'usar mouse'}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`shortcut-chip ${activeInteractableNpc || activeDialogue ? '' : 'is-disabled'}`}
+                  onClick={handleInteractShortcut}
+                  disabled={!activeInteractableNpc && !activeDialogue}
+                >
+                  <span className="shortcut-key">E</span>
+                  <span className="shortcut-label">{activeDialogue ? 'dialogo' : 'interactuar'}</span>
+                </button>
+              </div>
+              <div className="shortcut-board-movement">
+                <button
+                  type="button"
+                  className={`shortcut-move up ${controlMode !== 'keyboard' ? 'is-disabled' : ''}`}
+                  onPointerDown={() => setMovementKeyState('up', true)}
+                  onPointerUp={() => setMovementKeyState('up', false)}
+                  onPointerLeave={() => setMovementKeyState('up', false)}
+                  onPointerCancel={() => setMovementKeyState('up', false)}
+                >
+                  W
+                </button>
+                <button
+                  type="button"
+                  className={`shortcut-move left ${controlMode !== 'keyboard' ? 'is-disabled' : ''}`}
+                  onPointerDown={() => setMovementKeyState('left', true)}
+                  onPointerUp={() => setMovementKeyState('left', false)}
+                  onPointerLeave={() => setMovementKeyState('left', false)}
+                  onPointerCancel={() => setMovementKeyState('left', false)}
+                >
+                  A
+                </button>
+                <button
+                  type="button"
+                  className={`shortcut-move down ${controlMode !== 'keyboard' ? 'is-disabled' : ''}`}
+                  onPointerDown={() => setMovementKeyState('down', true)}
+                  onPointerUp={() => setMovementKeyState('down', false)}
+                  onPointerLeave={() => setMovementKeyState('down', false)}
+                  onPointerCancel={() => setMovementKeyState('down', false)}
+                >
+                  S
+                </button>
+                <button
+                  type="button"
+                  className={`shortcut-move right ${controlMode !== 'keyboard' ? 'is-disabled' : ''}`}
+                  onPointerDown={() => setMovementKeyState('right', true)}
+                  onPointerUp={() => setMovementKeyState('right', false)}
+                  onPointerLeave={() => setMovementKeyState('right', false)}
+                  onPointerCancel={() => setMovementKeyState('right', false)}
+                >
+                  D
+                </button>
+              </div>
+            </section>
           ) : null}
 
           {skinEditorOpen ? (
