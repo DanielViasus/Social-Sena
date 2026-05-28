@@ -898,14 +898,14 @@
 <rect width="4" height="4" transform="matrix(0 1 1 0 24 228)" fill="#2A2A2A"/>
 <rect width="4" height="16" transform="matrix(0 1 1 0 24 216)" fill="#2A2A2A"/>
 <rect x="68" y="220" width="8" height="32" transform="rotate(90 68 220)" fill="#F5995B"/>
-<rect x="44" y="228" width="4" height="4" transform="rotate(90 44 228)" fill="#2A2A2A"/>
-<rect x="48" y="228" width="4" height="4" transform="rotate(90 48 228)" fill="#2A2A2A"/>
-<rect x="52" y="228" width="4" height="4" transform="rotate(90 52 228)" fill="#2A2A2A"/>
-<rect x="56" y="228" width="4" height="4" transform="rotate(90 56 228)" fill="#2A2A2A"/>
-<rect x="60" y="228" width="4" height="4" transform="rotate(90 60 228)" fill="#2A2A2A"/>
-<rect x="64" y="228" width="4" height="4" transform="rotate(90 64 228)" fill="#2A2A2A"/>
-<rect x="68" y="228" width="4" height="4" transform="rotate(90 68 228)" fill="#2A2A2A"/>
-<rect x="40" y="228" width="4" height="4" transform="rotate(90 40 228)" fill="#2A2A2A"/>
+<rect x="44" y="228" width="1" height="1" transform="rotate(90 44 228)" fill="#2A2A2A"/>
+<rect x="48" y="228" width="1" height="1" transform="rotate(90 48 228)" fill="#2A2A2A"/>
+<rect x="52" y="228" width="1" height="1" transform="rotate(90 52 228)" fill="#2A2A2A"/>
+<rect x="56" y="228" width="1" height="1" transform="rotate(90 56 228)" fill="#2A2A2A"/>
+<rect x="60" y="228" width="1" height="1" transform="rotate(90 60 228)" fill="#2A2A2A"/>
+<rect x="64" y="228" width="1" height="1" transform="rotate(90 64 228)" fill="#2A2A2A"/>
+<rect x="68" y="228" width="1" height="1" transform="rotate(90 68 228)" fill="#2A2A2A"/>
+<rect x="40" y="228" width="1" height="1" transform="rotate(90 40 228)" fill="#2A2A2A"/>
 <rect x="96" y="220" width="8" height="8" transform="rotate(90 96 220)" fill="#F5995B"/>
 <rect x="96" y="220" width="8" height="4" transform="rotate(90 96 220)" fill="#DD8D57"/>
 <rect x="100" y="220" width="8" height="4" transform="rotate(90 100 220)" fill="#2A2A2A"/>
@@ -914,14 +914,14 @@
 <rect x="100" y="228" width="4" height="4" transform="rotate(90 100 228)" fill="#2A2A2A"/>
 <rect x="100" y="216" width="4" height="16" transform="rotate(90 100 216)" fill="#2A2A2A"/>
 <rect width="8" height="32" transform="matrix(0 1 1 0 56 220)" fill="#F5995B"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 80 228)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 76 228)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 72 228)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 68 228)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 64 228)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 60 228)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 56 228)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 84 228)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 80 228)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 76 228)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 72 228)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 68 228)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 64 228)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 60 228)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 56 228)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 84 228)" fill="#2A2A2A"/>
 <rect width="52" height="4" transform="matrix(1 0 0 -1 36 144)" fill="#2A2A2A"/>
 <rect width="52" height="4" transform="matrix(1 0 0 -1 36 148)" fill="#DFB292"/>
 <rect width="52" height="4" transform="matrix(1 0 0 -1 36 196)" fill="#DFB292"/>
@@ -1324,14 +1324,14 @@
 <rect width="4" height="4" transform="matrix(0 1 1 0 280 228)" fill="#2A2A2A"/>
 <rect width="4" height="16" transform="matrix(0 1 1 0 280 216)" fill="#2A2A2A"/>
 <rect x="324" y="220" width="8" height="32" transform="rotate(90 324 220)" fill="#F5995B"/>
-<rect x="300" y="228" width="4" height="4" transform="rotate(90 300 228)" fill="#2A2A2A"/>
-<rect x="304" y="228" width="4" height="4" transform="rotate(90 304 228)" fill="#2A2A2A"/>
-<rect x="308" y="228" width="4" height="4" transform="rotate(90 308 228)" fill="#2A2A2A"/>
-<rect x="312" y="228" width="4" height="4" transform="rotate(90 312 228)" fill="#2A2A2A"/>
-<rect x="316" y="228" width="4" height="4" transform="rotate(90 316 228)" fill="#2A2A2A"/>
-<rect x="320" y="228" width="4" height="4" transform="rotate(90 320 228)" fill="#2A2A2A"/>
-<rect x="324" y="228" width="4" height="4" transform="rotate(90 324 228)" fill="#2A2A2A"/>
-<rect x="296" y="228" width="4" height="4" transform="rotate(90 296 228)" fill="#2A2A2A"/>
+<rect x="300" y="228" width="1" height="1" transform="rotate(90 300 228)" fill="#2A2A2A"/>
+<rect x="304" y="228" width="1" height="1" transform="rotate(90 304 228)" fill="#2A2A2A"/>
+<rect x="308" y="228" width="1" height="1" transform="rotate(90 308 228)" fill="#2A2A2A"/>
+<rect x="312" y="228" width="1" height="1" transform="rotate(90 312 228)" fill="#2A2A2A"/>
+<rect x="316" y="228" width="1" height="1" transform="rotate(90 316 228)" fill="#2A2A2A"/>
+<rect x="320" y="228" width="1" height="1" transform="rotate(90 320 228)" fill="#2A2A2A"/>
+<rect x="324" y="228" width="1" height="1" transform="rotate(90 324 228)" fill="#2A2A2A"/>
+<rect x="296" y="228" width="1" height="1" transform="rotate(90 296 228)" fill="#2A2A2A"/>
 <rect x="352" y="220" width="8" height="8" transform="rotate(90 352 220)" fill="#F5995B"/>
 <rect x="352" y="220" width="8" height="4" transform="rotate(90 352 220)" fill="#DD8D57"/>
 <rect x="356" y="220" width="8" height="4" transform="rotate(90 356 220)" fill="#2A2A2A"/>
@@ -1340,14 +1340,14 @@
 <rect x="356" y="228" width="4" height="4" transform="rotate(90 356 228)" fill="#2A2A2A"/>
 <rect x="356" y="216" width="4" height="16" transform="rotate(90 356 216)" fill="#2A2A2A"/>
 <rect width="8" height="32" transform="matrix(0 1 1 0 312 220)" fill="#F5995B"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 336 228)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 332 228)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 328 228)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 324 228)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 320 228)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 316 228)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 312 228)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 340 228)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 336 228)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 332 228)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 328 228)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 324 228)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 320 228)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 316 228)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 312 228)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 340 228)" fill="#2A2A2A"/>
 <rect width="52" height="4" transform="matrix(1 0 0 -1 292 144)" fill="#2A2A2A"/>
 <rect width="52" height="4" transform="matrix(1 0 0 -1 292 148)" fill="#DFB292"/>
 <rect width="52" height="4" transform="matrix(1 0 0 -1 292 196)" fill="#DFB292"/>
@@ -1735,14 +1735,14 @@
 <rect width="4" height="12" transform="matrix(-1 0 0 1 36 312)" fill="#F5995B"/>
 <rect width="4" height="4" transform="matrix(-1 0 0 1 40 304)" fill="#F5995B"/>
 <rect width="4" height="4" transform="matrix(-1 0 0 1 32 312)" fill="#F5995B"/>
-<rect width="4" height="20" transform="matrix(-1 0 0 1 100 272)" fill="#3B191C"/>
-<rect width="4" height="20" transform="matrix(-1 0 0 1 36 272)" fill="#3B191C"/>
-<rect width="8" height="8" transform="matrix(-1 0 0 1 96 268)" fill="#3B191C"/>
-<rect width="8" height="8" transform="matrix(-1 0 0 1 44 268)" fill="#3B191C"/>
-<rect width="4" height="8" transform="matrix(-1 0 0 1 88 272)" fill="#3B191C"/>
-<rect width="4" height="8" transform="matrix(-1 0 0 1 48 272)" fill="#3B191C"/>
-<rect width="8" height="12" transform="matrix(-1 0 0 1 44 276)" fill="#3B191C"/>
-<rect width="8" height="12" transform="matrix(-1 0 0 1 96 276)" fill="#3B191C"/>
+<rect width="4" height="20" transform="matrix(-1 0 0 1 100 272)" fill="#563E1A"/>
+<rect width="4" height="20" transform="matrix(-1 0 0 1 36 272)" fill="#563E1A"/>
+<rect width="8" height="8" transform="matrix(-1 0 0 1 96 268)" fill="#563E1A"/>
+<rect width="8" height="8" transform="matrix(-1 0 0 1 44 268)" fill="#563E1A"/>
+<rect width="4" height="8" transform="matrix(-1 0 0 1 88 272)" fill="#563E1A"/>
+<rect width="4" height="8" transform="matrix(-1 0 0 1 48 272)" fill="#563E1A"/>
+<rect width="8" height="12" transform="matrix(-1 0 0 1 44 276)" fill="#563E1A"/>
+<rect width="8" height="12" transform="matrix(-1 0 0 1 96 276)" fill="#563E1A"/>
 <rect width="16" height="4" transform="matrix(-1 0 0 1 100 320)" fill="#F6F6F6"/>
 <rect width="12" height="4" transform="matrix(-1 0 0 1 100 316)" fill="#F6F6F6"/>
 <rect width="12" height="4" transform="matrix(-1 0 0 1 104 312)" fill="#F6F6F6"/>
@@ -1963,14 +1963,14 @@
 <rect width="4" height="12" transform="matrix(-1 0 0 1 164 316)" fill="#F5995B"/>
 <rect width="4" height="4" transform="matrix(-1 0 0 1 168 308)" fill="#F5995B"/>
 <rect width="4" height="4" transform="matrix(-1 0 0 1 160 316)" fill="#F5995B"/>
-<rect width="4" height="20" transform="matrix(-1 0 0 1 228 276)" fill="#3B191C"/>
-<rect width="4" height="20" transform="matrix(-1 0 0 1 164 276)" fill="#3B191C"/>
-<rect width="8" height="8" transform="matrix(-1 0 0 1 224 272)" fill="#3B191C"/>
-<rect width="8" height="8" transform="matrix(-1 0 0 1 172 272)" fill="#3B191C"/>
-<rect width="4" height="8" transform="matrix(-1 0 0 1 216 276)" fill="#3B191C"/>
-<rect width="4" height="8" transform="matrix(-1 0 0 1 176 276)" fill="#3B191C"/>
-<rect width="8" height="12" transform="matrix(-1 0 0 1 172 280)" fill="#3B191C"/>
-<rect width="8" height="12" transform="matrix(-1 0 0 1 224 280)" fill="#3B191C"/>
+<rect width="4" height="20" transform="matrix(-1 0 0 1 228 276)" fill="#563E1A"/>
+<rect width="4" height="20" transform="matrix(-1 0 0 1 164 276)" fill="#563E1A"/>
+<rect width="8" height="8" transform="matrix(-1 0 0 1 224 272)" fill="#563E1A"/>
+<rect width="8" height="8" transform="matrix(-1 0 0 1 172 272)" fill="#563E1A"/>
+<rect width="4" height="8" transform="matrix(-1 0 0 1 216 276)" fill="#563E1A"/>
+<rect width="4" height="8" transform="matrix(-1 0 0 1 176 276)" fill="#563E1A"/>
+<rect width="8" height="12" transform="matrix(-1 0 0 1 172 280)" fill="#563E1A"/>
+<rect width="8" height="12" transform="matrix(-1 0 0 1 224 280)" fill="#563E1A"/>
 <rect width="16" height="4" transform="matrix(-1 0 0 1 228 324)" fill="#F6F6F6"/>
 <rect width="12" height="4" transform="matrix(-1 0 0 1 228 320)" fill="#F6F6F6"/>
 <rect width="12" height="4" transform="matrix(-1 0 0 1 232 316)" fill="#F6F6F6"/>
@@ -2137,14 +2137,14 @@
 <rect width="4" height="12" transform="matrix(-1 0 0 1 292 316)" fill="#F5995B"/>
 <rect width="4" height="4" transform="matrix(-1 0 0 1 296 308)" fill="#F5995B"/>
 <rect width="4" height="4" transform="matrix(-1 0 0 1 288 316)" fill="#F5995B"/>
-<rect width="4" height="20" transform="matrix(-1 0 0 1 356 276)" fill="#3B191C"/>
-<rect width="4" height="20" transform="matrix(-1 0 0 1 292 276)" fill="#3B191C"/>
-<rect width="8" height="8" transform="matrix(-1 0 0 1 352 272)" fill="#3B191C"/>
-<rect width="8" height="8" transform="matrix(-1 0 0 1 300 272)" fill="#3B191C"/>
-<rect width="4" height="8" transform="matrix(-1 0 0 1 344 276)" fill="#3B191C"/>
-<rect width="4" height="8" transform="matrix(-1 0 0 1 304 276)" fill="#3B191C"/>
-<rect width="8" height="12" transform="matrix(-1 0 0 1 300 280)" fill="#3B191C"/>
-<rect width="8" height="12" transform="matrix(-1 0 0 1 352 280)" fill="#3B191C"/>
+<rect width="4" height="20" transform="matrix(-1 0 0 1 356 276)" fill="#563E1A"/>
+<rect width="4" height="20" transform="matrix(-1 0 0 1 292 276)" fill="#563E1A"/>
+<rect width="8" height="8" transform="matrix(-1 0 0 1 352 272)" fill="#563E1A"/>
+<rect width="8" height="8" transform="matrix(-1 0 0 1 300 272)" fill="#563E1A"/>
+<rect width="4" height="8" transform="matrix(-1 0 0 1 344 276)" fill="#563E1A"/>
+<rect width="4" height="8" transform="matrix(-1 0 0 1 304 276)" fill="#563E1A"/>
+<rect width="8" height="12" transform="matrix(-1 0 0 1 300 280)" fill="#563E1A"/>
+<rect width="8" height="12" transform="matrix(-1 0 0 1 352 280)" fill="#563E1A"/>
 <rect width="16" height="4" transform="matrix(-1 0 0 1 356 324)" fill="#F6F6F6"/>
 <rect width="12" height="4" transform="matrix(-1 0 0 1 356 320)" fill="#F6F6F6"/>
 <rect width="12" height="4" transform="matrix(-1 0 0 1 360 316)" fill="#F6F6F6"/>
@@ -2311,14 +2311,14 @@
 <rect width="4" height="12" transform="matrix(-1 0 0 1 420 312)" fill="#F5995B"/>
 <rect width="4" height="4" transform="matrix(-1 0 0 1 424 304)" fill="#F5995B"/>
 <rect width="4" height="4" transform="matrix(-1 0 0 1 416 312)" fill="#F5995B"/>
-<rect width="4" height="20" transform="matrix(-1 0 0 1 484 272)" fill="#3B191C"/>
-<rect width="4" height="20" transform="matrix(-1 0 0 1 420 272)" fill="#3B191C"/>
-<rect width="8" height="8" transform="matrix(-1 0 0 1 480 268)" fill="#3B191C"/>
-<rect width="8" height="8" transform="matrix(-1 0 0 1 428 268)" fill="#3B191C"/>
-<rect width="4" height="8" transform="matrix(-1 0 0 1 472 272)" fill="#3B191C"/>
-<rect width="4" height="8" transform="matrix(-1 0 0 1 432 272)" fill="#3B191C"/>
-<rect width="8" height="12" transform="matrix(-1 0 0 1 428 276)" fill="#3B191C"/>
-<rect width="8" height="12" transform="matrix(-1 0 0 1 480 276)" fill="#3B191C"/>
+<rect width="4" height="20" transform="matrix(-1 0 0 1 484 272)" fill="#563E1A"/>
+<rect width="4" height="20" transform="matrix(-1 0 0 1 420 272)" fill="#563E1A"/>
+<rect width="8" height="8" transform="matrix(-1 0 0 1 480 268)" fill="#563E1A"/>
+<rect width="8" height="8" transform="matrix(-1 0 0 1 428 268)" fill="#563E1A"/>
+<rect width="4" height="8" transform="matrix(-1 0 0 1 472 272)" fill="#563E1A"/>
+<rect width="4" height="8" transform="matrix(-1 0 0 1 432 272)" fill="#563E1A"/>
+<rect width="8" height="12" transform="matrix(-1 0 0 1 428 276)" fill="#563E1A"/>
+<rect width="8" height="12" transform="matrix(-1 0 0 1 480 276)" fill="#563E1A"/>
 <rect width="16" height="4" transform="matrix(-1 0 0 1 484 320)" fill="#F6F6F6"/>
 <rect width="12" height="4" transform="matrix(-1 0 0 1 484 316)" fill="#F6F6F6"/>
 <rect width="12" height="4" transform="matrix(-1 0 0 1 488 312)" fill="#F6F6F6"/>
@@ -2407,14 +2407,14 @@
 <rect width="4" height="4" transform="matrix(0 1 1 0 24 484)" fill="#2A2A2A"/>
 <rect width="4" height="16" transform="matrix(0 1 1 0 24 472)" fill="#2A2A2A"/>
 <rect x="68" y="476" width="8" height="32" transform="rotate(90 68 476)" fill="#F5995B"/>
-<rect x="44" y="484" width="4" height="4" transform="rotate(90 44 484)" fill="#2A2A2A"/>
-<rect x="48" y="484" width="4" height="4" transform="rotate(90 48 484)" fill="#2A2A2A"/>
-<rect x="52" y="484" width="4" height="4" transform="rotate(90 52 484)" fill="#2A2A2A"/>
-<rect x="56" y="484" width="4" height="4" transform="rotate(90 56 484)" fill="#2A2A2A"/>
-<rect x="60" y="484" width="4" height="4" transform="rotate(90 60 484)" fill="#2A2A2A"/>
-<rect x="64" y="484" width="4" height="4" transform="rotate(90 64 484)" fill="#2A2A2A"/>
-<rect x="68" y="484" width="4" height="4" transform="rotate(90 68 484)" fill="#2A2A2A"/>
-<rect x="40" y="484" width="4" height="4" transform="rotate(90 40 484)" fill="#2A2A2A"/>
+<rect x="44" y="484" width="1" height="1" transform="rotate(90 44 484)" fill="#2A2A2A"/>
+<rect x="48" y="484" width="1" height="1" transform="rotate(90 48 484)" fill="#2A2A2A"/>
+<rect x="52" y="484" width="1" height="1" transform="rotate(90 52 484)" fill="#2A2A2A"/>
+<rect x="56" y="484" width="1" height="1" transform="rotate(90 56 484)" fill="#2A2A2A"/>
+<rect x="60" y="484" width="1" height="1" transform="rotate(90 60 484)" fill="#2A2A2A"/>
+<rect x="64" y="484" width="1" height="1" transform="rotate(90 64 484)" fill="#2A2A2A"/>
+<rect x="68" y="484" width="1" height="1" transform="rotate(90 68 484)" fill="#2A2A2A"/>
+<rect x="40" y="484" width="1" height="1" transform="rotate(90 40 484)" fill="#2A2A2A"/>
 <rect x="96" y="476" width="8" height="8" transform="rotate(90 96 476)" fill="#F5995B"/>
 <rect x="96" y="476" width="8" height="4" transform="rotate(90 96 476)" fill="#DD8D57"/>
 <rect x="100" y="476" width="8" height="4" transform="rotate(90 100 476)" fill="#2A2A2A"/>
@@ -2423,14 +2423,14 @@
 <rect x="100" y="484" width="4" height="4" transform="rotate(90 100 484)" fill="#2A2A2A"/>
 <rect x="100" y="472" width="4" height="16" transform="rotate(90 100 472)" fill="#2A2A2A"/>
 <rect width="8" height="32" transform="matrix(0 1 1 0 56 476)" fill="#F5995B"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 80 484)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 76 484)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 72 484)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 68 484)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 64 484)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 60 484)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 56 484)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 84 484)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 80 484)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 76 484)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 72 484)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 68 484)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 64 484)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 60 484)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 56 484)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 84 484)" fill="#2A2A2A"/>
 <rect width="4" height="4" transform="matrix(-1 0 0 1 96 448)" fill="#2A2A2A"/>
 <rect width="4" height="4" transform="matrix(-1 0 0 1 108 432)" fill="#2A2A2A"/>
 <rect width="4" height="4" transform="matrix(-1 0 0 1 28 432)" fill="#2A2A2A"/>
@@ -2465,14 +2465,14 @@
 <rect width="4" height="12" transform="matrix(-1 0 0 1 36 432)" fill="#F5995B"/>
 <rect width="4" height="4" transform="matrix(-1 0 0 1 40 424)" fill="#F5995B"/>
 <rect width="4" height="4" transform="matrix(-1 0 0 1 32 432)" fill="#F5995B"/>
-<rect width="4" height="20" transform="matrix(-1 0 0 1 100 392)" fill="#3B191C"/>
-<rect width="4" height="20" transform="matrix(-1 0 0 1 36 392)" fill="#3B191C"/>
-<rect width="8" height="8" transform="matrix(-1 0 0 1 96 388)" fill="#3B191C"/>
-<rect width="8" height="8" transform="matrix(-1 0 0 1 44 388)" fill="#3B191C"/>
-<rect width="4" height="8" transform="matrix(-1 0 0 1 88 392)" fill="#3B191C"/>
-<rect width="4" height="8" transform="matrix(-1 0 0 1 48 392)" fill="#3B191C"/>
-<rect width="8" height="12" transform="matrix(-1 0 0 1 44 396)" fill="#3B191C"/>
-<rect width="8" height="12" transform="matrix(-1 0 0 1 96 396)" fill="#3B191C"/>
+<rect width="4" height="20" transform="matrix(-1 0 0 1 100 392)" fill="#563E1A"/>
+<rect width="4" height="20" transform="matrix(-1 0 0 1 36 392)" fill="#563E1A"/>
+<rect width="8" height="8" transform="matrix(-1 0 0 1 96 388)" fill="#563E1A"/>
+<rect width="8" height="8" transform="matrix(-1 0 0 1 44 388)" fill="#563E1A"/>
+<rect width="4" height="8" transform="matrix(-1 0 0 1 88 392)" fill="#563E1A"/>
+<rect width="4" height="8" transform="matrix(-1 0 0 1 48 392)" fill="#563E1A"/>
+<rect width="8" height="12" transform="matrix(-1 0 0 1 44 396)" fill="#563E1A"/>
+<rect width="8" height="12" transform="matrix(-1 0 0 1 96 396)" fill="#563E1A"/>
 <rect width="16" height="4" transform="matrix(-1 0 0 1 100 440)" fill="#F6F6F6"/>
 <rect width="12" height="4" transform="matrix(-1 0 0 1 100 436)" fill="#F6F6F6"/>
 <rect width="12" height="4" transform="matrix(-1 0 0 1 104 432)" fill="#F6F6F6"/>
@@ -2680,14 +2680,14 @@
 <rect width="4" height="12" transform="matrix(-1 0 0 1 164 444)" fill="#F5995B"/>
 <rect width="4" height="4" transform="matrix(-1 0 0 1 168 436)" fill="#F5995B"/>
 <rect width="4" height="4" transform="matrix(-1 0 0 1 160 444)" fill="#F5995B"/>
-<rect width="4" height="20" transform="matrix(-1 0 0 1 228 404)" fill="#3B191C"/>
-<rect width="4" height="20" transform="matrix(-1 0 0 1 164 404)" fill="#3B191C"/>
-<rect width="8" height="8" transform="matrix(-1 0 0 1 224 400)" fill="#3B191C"/>
-<rect width="8" height="8" transform="matrix(-1 0 0 1 172 400)" fill="#3B191C"/>
-<rect width="4" height="8" transform="matrix(-1 0 0 1 216 404)" fill="#3B191C"/>
-<rect width="4" height="8" transform="matrix(-1 0 0 1 176 404)" fill="#3B191C"/>
-<rect width="8" height="12" transform="matrix(-1 0 0 1 172 408)" fill="#3B191C"/>
-<rect width="8" height="12" transform="matrix(-1 0 0 1 224 408)" fill="#3B191C"/>
+<rect width="4" height="20" transform="matrix(-1 0 0 1 228 404)" fill="#563E1A"/>
+<rect width="4" height="20" transform="matrix(-1 0 0 1 164 404)" fill="#563E1A"/>
+<rect width="8" height="8" transform="matrix(-1 0 0 1 224 400)" fill="#563E1A"/>
+<rect width="8" height="8" transform="matrix(-1 0 0 1 172 400)" fill="#563E1A"/>
+<rect width="4" height="8" transform="matrix(-1 0 0 1 216 404)" fill="#563E1A"/>
+<rect width="4" height="8" transform="matrix(-1 0 0 1 176 404)" fill="#563E1A"/>
+<rect width="8" height="12" transform="matrix(-1 0 0 1 172 408)" fill="#563E1A"/>
+<rect width="8" height="12" transform="matrix(-1 0 0 1 224 408)" fill="#563E1A"/>
 <rect width="16" height="4" transform="matrix(-1 0 0 1 228 452)" fill="#F6F6F6"/>
 <rect width="12" height="4" transform="matrix(-1 0 0 1 228 448)" fill="#F6F6F6"/>
 <rect width="12" height="4" transform="matrix(-1 0 0 1 232 444)" fill="#F6F6F6"/>
@@ -2776,14 +2776,14 @@
 <rect width="4" height="4" transform="matrix(0 1 1 0 280 484)" fill="#2A2A2A"/>
 <rect width="4" height="16" transform="matrix(0 1 1 0 280 472)" fill="#2A2A2A"/>
 <rect x="324" y="476" width="8" height="32" transform="rotate(90 324 476)" fill="#F5995B"/>
-<rect x="300" y="484" width="4" height="4" transform="rotate(90 300 484)" fill="#2A2A2A"/>
-<rect x="304" y="484" width="4" height="4" transform="rotate(90 304 484)" fill="#2A2A2A"/>
-<rect x="308" y="484" width="4" height="4" transform="rotate(90 308 484)" fill="#2A2A2A"/>
-<rect x="312" y="484" width="4" height="4" transform="rotate(90 312 484)" fill="#2A2A2A"/>
-<rect x="316" y="484" width="4" height="4" transform="rotate(90 316 484)" fill="#2A2A2A"/>
-<rect x="320" y="484" width="4" height="4" transform="rotate(90 320 484)" fill="#2A2A2A"/>
-<rect x="324" y="484" width="4" height="4" transform="rotate(90 324 484)" fill="#2A2A2A"/>
-<rect x="296" y="484" width="4" height="4" transform="rotate(90 296 484)" fill="#2A2A2A"/>
+<rect x="300" y="484" width="1" height="1" transform="rotate(90 300 484)" fill="#2A2A2A"/>
+<rect x="304" y="484" width="1" height="1" transform="rotate(90 304 484)" fill="#2A2A2A"/>
+<rect x="308" y="484" width="1" height="1" transform="rotate(90 308 484)" fill="#2A2A2A"/>
+<rect x="312" y="484" width="1" height="1" transform="rotate(90 312 484)" fill="#2A2A2A"/>
+<rect x="316" y="484" width="1" height="1" transform="rotate(90 316 484)" fill="#2A2A2A"/>
+<rect x="320" y="484" width="1" height="1" transform="rotate(90 320 484)" fill="#2A2A2A"/>
+<rect x="324" y="484" width="1" height="1" transform="rotate(90 324 484)" fill="#2A2A2A"/>
+<rect x="296" y="484" width="1" height="1" transform="rotate(90 296 484)" fill="#2A2A2A"/>
 <rect x="352" y="476" width="8" height="8" transform="rotate(90 352 476)" fill="#F5995B"/>
 <rect x="352" y="476" width="8" height="4" transform="rotate(90 352 476)" fill="#DD8D57"/>
 <rect x="356" y="476" width="8" height="4" transform="rotate(90 356 476)" fill="#2A2A2A"/>
@@ -2792,14 +2792,14 @@
 <rect x="356" y="484" width="4" height="4" transform="rotate(90 356 484)" fill="#2A2A2A"/>
 <rect x="356" y="472" width="4" height="16" transform="rotate(90 356 472)" fill="#2A2A2A"/>
 <rect width="8" height="32" transform="matrix(0 1 1 0 312 476)" fill="#F5995B"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 336 484)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 332 484)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 328 484)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 324 484)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 320 484)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 316 484)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 312 484)" fill="#2A2A2A"/>
-<rect width="4" height="4" transform="matrix(0 1 1 0 340 484)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 336 484)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 332 484)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 328 484)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 324 484)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 320 484)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 316 484)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 312 484)" fill="#2A2A2A"/>
+<rect width="1" height="1" transform="matrix(0 1 1 0 340 484)" fill="#2A2A2A"/>
 <rect width="4" height="4" transform="matrix(-1 0 0 1 352 448)" fill="#2A2A2A"/>
 <rect width="4" height="4" transform="matrix(-1 0 0 1 364 432)" fill="#2A2A2A"/>
 <rect width="4" height="4" transform="matrix(-1 0 0 1 284 432)" fill="#2A2A2A"/>
@@ -2834,14 +2834,14 @@
 <rect width="4" height="12" transform="matrix(-1 0 0 1 292 432)" fill="#F5995B"/>
 <rect width="4" height="4" transform="matrix(-1 0 0 1 296 424)" fill="#F5995B"/>
 <rect width="4" height="4" transform="matrix(-1 0 0 1 288 432)" fill="#F5995B"/>
-<rect width="4" height="20" transform="matrix(-1 0 0 1 356 392)" fill="#3B191C"/>
-<rect width="4" height="20" transform="matrix(-1 0 0 1 292 392)" fill="#3B191C"/>
-<rect width="8" height="8" transform="matrix(-1 0 0 1 352 388)" fill="#3B191C"/>
-<rect width="8" height="8" transform="matrix(-1 0 0 1 300 388)" fill="#3B191C"/>
-<rect width="4" height="8" transform="matrix(-1 0 0 1 344 392)" fill="#3B191C"/>
-<rect width="4" height="8" transform="matrix(-1 0 0 1 304 392)" fill="#3B191C"/>
-<rect width="8" height="12" transform="matrix(-1 0 0 1 300 396)" fill="#3B191C"/>
-<rect width="8" height="12" transform="matrix(-1 0 0 1 352 396)" fill="#3B191C"/>
+<rect width="4" height="20" transform="matrix(-1 0 0 1 356 392)" fill="#563E1A"/>
+<rect width="4" height="20" transform="matrix(-1 0 0 1 292 392)" fill="#563E1A"/>
+<rect width="8" height="8" transform="matrix(-1 0 0 1 352 388)" fill="#563E1A"/>
+<rect width="8" height="8" transform="matrix(-1 0 0 1 300 388)" fill="#563E1A"/>
+<rect width="4" height="8" transform="matrix(-1 0 0 1 344 392)" fill="#563E1A"/>
+<rect width="4" height="8" transform="matrix(-1 0 0 1 304 392)" fill="#563E1A"/>
+<rect width="8" height="12" transform="matrix(-1 0 0 1 300 396)" fill="#563E1A"/>
+<rect width="8" height="12" transform="matrix(-1 0 0 1 352 396)" fill="#563E1A"/>
 <rect width="16" height="4" transform="matrix(-1 0 0 1 356 440)" fill="#F6F6F6"/>
 <rect width="12" height="4" transform="matrix(-1 0 0 1 356 436)" fill="#F6F6F6"/>
 <rect width="12" height="4" transform="matrix(-1 0 0 1 360 432)" fill="#F6F6F6"/>
@@ -3046,14 +3046,14 @@
 <rect width="4" height="12" transform="matrix(-1 0 0 1 420 440)" fill="#F5995B"/>
 <rect width="4" height="4" transform="matrix(-1 0 0 1 424 432)" fill="#F5995B"/>
 <rect width="4" height="4" transform="matrix(-1 0 0 1 416 440)" fill="#F5995B"/>
-<rect width="4" height="20" transform="matrix(-1 0 0 1 484 400)" fill="#3B191C"/>
-<rect width="4" height="20" transform="matrix(-1 0 0 1 420 400)" fill="#3B191C"/>
-<rect width="8" height="8" transform="matrix(-1 0 0 1 480 396)" fill="#3B191C"/>
-<rect width="8" height="8" transform="matrix(-1 0 0 1 428 396)" fill="#3B191C"/>
-<rect width="4" height="8" transform="matrix(-1 0 0 1 472 400)" fill="#3B191C"/>
-<rect width="4" height="8" transform="matrix(-1 0 0 1 432 400)" fill="#3B191C"/>
-<rect width="8" height="12" transform="matrix(-1 0 0 1 428 404)" fill="#3B191C"/>
-<rect width="8" height="12" transform="matrix(-1 0 0 1 480 404)" fill="#3B191C"/>
+<rect width="4" height="20" transform="matrix(-1 0 0 1 484 400)" fill="#563E1A"/>
+<rect width="4" height="20" transform="matrix(-1 0 0 1 420 400)" fill="#563E1A"/>
+<rect width="8" height="8" transform="matrix(-1 0 0 1 480 396)" fill="#563E1A"/>
+<rect width="8" height="8" transform="matrix(-1 0 0 1 428 396)" fill="#563E1A"/>
+<rect width="4" height="8" transform="matrix(-1 0 0 1 472 400)" fill="#563E1A"/>
+<rect width="4" height="8" transform="matrix(-1 0 0 1 432 400)" fill="#563E1A"/>
+<rect width="8" height="12" transform="matrix(-1 0 0 1 428 404)" fill="#563E1A"/>
+<rect width="8" height="12" transform="matrix(-1 0 0 1 480 404)" fill="#563E1A"/>
 <rect width="16" height="4" transform="matrix(-1 0 0 1 484 448)" fill="#F6F6F6"/>
 <rect width="12" height="4" transform="matrix(-1 0 0 1 484 444)" fill="#F6F6F6"/>
 <rect width="12" height="4" transform="matrix(-1 0 0 1 488 440)" fill="#F6F6F6"/>
