@@ -1,4 +1,4 @@
-import type { PlayerProgress, Position, SkinColorSelections, UserProfile } from '@social-sena/shared'
+import type { PlayerInventory, PlayerProgress, Position, SkinColorSelections, UserProfile } from '@social-sena/shared'
 import { getDbPool } from '../client'
 
 interface PersistedPlayerState {
@@ -10,6 +10,7 @@ interface ResolvedUserProfileResult {
   profile: UserProfile
   needsOnboarding: boolean
   progress: PlayerProgress
+  inventory: PlayerInventory
 }
 
 function normalizeSkinColors(value: unknown): SkinColorSelections {
@@ -28,6 +29,45 @@ function normalizeSkinColors(value: unknown): SkinColorSelections {
   )
 }
 
+function normalizeInventory(value: unknown): PlayerInventory {
+  if (!value || typeof value !== 'object') {
+    return {}
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([itemId, itemValue]) => {
+      if (
+        typeof itemId !== 'string' ||
+        itemId.trim().length === 0 ||
+        !itemValue ||
+        typeof itemValue !== 'object'
+      ) {
+        return []
+      }
+
+      const rawQuantity = 'quantity' in itemValue ? itemValue.quantity : undefined
+      const quantity = typeof rawQuantity === 'number' && Number.isFinite(rawQuantity) ? Math.max(0, Math.floor(rawQuantity)) : 0
+      const rawMetadata = 'metadata' in itemValue ? itemValue.metadata : undefined
+      const metadata =
+        rawMetadata && typeof rawMetadata === 'object'
+          ? Object.fromEntries(
+              Object.entries(rawMetadata).filter(
+                (entry): entry is [string, string | number | boolean | null] =>
+                  typeof entry[0] === 'string' &&
+                  entry[0].trim().length > 0 &&
+                  (typeof entry[1] === 'string' ||
+                    typeof entry[1] === 'number' ||
+                    typeof entry[1] === 'boolean' ||
+                    entry[1] === null),
+              ),
+            )
+          : undefined
+
+      return [[itemId, metadata && Object.keys(metadata).length > 0 ? { quantity, metadata } : { quantity }]]
+    }),
+  )
+}
+
 class GameRepository {
   async resolveUserProfile(incomingProfile: UserProfile): Promise<ResolvedUserProfileResult> {
     const pool = getDbPool()
@@ -39,6 +79,7 @@ class GameRepository {
           level: 1,
           experience: 0,
         },
+        inventory: {},
       }
     }
 
@@ -67,6 +108,15 @@ class GameRepository {
         [incomingProfile.userId],
       )
 
+      await client.query(
+        `
+          insert into player_inventory (user_id)
+          values ($1)
+          on conflict (user_id) do nothing
+        `,
+        [incomingProfile.userId],
+      )
+
       const profileResult = await client.query<{
         skin_id: string
         skin_colors: unknown
@@ -82,6 +132,17 @@ class GameRepository {
       )
 
       if (profileResult.rowCount && profileResult.rows[0]) {
+        const inventoryResult = await client.query<{
+          inventory: unknown
+        }>(
+          `
+            select inventory
+            from player_inventory
+            where user_id = $1
+            limit 1
+          `,
+          [incomingProfile.userId],
+        )
         const progressResult = await client.query<{
           level: number
           experience: number
@@ -107,6 +168,7 @@ class GameRepository {
             level: progressResult.rows[0]?.level ?? 1,
             experience: progressResult.rows[0]?.experience ?? 0,
           },
+          inventory: normalizeInventory(inventoryResult.rows[0]?.inventory),
         }
       }
 
@@ -126,6 +188,7 @@ class GameRepository {
           level: 1,
           experience: 0,
         },
+        inventory: {},
       }
     } catch (error) {
       await client.query('ROLLBACK')
@@ -137,6 +200,7 @@ class GameRepository {
           level: 1,
           experience: 0,
         },
+        inventory: {},
       }
     } finally {
       client.release()
@@ -252,6 +316,63 @@ class GameRepository {
     } catch (error) {
       console.error('[db] No fue posible leer el progreso del jugador.', error)
       return { level: 1, experience: 0 }
+    }
+  }
+
+  async getPlayerInventory(userId: string): Promise<PlayerInventory> {
+    const pool = getDbPool()
+    if (!pool) {
+      return {}
+    }
+
+    try {
+      await pool.query(
+        `
+          insert into player_inventory (user_id)
+          values ($1)
+          on conflict (user_id) do nothing
+        `,
+        [userId],
+      )
+
+      const result = await pool.query<{
+        inventory: unknown
+      }>(
+        `
+          select inventory
+          from player_inventory
+          where user_id = $1
+          limit 1
+        `,
+        [userId],
+      )
+
+      return normalizeInventory(result.rows[0]?.inventory)
+    } catch (error) {
+      console.error('[db] No fue posible leer el inventario del jugador.', error)
+      return {}
+    }
+  }
+
+  async savePlayerInventory(userId: string, inventory: PlayerInventory) {
+    const pool = getDbPool()
+    if (!pool) {
+      return
+    }
+
+    try {
+      await pool.query(
+        `
+          insert into player_inventory (user_id, inventory)
+          values ($1, $2::jsonb)
+          on conflict (user_id) do update set
+            inventory = excluded.inventory,
+            updated_at = now()
+        `,
+        [userId, JSON.stringify(normalizeInventory(inventory))],
+      )
+    } catch (error) {
+      console.error('[db] No fue posible guardar el inventario del jugador.', error)
     }
   }
 

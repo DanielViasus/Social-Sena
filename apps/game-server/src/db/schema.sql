@@ -30,6 +30,12 @@ create table if not exists player_progress (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists player_inventory (
+  user_id text primary key references users(user_id) on delete cascade,
+  inventory jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
 alter table if exists player_profiles
 add column if not exists onboarding_completed boolean not null default true;
 

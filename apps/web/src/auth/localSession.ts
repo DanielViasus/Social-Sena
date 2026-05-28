@@ -1,4 +1,4 @@
-import type { SkinColorSelections, UserProfile } from '@social-sena/shared'
+import type { PlayerInventory, SkinColorSelections, UserProfile } from '@social-sena/shared'
 
 const STORAGE_KEY = 'social-sena-auth-session'
 const SKIN_PREFERENCES_KEY = 'social-sena-skin-preferences'
@@ -14,6 +14,7 @@ export interface AuthSession {
   provider: 'local' | 'auth0'
   level: number
   experience: number
+  inventory: PlayerInventory
   pictureUrl: string | null
   profile: UserProfile
 }
@@ -42,6 +43,40 @@ function normalizeSkinColors(value: unknown): SkinColorSelections {
         typeof entry[1] === 'string' &&
         entry[1].trim().length > 0,
     ),
+  )
+}
+
+function normalizeInventory(value: unknown): PlayerInventory {
+  if (!value || typeof value !== 'object') {
+    return {}
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([itemId, itemValue]) => {
+      if (typeof itemId !== 'string' || itemId.trim().length === 0 || !itemValue || typeof itemValue !== 'object') {
+        return []
+      }
+
+      const rawQuantity = 'quantity' in itemValue ? itemValue.quantity : undefined
+      const quantity = typeof rawQuantity === 'number' && Number.isFinite(rawQuantity) ? Math.max(0, Math.floor(rawQuantity)) : 0
+      const rawMetadata = 'metadata' in itemValue ? itemValue.metadata : undefined
+      const metadata =
+        rawMetadata && typeof rawMetadata === 'object'
+          ? Object.fromEntries(
+              Object.entries(rawMetadata).filter(
+                (entry): entry is [string, string | number | boolean | null] =>
+                  typeof entry[0] === 'string' &&
+                  entry[0].trim().length > 0 &&
+                  (typeof entry[1] === 'string' ||
+                    typeof entry[1] === 'number' ||
+                    typeof entry[1] === 'boolean' ||
+                    entry[1] === null),
+              ),
+            )
+          : undefined
+
+      return [[itemId, metadata && Object.keys(metadata).length > 0 ? { quantity, metadata } : { quantity }]]
+    }),
   )
 }
 
@@ -102,6 +137,7 @@ export function readStoredAuthSession(): AuthSession | null {
     return {
       ...parsedSession,
       experience: typeof parsedSession.experience === 'number' ? parsedSession.experience : 0,
+      inventory: normalizeInventory(parsedSession.inventory),
       profile: {
         ...parsedSession.profile,
         skinColors: normalizeSkinColors(parsedSession.profile.skinColors),
@@ -168,6 +204,7 @@ export function createLocalAuthSession(displayName: string): AuthSession {
     provider: 'local',
     level: 1,
     experience: 0,
+    inventory: {},
     pictureUrl: null,
     profile: {
       userId: `player_${suffix}`,
@@ -193,6 +230,7 @@ export function createAuth0Session(options: {
     provider: 'auth0',
     level: 1,
     experience: 0,
+    inventory: {},
     pictureUrl: options.pictureUrl ?? null,
     profile: {
       userId: options.userId,

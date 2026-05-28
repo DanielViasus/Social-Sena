@@ -396,13 +396,14 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
     nextSocket.on(
       serverEvents.connectionAccepted,
-      ({ profile, needsOnboarding, progress }: ConnectionAcceptedPayload) => {
+      ({ profile, needsOnboarding, progress, inventory }: ConnectionAcceptedPayload) => {
         sessionProfileRef.current = profile
 
         const nextSession: AuthSession = {
           ...session,
           level: progress.level,
           experience: progress.experience,
+          inventory,
           profile,
         }
 
@@ -881,6 +882,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
           ok: boolean
           profile?: AuthSession['profile']
           progress?: { level: number; experience: number }
+          inventory?: AuthSession['inventory']
           message?: string
         },
       ) => {
@@ -897,6 +899,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
           ...session,
           level: response.progress?.level ?? session.level,
           experience: response.progress?.experience ?? session.experience,
+          inventory: response.inventory ?? session.inventory,
           profile,
         }
 

@@ -15,6 +15,7 @@ import {
   movementInputSchema,
   navigateToSchema,
   updateSkinSchema,
+  updateInventorySchema,
   setTypingStateSchema,
   stopNavigationSchema,
   sendChatMessageSchema,
@@ -22,6 +23,7 @@ import {
   type ChatMessage,
   type ConnectionAcceptedPayload,
   type Direction,
+  type PlayerInventory,
   type PlayerProgress,
   type Position,
   type Presence,
@@ -33,6 +35,7 @@ interface SessionState {
   sessionId: string
   profile: UserProfile
   progress: PlayerProgress
+  inventory: PlayerInventory
   roomId: string | null
   movementInput: {
     up: boolean
@@ -938,6 +941,7 @@ io.on('connection', (socket) => {
       sessionId: socket.id,
       profile: resolvedProfile,
       progress: resolvedProfileResult.progress,
+      inventory: resolvedProfileResult.inventory,
       roomId: null,
       movementInput: {
         up: false,
@@ -955,6 +959,7 @@ io.on('connection', (socket) => {
       profile: resolvedProfile,
       needsOnboarding: resolvedProfileResult.needsOnboarding,
       progress: resolvedProfileResult.progress,
+      inventory: resolvedProfileResult.inventory,
     }
 
     socket.emit(serverEvents.connectionAccepted, connectionAcceptedPayload)
@@ -976,11 +981,13 @@ io.on('connection', (socket) => {
     session.profile.skinColors = { ...(parsed.data.skinColors ?? {}) }
     await gameRepository.completeOnboarding(session.profile)
     session.progress = await gameRepository.getPlayerProgress(session.profile.userId)
+    session.inventory = await gameRepository.getPlayerInventory(session.profile.userId)
 
     callback?.({
       ok: true,
       profile: session.profile,
       progress: session.progress,
+      inventory: session.inventory,
     })
   })
 
@@ -1138,6 +1145,27 @@ io.on('connection', (socket) => {
     void gameRepository.savePlayerProfile(session.profile)
     io.to(room.roomId).emit(serverEvents.playerMoved, player)
     io.to(room.roomId).emit(serverEvents.roomState, room)
+  })
+
+  socket.on(clientEvents.updateInventory, (rawPayload, callback) => {
+    const parsed = updateInventorySchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible actualizar el inventario.',
+      })
+      return
+    }
+
+    session.inventory = { ...parsed.data.inventory }
+    void gameRepository.savePlayerInventory(session.profile.userId, session.inventory)
+
+    callback?.({
+      ok: true,
+      inventory: session.inventory,
+    })
   })
 
   socket.on(clientEvents.sendChatMessage, (rawPayload) => {

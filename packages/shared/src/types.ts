@@ -16,6 +16,16 @@ export interface PlayerProgress {
   experience: number
 }
 
+export type InventoryMetadataValue = string | number | boolean | null
+export type InventoryItemMetadata = Record<string, InventoryMetadataValue>
+
+export interface InventoryItemState {
+  quantity: number
+  metadata?: InventoryItemMetadata
+}
+
+export type PlayerInventory = Record<string, InventoryItemState>
+
 export interface Position {
   x: number
   y: number
@@ -70,6 +80,7 @@ export interface ConnectionAcceptedPayload {
   profile: UserProfile
   needsOnboarding: boolean
   progress: PlayerProgress
+  inventory: PlayerInventory
 }
 
 export interface CompleteOnboardingPayload {
@@ -99,6 +110,10 @@ export interface UpdateSkinPayload {
   roomId: string
   skinId: string
   skinColors?: SkinColorSelections
+}
+
+export interface UpdateInventoryPayload {
+  inventory: PlayerInventory
 }
 
 export interface SendChatMessagePayload {

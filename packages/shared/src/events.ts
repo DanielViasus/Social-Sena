@@ -6,6 +6,7 @@ export const clientEvents = {
   stopNavigation: 'stop_navigation',
   setMovementInput: 'set_movement_input',
   updateSkin: 'update_skin',
+  updateInventory: 'update_inventory',
   setTypingState: 'set_typing_state',
   sendChatMessage: 'send_chat_message',
   ping: 'ping',

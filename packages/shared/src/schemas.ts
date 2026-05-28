@@ -3,6 +3,13 @@ import { WORLD_HEIGHT, WORLD_WIDTH } from './constants'
 
 export const directionSchema = z.enum(['up', 'down', 'left', 'right'])
 export const skinColorSelectionsSchema = z.record(z.string().trim().min(1), z.string().trim().min(1))
+export const inventoryMetadataValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()])
+export const inventoryItemMetadataSchema = z.record(z.string().trim().min(1), inventoryMetadataValueSchema)
+export const inventoryItemStateSchema = z.object({
+  quantity: z.number().int().min(0),
+  metadata: inventoryItemMetadataSchema.optional(),
+})
+export const playerInventorySchema = z.record(z.string().trim().min(1), inventoryItemStateSchema)
 export const positionSchema = z.object({
   x: z.number().min(0).max(WORLD_WIDTH),
   y: z.number().min(0).max(WORLD_HEIGHT),
@@ -52,6 +59,10 @@ export const updateSkinSchema = z.object({
   roomId: z.string().min(1),
   skinId: z.string().trim().min(1),
   skinColors: skinColorSelectionsSchema.optional(),
+})
+
+export const updateInventorySchema = z.object({
+  inventory: playerInventorySchema,
 })
 
 export const setTypingStateSchema = z.object({
