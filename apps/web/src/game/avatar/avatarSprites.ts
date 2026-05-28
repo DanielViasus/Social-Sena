@@ -1,4 +1,5 @@
 import crockSheet from '../../assets/characters/crock/Crocky.svg'
+import foxySheet from '../../assets/characters/foxy/Foxy.svg'
 
 export interface AvatarTextureDefinition {
   key: string
@@ -46,10 +47,34 @@ const crockPreset: AvatarPreset = {
   walkBackFrames: createAnimationRow('avatar-crock-back-walk', 3),
 }
 
+const foxyPreset: AvatarPreset = {
+  id: 'foxy',
+  label: 'Foxy',
+  sheetUrl: foxySheet,
+  sheetWidth: 512,
+  sheetHeight: 1280,
+  frameWidth: 128,
+  frameHeight: 128,
+  totalColumns: 4,
+  totalRows: 10,
+  idleFrames: createAnimationRow('avatar-foxy-idle', 0),
+  walkFrames: createAnimationRow('avatar-foxy-walk', 1),
+  idleBackFrames: createAnimationRow('avatar-foxy-back-idle', 2),
+  walkBackFrames: createAnimationRow('avatar-foxy-back-walk', 3),
+}
+
 const avatarPresetBySkinId: Record<string, AvatarPreset> = {
   'default-student': crockPreset,
   crock: crockPreset,
   'crock-default': crockPreset,
+  foxy: foxyPreset,
+  'foxy-default': foxyPreset,
+}
+
+const avatarPresets = [crockPreset, foxyPreset]
+
+export function getAvailableAvatarPresets(): AvatarPreset[] {
+  return avatarPresets
 }
 
 export function resolveAvatarPreset(skinId: string | null | undefined): AvatarPreset {

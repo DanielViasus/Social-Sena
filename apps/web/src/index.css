@@ -202,7 +202,8 @@ button {
 .options-anchor,
 .chat-panel-floating,
 .chat-bubble-stack,
-.hud-square-button {
+.hud-square-button,
+.skin-editor-overlay {
   pointer-events: auto;
 }
 
@@ -959,6 +960,130 @@ button {
 .react-world-npc-icon-fallback {
   border-radius: 12px;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
+}
+
+.skin-editor-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1000001;
+  display: grid;
+  place-items: center;
+}
+
+.skin-editor-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 12, 15, 0.58);
+}
+
+.skin-editor-panel {
+  position: relative;
+  width: min(1250px, calc(100vw - 80px));
+  min-height: 640px;
+  padding: 32px;
+  background: #b0adad;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.32);
+}
+
+.skin-editor-close {
+  position: absolute;
+  top: -80px;
+  right: 0;
+  width: 64px;
+  height: 64px;
+  border: none;
+  background: #ff1609;
+  color: #fff;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 28px;
+}
+
+.skin-editor-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(380px, 1fr);
+  gap: 28px;
+  align-items: start;
+}
+
+.skin-editor-sidebar h2,
+.skin-editor-preview h3 {
+  margin: 0 0 16px;
+  color: #ffffff;
+  font-family: 'Press Start 2P', monospace;
+  font-size: clamp(1.8rem, 3vw, 2.9rem);
+  font-weight: 400;
+}
+
+.skin-editor-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.skin-editor-option {
+  min-height: 200px;
+  border: 4px solid transparent;
+  background: rgba(255, 255, 255, 0.18);
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.skin-editor-option.is-selected {
+  border-color: #3f3737;
+}
+
+.skin-editor-option.is-applied:not(.is-selected) {
+  border-color: rgba(255, 255, 255, 0.72);
+}
+
+.skin-editor-preview {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 100%;
+}
+
+.skin-editor-preview-stage {
+  min-height: 430px;
+  background: rgba(140, 138, 138, 0.42);
+  display: grid;
+  place-items: center;
+  padding: 28px;
+}
+
+.skin-editor-preview-empty {
+  width: 256px;
+  height: 256px;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.skin-editor-apply {
+  justify-self: end;
+  min-width: 330px;
+  margin-top: 22px;
+  border: none;
+  background: rgba(151, 151, 151, 0.74);
+  color: #ffffff;
+  font-family: 'Press Start 2P', monospace;
+  font-size: clamp(1.4rem, 2.4vw, 2.6rem);
+  text-transform: lowercase;
+  padding: 28px 32px;
+}
+
+.skin-preview-sprite {
+  position: relative;
+  overflow: hidden;
+}
+
+.skin-preview-spritesheet {
+  position: absolute;
+  display: block;
+  max-width: none;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  user-select: none;
+  -webkit-user-drag: none;
+  backface-visibility: hidden;
 }
 
 .react-world-debug-avatar-bounds {

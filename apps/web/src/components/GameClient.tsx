@@ -10,12 +10,14 @@ import {
   type RoomState,
   type TypingStateChangedPayload,
 } from '@social-sena/shared'
-import type { AuthSession } from '../auth/localSession'
+import { saveAuthSession, savePreferredSkin, type AuthSession } from '../auth/localSession'
 import type { DialogueDefinition } from '../dialogue/registry'
 import { getDialogueById } from '../dialogue/registry'
+import { getAvailableAvatarPresets } from '../game/avatar/avatarSprites'
 import ReactWorld from './ReactWorld'
 import DialogueOverlay from './dialogue/DialogueOverlay'
 import MobileNpcInteractButton from './MobileNpcInteractButton'
+import SkinEditorOverlay from './skins/SkinEditorOverlay'
 import { availableRoomRoutes, resolveRoomTemplateFromPath } from '../rooms/registry'
 
 const SERVER_URL = import.meta.env.VITE_GAME_SERVER_URL ?? 'http://localhost:3001'
@@ -50,7 +52,10 @@ function GameClient({ session, onLogout }: GameClientProps) {
   const [npcInteractionLocked, setNpcInteractionLocked] = useState(false)
   const [mobileInteractionEnabled, setMobileInteractionEnabled] = useState(false)
   const [activeInteractableNpc, setActiveInteractableNpc] = useState<RoomNpcTemplate | null>(null)
+  const [skinEditorOpen, setSkinEditorOpen] = useState(false)
+  const [selectedSkinId, setSelectedSkinId] = useState(session.profile.skinId)
   const socketRef = useRef<Socket | null>(null)
+  const sessionProfileRef = useRef(session.profile)
   const optionsMenuRef = useRef<HTMLDivElement | null>(null)
   const chatOpenRef = useRef(false)
   const floatingTimeoutsRef = useRef<Map<string, number>>(new Map())
@@ -67,6 +72,7 @@ function GameClient({ session, onLogout }: GameClientProps) {
   const activeTemplate = resolveRoomTemplateFromPath(pathname)
   const playerInitial = session.profile.displayName.slice(0, 1).toUpperCase()
   const typingIndicatorText = ['.', '..', '...'][typingIndicatorFrame] ?? '...'
+  const availableSkins = getAvailableAvatarPresets()
 
   const clearFloatingMessage = useEffectEvent((messageId: string) => {
     const timeoutId = floatingTimeoutsRef.current.get(messageId)
@@ -211,6 +217,10 @@ function GameClient({ session, onLogout }: GameClientProps) {
   })
 
   useEffect(() => {
+    sessionProfileRef.current = session.profile
+  }, [session.profile])
+
+  useEffect(() => {
     const handlePopState = () => {
       setPathname(window.location.pathname)
     }
@@ -295,7 +305,7 @@ function GameClient({ session, onLogout }: GameClientProps) {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.repeat || event.key.toLowerCase() !== 'p') {
+      if (event.repeat) {
         return
       }
 
@@ -310,13 +320,21 @@ function GameClient({ session, onLogout }: GameClientProps) {
         return
       }
 
-      event.preventDefault()
-      setDebugEnabled((currentValue) => !currentValue)
+      if (event.key.toLowerCase() === 'p') {
+        event.preventDefault()
+        setDebugEnabled((currentValue) => !currentValue)
+        return
+      }
+
+      if (event.key.toLowerCase() === 'm' && !activeDialogue) {
+        event.preventDefault()
+        setSkinEditorOpen((currentValue) => !currentValue)
+      }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
+  }, [activeDialogue])
 
   useEffect(() => {
     const hasTypingPlayers = Object.keys(typingByUserId).length > 0
@@ -347,7 +365,7 @@ function GameClient({ session, onLogout }: GameClientProps) {
       setActiveSpeechByUserId({})
       setTypingByUserId({})
       localTypingStateRef.current = false
-      nextSocket.emit(clientEvents.connectToGame, { profile: session.profile })
+      nextSocket.emit(clientEvents.connectToGame, { profile: sessionProfileRef.current })
       nextSocket.emit(clientEvents.joinRoom, {
         roomId: activeTemplate.id,
         templateId: activeTemplate.id,
@@ -415,10 +433,11 @@ function GameClient({ session, onLogout }: GameClientProps) {
       socketRef.current = null
       nextSocket.disconnect()
     }
-  }, [activeTemplate.id, session.profile])
+  }, [activeTemplate.id, session.profile.userId])
 
   const currentPlayer =
     room?.players.find((player) => player.userId === session.profile.userId) ?? null
+  const appliedSkinId = currentPlayer?.skinId ?? sessionProfileRef.current.skinId
   const activePlayers = room?.players ?? []
   const currentDialogueLine = activeDialogue
     ? activeDialogue.dialogue.lines[activeDialogue.lineIndex] ?? ''
@@ -624,7 +643,7 @@ function GameClient({ session, onLogout }: GameClientProps) {
   }
 
   const handleNpcInteract = useEffectEvent((npc: RoomNpcTemplate) => {
-    if (activeDialogue || npcInteractionLocked) {
+    if (activeDialogue || npcInteractionLocked || skinEditorOpen) {
       return
     }
 
@@ -648,6 +667,70 @@ function GameClient({ session, onLogout }: GameClientProps) {
       userId: session.profile.userId,
     })
   })
+
+  const handleApplySkin = useEffectEvent(() => {
+    if (!room) {
+      setSkinEditorOpen(false)
+      return
+    }
+
+    const nextSkinId = selectedSkinId.trim()
+    if (!nextSkinId) {
+      return
+    }
+
+    const socket = socketRef.current
+    if (socket) {
+      socket.emit(clientEvents.updateSkin, {
+        roomId: room.roomId,
+        skinId: nextSkinId,
+      })
+    }
+
+    sessionProfileRef.current = {
+      ...sessionProfileRef.current,
+      skinId: nextSkinId,
+    }
+
+    savePreferredSkin(session.profile.userId, nextSkinId)
+    if (session.provider === 'local') {
+      saveAuthSession({
+        ...session,
+        profile: {
+          ...session.profile,
+          skinId: nextSkinId,
+        },
+      })
+    }
+
+    setRoom((currentRoom) => {
+      if (!currentRoom) {
+        return currentRoom
+      }
+
+      return {
+        ...currentRoom,
+        players: currentRoom.players.map((player) =>
+          player.userId === session.profile.userId
+            ? {
+                ...player,
+                skinId: nextSkinId,
+              }
+            : player,
+        ),
+      }
+    })
+
+    setSkinEditorOpen(false)
+  })
+
+  useEffect(() => {
+    if (!skinEditorOpen) {
+      return
+    }
+
+    setSelectedSkinId(appliedSkinId)
+  }, [appliedSkinId, skinEditorOpen])
 
   const handleChatSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -696,8 +779,8 @@ function GameClient({ session, onLogout }: GameClientProps) {
           typingIndicatorText={typingIndicatorText}
           onNpcInteract={handleNpcInteract}
           onActiveInteractableNpcChange={setActiveInteractableNpc}
-          navigationEnabled={!activeDialogue}
-          npcInteractionEnabled={!activeDialogue && !npcInteractionLocked}
+          navigationEnabled={!activeDialogue && !skinEditorOpen}
+          npcInteractionEnabled={!activeDialogue && !npcInteractionLocked && !skinEditorOpen}
           suppressNpcIconForId={activeDialogue?.npcId ?? null}
           pointerNpcInteractionEnabled={false}
         />
@@ -810,8 +893,19 @@ function GameClient({ session, onLogout }: GameClientProps) {
             Chat
           </button>
 
-          {mobileInteractionEnabled && activeInteractableNpc && !activeDialogue && !npcInteractionLocked ? (
+          {mobileInteractionEnabled && activeInteractableNpc && !activeDialogue && !npcInteractionLocked && !skinEditorOpen ? (
             <MobileNpcInteractButton onInteract={() => handleNpcInteract(activeInteractableNpc)} />
+          ) : null}
+
+          {skinEditorOpen ? (
+            <SkinEditorOverlay
+              presets={availableSkins}
+              selectedSkinId={selectedSkinId}
+              appliedSkinId={appliedSkinId}
+              onSelectSkin={setSelectedSkinId}
+              onApply={handleApplySkin}
+              onClose={() => setSkinEditorOpen(false)}
+            />
           ) : null}
 
           {chatOpen ? (

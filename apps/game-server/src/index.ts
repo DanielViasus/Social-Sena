@@ -10,6 +10,7 @@ import {
   getRoomTemplateById,
   joinRoomSchema,
   navigateToSchema,
+  updateSkinSchema,
   setTypingStateSchema,
   stopNavigationSchema,
   sendChatMessageSchema,
@@ -920,6 +921,26 @@ io.on('connection', (socket) => {
     }
 
     stopPlayer(player)
+    io.to(room.roomId).emit(serverEvents.playerMoved, player)
+  })
+
+  socket.on(clientEvents.updateSkin, (rawPayload) => {
+    const parsed = updateSkinSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session?.roomId) {
+      return
+    }
+
+    const room = rooms.get(session.roomId)
+    const player = room?.players.find((presence) => presence.sessionId === socket.id)
+
+    if (!room || !player || parsed.data.roomId !== room.roomId) {
+      return
+    }
+
+    session.profile.skinId = parsed.data.skinId
+    player.skinId = parsed.data.skinId
     io.to(room.roomId).emit(serverEvents.playerMoved, player)
   })
 

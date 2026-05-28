@@ -33,6 +33,11 @@ export const stopNavigationSchema = z.object({
   roomId: z.string().min(1),
 })
 
+export const updateSkinSchema = z.object({
+  roomId: z.string().min(1),
+  skinId: z.string().trim().min(1),
+})
+
 export const setTypingStateSchema = z.object({
   roomId: z.string().min(1),
   isTyping: z.boolean(),

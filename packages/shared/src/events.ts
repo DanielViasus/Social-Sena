@@ -3,6 +3,7 @@ export const clientEvents = {
   joinRoom: 'join_room',
   navigateTo: 'navigate_to',
   stopNavigation: 'stop_navigation',
+  updateSkin: 'update_skin',
   setTypingState: 'set_typing_state',
   sendChatMessage: 'send_chat_message',
   ping: 'ping',

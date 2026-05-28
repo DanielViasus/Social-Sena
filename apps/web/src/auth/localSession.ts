@@ -1,6 +1,7 @@
 import type { UserProfile } from '@social-sena/shared'
 
 const STORAGE_KEY = 'social-sena-auth-session'
+const SKIN_PREFERENCES_KEY = 'social-sena-skin-preferences'
 
 export interface AuthSession {
   provider: 'local' | 'auth0'
@@ -38,6 +39,32 @@ export function saveAuthSession(session: AuthSession) {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(session))
 }
 
+export function readPreferredSkin(userId: string): string | null {
+  try {
+    const rawValue = window.localStorage.getItem(SKIN_PREFERENCES_KEY)
+    if (!rawValue) {
+      return null
+    }
+
+    const skinPreferences = JSON.parse(rawValue) as Record<string, string>
+    const nextSkinId = skinPreferences[userId]
+    return typeof nextSkinId === 'string' && nextSkinId.trim() ? nextSkinId : null
+  } catch {
+    return null
+  }
+}
+
+export function savePreferredSkin(userId: string, skinId: string) {
+  try {
+    const rawValue = window.localStorage.getItem(SKIN_PREFERENCES_KEY)
+    const currentPreferences = rawValue ? (JSON.parse(rawValue) as Record<string, string>) : {}
+    currentPreferences[userId] = skinId
+    window.localStorage.setItem(SKIN_PREFERENCES_KEY, JSON.stringify(currentPreferences))
+  } catch {
+    window.localStorage.setItem(SKIN_PREFERENCES_KEY, JSON.stringify({ [userId]: skinId }))
+  }
+}
+
 export function clearAuthSession() {
   window.localStorage.removeItem(STORAGE_KEY)
 }
@@ -66,6 +93,7 @@ export function createAuth0Session(options: {
   pictureUrl?: string | null
 }): AuthSession {
   const usernameBase = normalizeUsername(options.username ?? options.displayName) || 'jugador'
+  const preferredSkinId = readPreferredSkin(options.userId)
 
   return {
     provider: 'auth0',
@@ -75,7 +103,7 @@ export function createAuth0Session(options: {
       userId: options.userId,
       username: usernameBase,
       displayName: options.displayName.trim(),
-      skinId: 'default-student',
+      skinId: preferredSkinId ?? 'default-student',
     },
   }
 }

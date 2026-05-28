@@ -67,6 +67,11 @@ export interface NavigateToPayload {
   target: Position
 }
 
+export interface UpdateSkinPayload {
+  roomId: string
+  skinId: string
+}
+
 export interface SendChatMessagePayload {
   roomId: string
   content: string
