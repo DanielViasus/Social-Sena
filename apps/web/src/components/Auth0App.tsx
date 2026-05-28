@@ -1,11 +1,42 @@
 import { useAuth0 } from '@auth0/auth0-react'
+import { useEffect, useState } from 'react'
 import { resolvePostLoginRoute } from '../auth/auth0Config'
-import { createAuth0Session } from '../auth/localSession'
+import { createAuth0Session, type AuthSession } from '../auth/localSession'
 import GameClient from './GameClient'
 import LoginScreen from './LoginScreen'
 
 function Auth0App() {
   const { error, isAuthenticated, isLoading, loginWithRedirect, logout, user } = useAuth0()
+  const [session, setSession] = useState<AuthSession | null>(null)
+  const displayName =
+    user?.name ?? user?.nickname ?? user?.given_name ?? user?.email?.split('@')[0] ?? 'Jugador'
+  const auth0UserId = user?.sub ?? null
+
+  useEffect(() => {
+    if (!isAuthenticated || !user || !auth0UserId) {
+      setSession(null)
+      return
+    }
+
+    const nextSession = createAuth0Session({
+      displayName,
+      userId: auth0UserId,
+      username: user.nickname ?? user.preferred_username ?? user.email ?? displayName,
+      pictureUrl: user.picture ?? null,
+    })
+
+    setSession((currentSession) => {
+      if (
+        currentSession &&
+        currentSession.profile.userId === nextSession.profile.userId &&
+        currentSession.profile.skinId !== nextSession.profile.skinId
+      ) {
+        return currentSession
+      }
+
+      return nextSession
+    })
+  }, [auth0UserId, displayName, isAuthenticated, user])
 
   if (isLoading) {
     return (
@@ -52,19 +83,14 @@ function Auth0App() {
     )
   }
 
-  const displayName =
-    user.name ?? user.nickname ?? user.given_name ?? user.email?.split('@')[0] ?? 'Jugador'
-
-  const session = createAuth0Session({
-    displayName,
-    userId: user.sub ?? `auth0_${crypto.randomUUID().slice(0, 8)}`,
-    username: user.nickname ?? user.preferred_username ?? user.email ?? displayName,
-    pictureUrl: user.picture ?? null,
-  })
+  if (!session) {
+    return null
+  }
 
   return (
     <GameClient
       session={session}
+      onSessionChange={setSession}
       onLogout={() =>
         void logout({
           logoutParams: {

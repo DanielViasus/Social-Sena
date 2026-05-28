@@ -942,6 +942,7 @@ io.on('connection', (socket) => {
     session.profile.skinId = parsed.data.skinId
     player.skinId = parsed.data.skinId
     io.to(room.roomId).emit(serverEvents.playerMoved, player)
+    io.to(room.roomId).emit(serverEvents.roomState, room)
   })
 
   socket.on(clientEvents.sendChatMessage, (rawPayload) => {

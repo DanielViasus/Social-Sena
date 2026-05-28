@@ -25,6 +25,7 @@ const SERVER_URL = import.meta.env.VITE_GAME_SERVER_URL ?? 'http://localhost:300
 interface GameClientProps {
   onLogout: () => void
   session: AuthSession
+  onSessionChange?: (nextSession: AuthSession) => void
 }
 
 interface ActiveDialogueState {
@@ -33,7 +34,7 @@ interface ActiveDialogueState {
   lineIndex: number
 }
 
-function GameClient({ session, onLogout }: GameClientProps) {
+function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const MAX_HEADLINE_SPEECH_CHARS = 30
   const [pathname, setPathname] = useState(() => window.location.pathname)
   const [room, setRoom] = useState<RoomState | null>(null)
@@ -692,16 +693,19 @@ function GameClient({ session, onLogout }: GameClientProps) {
       skinId: nextSkinId,
     }
 
+    const nextSession: AuthSession = {
+      ...session,
+      profile: {
+        ...session.profile,
+        skinId: nextSkinId,
+      },
+    }
+
     savePreferredSkin(session.profile.userId, nextSkinId)
     if (session.provider === 'local') {
-      saveAuthSession({
-        ...session,
-        profile: {
-          ...session.profile,
-          skinId: nextSkinId,
-        },
-      })
+      saveAuthSession(nextSession)
     }
+    onSessionChange?.(nextSession)
 
     setRoom((currentRoom) => {
       if (!currentRoom) {

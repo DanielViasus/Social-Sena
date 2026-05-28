@@ -30,7 +30,7 @@ function LocalApp() {
     return <LoginScreen auth0Ready={isAuth0Configured} onLogin={handleLogin} />
   }
 
-  return <GameClient session={session} onLogout={handleLogout} />
+  return <GameClient session={session} onSessionChange={setSession} onLogout={handleLogout} />
 }
 
 function App() {
