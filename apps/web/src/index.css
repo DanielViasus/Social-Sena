@@ -813,12 +813,25 @@ button {
   position: absolute;
   left: 50%;
   bottom: 0;
+  overflow: hidden;
   display: block;
+  max-width: none;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
   user-select: none;
   -webkit-user-drag: none;
   transform-origin: center bottom;
+  backface-visibility: hidden;
+}
+
+.react-world-avatar-spritesheet {
+  position: absolute;
+  display: block;
+  max-width: none;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  user-select: none;
+  -webkit-user-drag: none;
   backface-visibility: hidden;
 }
 
@@ -895,16 +908,29 @@ button {
   left: 50%;
   bottom: 0;
   transform: translateX(-50%);
+  overflow: hidden;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
   user-select: none;
   -webkit-user-drag: none;
   backface-visibility: hidden;
+  max-width: none;
 }
 
 .react-world-npc-fallback {
   border-radius: 12px;
   opacity: 0.92;
+}
+
+.react-world-npc-spritesheet {
+  position: absolute;
+  display: block;
+  max-width: none;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  user-select: none;
+  -webkit-user-drag: none;
+  backface-visibility: hidden;
 }
 
 .react-world-npc-label {

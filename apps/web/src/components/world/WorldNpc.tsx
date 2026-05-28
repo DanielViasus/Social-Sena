@@ -1,8 +1,20 @@
-import type { RoomColliderTemplate, RoomInteractionAreaTemplate, RoomNpcTemplate, RoomZIndexReferenceTemplate } from '@social-sena/shared'
+import type {
+  RoomColliderTemplate,
+  RoomInteractionAreaTemplate,
+  RoomNpcTemplate,
+  RoomZIndexReferenceTemplate,
+} from '@social-sena/shared'
 
 export interface WorldNpcFrameDefinition {
   key: string
-  url: string
+  url?: string
+  sheetUrl?: string
+  sheetWidth?: number
+  sheetHeight?: number
+  frameWidth?: number
+  frameHeight?: number
+  row?: number
+  column?: number
 }
 
 export type NpcInteractionState = 'out' | 'warning' | 'interaction'
@@ -162,17 +174,47 @@ export function WorldNpc({
       ) : null}
 
       {spriteFrame ? (
-        <img
-          src={spriteFrame.url}
-          alt={npcTemplate.label ?? npcTemplate.id}
-          draggable={false}
-          className="react-world-npc-sprite"
-          style={{
-            width: `${npcTemplate.width}px`,
-            height: `${npcTemplate.height}px`,
-            transform: flipX ? 'translateX(-50%) scaleX(-1)' : 'translateX(-50%) scaleX(1)',
-          }}
-        />
+        spriteFrame.sheetUrl &&
+        typeof spriteFrame.sheetWidth === 'number' &&
+        typeof spriteFrame.sheetHeight === 'number' &&
+        typeof spriteFrame.frameWidth === 'number' &&
+        typeof spriteFrame.frameHeight === 'number' &&
+        typeof spriteFrame.row === 'number' &&
+        typeof spriteFrame.column === 'number' ? (
+          <div
+            className="react-world-npc-sprite"
+            style={{
+              width: `${spriteFrame.frameWidth}px`,
+              height: `${spriteFrame.frameHeight}px`,
+              transform: flipX ? 'translateX(-50%) scaleX(-1)' : 'translateX(-50%) scaleX(1)',
+            }}
+          >
+            <img
+              src={spriteFrame.sheetUrl}
+              alt={npcTemplate.label ?? npcTemplate.id}
+              draggable={false}
+              className="react-world-npc-spritesheet"
+              style={{
+                width: `${spriteFrame.sheetWidth}px`,
+                height: `${spriteFrame.sheetHeight}px`,
+                left: `${-spriteFrame.column * spriteFrame.frameWidth}px`,
+                top: `${-spriteFrame.row * spriteFrame.frameHeight}px`,
+              }}
+            />
+          </div>
+        ) : (
+          <img
+            src={spriteFrame.url}
+            alt={npcTemplate.label ?? npcTemplate.id}
+            draggable={false}
+            className="react-world-npc-sprite"
+            style={{
+              width: `${npcTemplate.width}px`,
+              height: `${npcTemplate.height}px`,
+              transform: flipX ? 'translateX(-50%) scaleX(-1)' : 'translateX(-50%) scaleX(1)',
+            }}
+          />
+        )
       ) : (
         <div
           className="react-world-npc-fallback"

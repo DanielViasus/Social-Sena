@@ -23,6 +23,12 @@ export interface RoomInteractionAreaTemplate {
   height: number
 }
 
+export interface RoomSpriteFrameTemplate {
+  key: string
+  row: number
+  column: number
+}
+
 export interface RoomObjectTemplate {
   id: string
   kind: RoomObjectKind
@@ -50,6 +56,12 @@ export interface RoomNpcTemplate {
   fillColor?: number
   opacity?: number
   spriteAssetIds?: string[]
+  spriteSheetAssetId?: string
+  spriteSheetWidth?: number
+  spriteSheetHeight?: number
+  spriteFrameWidth?: number
+  spriteFrameHeight?: number
+  spriteFrames?: RoomSpriteFrameTemplate[]
   spriteFrameDurationMs?: number
   iconWarningAssetIds?: string[]
   iconInteractionAssetIds?: string[]

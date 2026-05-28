@@ -49,17 +49,27 @@ export function WorldPlayer({
       }}
     >
       <div className={`react-world-avatar-glow ${isSelf ? 'is-self' : ''}`} />
-      <img
-        src={frame.texture.url}
-        alt={player.displayName}
-        draggable={false}
+      <div
         className="react-world-avatar-sprite"
         style={{
-          width: `${32 * frame.preset.scale}px`,
-          height: `${32 * frame.preset.scale}px`,
+          width: `${frame.preset.frameWidth}px`,
+          height: `${frame.preset.frameHeight}px`,
           transform: frame.flipX ? 'translateX(-50%) scaleX(-1)' : 'translateX(-50%) scaleX(1)',
         }}
-      />
+      >
+        <img
+          src={frame.preset.sheetUrl}
+          alt={player.displayName}
+          draggable={false}
+          className="react-world-avatar-spritesheet"
+          style={{
+            width: `${frame.preset.sheetWidth}px`,
+            height: `${frame.preset.sheetHeight}px`,
+            left: `${-frame.texture.column * frame.preset.frameWidth}px`,
+            top: `${-frame.texture.row * frame.preset.frameHeight}px`,
+          }}
+        />
+      </div>
       <div
         className={`react-world-avatar-label ${isSelf ? 'is-self' : ''} ${isSpeechActive ? 'is-speech' : ''} ${isTyping ? 'is-typing' : ''}`}
       >

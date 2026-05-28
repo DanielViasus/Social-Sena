@@ -13,10 +13,7 @@ import plazaSeparator1 from '../assets/Decoration/Plaza/Separador_Plaza_1.svg'
 import plazaSeparator2 from '../assets/Decoration/Plaza/Separador_Plaza_2.svg'
 import plazaSeparator3 from '../assets/Decoration/Plaza/Separador_Plaza_3.svg'
 import plazaSeparator4 from '../assets/Decoration/Plaza/Separador_Plaza_4.svg'
-import npcMagoFrame0 from '../assets/npc/mago/NPC_MAGO_FRAME_0.svg'
-import npcMagoFrame1 from '../assets/npc/mago/NPC_MAGO_FRAME_1.svg'
-import npcMagoFrame2 from '../assets/npc/mago/NPC_MAGO_FRAME_2.svg'
-import npcMagoFrame3 from '../assets/npc/mago/NPC_MAGO_FRAME_3.svg'
+import mageSheet from '../assets/npc/mago/Mage.svg'
 import npcAlert0 from '../assets/npc/icons/alert/ALERT_0.svg'
 import npcAlert1 from '../assets/npc/icons/alert/ALERT_1.svg'
 import npcAlert2 from '../assets/npc/icons/alert/ALERT_2.svg'
@@ -107,20 +104,8 @@ const ROOM_OBJECT_SPRITES: Record<string, string> = {
   'plaza-separator-4': plazaSeparator4,
 }
 
-const CROCK_PRESET = resolveAvatarPreset('crock')
-const NPC_SPRITES: Record<string, string> = Object.fromEntries(
-  [
-    ...CROCK_PRESET.idleFrames,
-    ...(CROCK_PRESET.idleBackFrames ?? []),
-    ...CROCK_PRESET.walkFrames,
-    ...(CROCK_PRESET.walkBackFrames ?? []),
-  ].map((frame) => [frame.key, frame.url]),
-)
-
-NPC_SPRITES['npc-mago-frame-0'] = npcMagoFrame0
-NPC_SPRITES['npc-mago-frame-1'] = npcMagoFrame1
-NPC_SPRITES['npc-mago-frame-2'] = npcMagoFrame2
-NPC_SPRITES['npc-mago-frame-3'] = npcMagoFrame3
+const NPC_SPRITES: Record<string, string> = {}
+NPC_SPRITES['npc-mage-sheet'] = mageSheet
 NPC_SPRITES['npc-alert-0'] = npcAlert0
 NPC_SPRITES['npc-alert-1'] = npcAlert1
 NPC_SPRITES['npc-alert-2'] = npcAlert2
@@ -166,15 +151,48 @@ function resolveFacingPose(player: Presence, fallback: FacingPose): FacingPose {
 
 function getAnimatedNpcFrame(
   assetIds: string[] | undefined,
+  spriteSheetAssetId: string | undefined,
+  spriteSheetWidth: number | undefined,
+  spriteSheetHeight: number | undefined,
+  spriteFrameWidth: number | undefined,
+  spriteFrameHeight: number | undefined,
+  spriteFrames: { key: string; row: number; column: number }[] | undefined,
   now: number,
   frameDurationMs: number | undefined,
 ): WorldNpcFrameDefinition | null {
+  const sheetUrl = spriteSheetAssetId ? NPC_SPRITES[spriteSheetAssetId] : null
+  const sheetFrameDefinitions = spriteFrames ?? []
+
+  if (
+    sheetUrl &&
+    typeof spriteSheetWidth === 'number' &&
+    typeof spriteSheetHeight === 'number' &&
+    typeof spriteFrameWidth === 'number' &&
+    typeof spriteFrameHeight === 'number' &&
+    sheetFrameDefinitions.length > 0
+  ) {
+    const frameDuration = Math.max(80, frameDurationMs ?? 180)
+    const frameIndex = Math.floor(now / frameDuration) % sheetFrameDefinitions.length
+    const frame = sheetFrameDefinitions[frameIndex]
+
+    return {
+      key: frame.key,
+      sheetUrl,
+      sheetWidth: spriteSheetWidth,
+      sheetHeight: spriteSheetHeight,
+      frameWidth: spriteFrameWidth,
+      frameHeight: spriteFrameHeight,
+      row: frame.row,
+      column: frame.column,
+    }
+  }
+
   const frames = (assetIds ?? [])
     .map((assetId) => {
       const url = NPC_SPRITES[assetId]
       return url ? { key: assetId, url } : null
     })
-    .filter((frame): frame is WorldNpcFrameDefinition => Boolean(frame))
+    .filter((frame): frame is { key: string; url: string } => frame !== null)
 
   if (frames.length === 0) {
     return null
@@ -516,11 +534,23 @@ function ReactWorld({
 
       const spriteFrame = getAnimatedNpcFrame(
         npcTemplate.spriteAssetIds,
+        npcTemplate.spriteSheetAssetId,
+        npcTemplate.spriteSheetWidth,
+        npcTemplate.spriteSheetHeight,
+        npcTemplate.spriteFrameWidth,
+        npcTemplate.spriteFrameHeight,
+        npcTemplate.spriteFrames,
         runtime.now,
         npcTemplate.spriteFrameDurationMs,
       )
       const iconFrame = getAnimatedNpcFrame(
         state === 'interaction' ? npcTemplate.iconInteractionAssetIds : npcTemplate.iconWarningAssetIds,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
         runtime.now,
         npcTemplate.iconFrameDurationMs,
       )
