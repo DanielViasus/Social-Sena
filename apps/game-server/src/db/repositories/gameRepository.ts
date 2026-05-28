@@ -1,4 +1,4 @@
-import type { PlayerInventory, PlayerProgress, Position, SkinColorSelections, UserProfile } from '@social-sena/shared'
+import type { FriendSummary, PlayerInventory, PlayerProgress, Position, SkinColorSelections, UserProfile } from '@social-sena/shared'
 import { getDbPool } from '../client'
 
 interface PersistedPlayerState {
@@ -11,6 +11,7 @@ interface ResolvedUserProfileResult {
   needsOnboarding: boolean
   progress: PlayerProgress
   inventory: PlayerInventory
+  friends: FriendSummary[]
 }
 
 function normalizeSkinColors(value: unknown): SkinColorSelections {
@@ -68,6 +69,23 @@ function normalizeInventory(value: unknown): PlayerInventory {
   )
 }
 
+function normalizeFriendRows(
+  rows: Array<{
+    friend_user_id: string
+    display_name: string | null
+    skin_id: string | null
+    skin_colors: unknown
+  }>,
+): FriendSummary[] {
+  return rows.map((row) => ({
+    userId: row.friend_user_id,
+    displayName: row.display_name?.trim() || 'Jugador',
+    skinId: row.skin_id?.trim() || 'crock',
+    skinColors: normalizeSkinColors(row.skin_colors),
+    isOnline: false,
+  }))
+}
+
 class GameRepository {
   async resolveUserProfile(incomingProfile: UserProfile): Promise<ResolvedUserProfileResult> {
     const pool = getDbPool()
@@ -80,6 +98,7 @@ class GameRepository {
           experience: 0,
         },
         inventory: {},
+        friends: [],
       }
     }
 
@@ -132,6 +151,26 @@ class GameRepository {
       )
 
       if (profileResult.rowCount && profileResult.rows[0]) {
+        const friendsResult = await client.query<{
+          friend_user_id: string
+          display_name: string | null
+          skin_id: string | null
+          skin_colors: unknown
+        }>(
+          `
+            select
+              friendships.friend_user_id,
+              users.display_name,
+              player_profiles.skin_id,
+              player_profiles.skin_colors
+            from friendships
+            inner join users on users.user_id = friendships.friend_user_id
+            left join player_profiles on player_profiles.user_id = friendships.friend_user_id
+            where friendships.user_id = $1
+            order by users.display_name asc
+          `,
+          [incomingProfile.userId],
+        )
         const inventoryResult = await client.query<{
           inventory: unknown
         }>(
@@ -169,6 +208,7 @@ class GameRepository {
             experience: progressResult.rows[0]?.experience ?? 0,
           },
           inventory: normalizeInventory(inventoryResult.rows[0]?.inventory),
+          friends: normalizeFriendRows(friendsResult.rows),
         }
       }
 
@@ -189,6 +229,7 @@ class GameRepository {
           experience: 0,
         },
         inventory: {},
+        friends: [],
       }
     } catch (error) {
       await client.query('ROLLBACK')
@@ -201,6 +242,7 @@ class GameRepository {
           experience: 0,
         },
         inventory: {},
+        friends: [],
       }
     } finally {
       client.release()
@@ -439,6 +481,87 @@ class GameRepository {
       )
     } catch (error) {
       console.error('[db] No fue posible guardar el estado del jugador.', error)
+    }
+  }
+
+  async getFriends(userId: string): Promise<FriendSummary[]> {
+    const pool = getDbPool()
+    if (!pool) {
+      return []
+    }
+
+    try {
+      const result = await pool.query<{
+        friend_user_id: string
+        display_name: string | null
+        skin_id: string | null
+        skin_colors: unknown
+      }>(
+        `
+          select
+            friendships.friend_user_id,
+            users.display_name,
+            player_profiles.skin_id,
+            player_profiles.skin_colors
+          from friendships
+          inner join users on users.user_id = friendships.friend_user_id
+          left join player_profiles on player_profiles.user_id = friendships.friend_user_id
+          where friendships.user_id = $1
+          order by users.display_name asc
+        `,
+        [userId],
+      )
+
+      return normalizeFriendRows(result.rows)
+    } catch (error) {
+      console.error('[db] No fue posible leer la lista de amistades.', error)
+      return []
+    }
+  }
+
+  async addFriend(userId: string, friendUserId: string) {
+    const pool = getDbPool()
+    if (!pool || userId === friendUserId) {
+      return { ok: false, message: 'No fue posible registrar la amistad.' }
+    }
+
+    const client = await pool.connect()
+
+    try {
+      await client.query('BEGIN')
+
+      const friendExistsResult = await client.query<{ user_id: string }>(
+        `
+          select user_id
+          from users
+          where user_id = $1
+          limit 1
+        `,
+        [friendUserId],
+      )
+
+      if (!friendExistsResult.rowCount) {
+        await client.query('ROLLBACK')
+        return { ok: false, message: 'Ese jugador aun no tiene perfil disponible.' }
+      }
+
+      await client.query(
+        `
+          insert into friendships (user_id, friend_user_id)
+          values ($1, $2), ($2, $1)
+          on conflict (user_id, friend_user_id) do nothing
+        `,
+        [userId, friendUserId],
+      )
+
+      await client.query('COMMIT')
+      return { ok: true }
+    } catch (error) {
+      await client.query('ROLLBACK')
+      console.error('[db] No fue posible guardar la amistad.', error)
+      return { ok: false, message: 'No fue posible guardar la amistad.' }
+    } finally {
+      client.release()
     }
   }
 }

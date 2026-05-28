@@ -65,6 +65,10 @@ export const updateInventorySchema = z.object({
   inventory: playerInventorySchema,
 })
 
+export const addFriendSchema = z.object({
+  friendUserId: z.string().trim().min(1),
+})
+
 export const setTypingStateSchema = z.object({
   roomId: z.string().min(1),
   isTyping: z.boolean(),

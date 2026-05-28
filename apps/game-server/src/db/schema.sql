@@ -36,6 +36,16 @@ create table if not exists player_inventory (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists friendships (
+  user_id text not null references users(user_id) on delete cascade,
+  friend_user_id text not null references users(user_id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (user_id, friend_user_id),
+  check (user_id <> friend_user_id)
+);
+
+create index if not exists idx_friendships_friend_user_id on friendships(friend_user_id);
+
 alter table if exists player_profiles
 add column if not exists onboarding_completed boolean not null default true;
 

@@ -5,10 +5,13 @@ import {
   serverEvents,
   type ChatMessage,
   type ConnectionAcceptedPayload,
+  type FriendSummary,
   type Position,
   type Presence,
   type RoomNpcTemplate,
   type RoomState,
+  type SkinColorSelections,
+  type SocialStatePayload,
   type TypingStateChangedPayload,
 } from '@social-sena/shared'
 import { saveAuthSession, savePreferredSkin, savePreferredSkinColors, type AuthSession } from '../auth/localSession'
@@ -19,7 +22,9 @@ import {
   getDefaultAvatarColorSelections,
   normalizeAvatarColorSelections,
   resolveAvatarPreset,
+  resolveAvatarSheetUrl,
   type AvatarColorSelections,
+  type AvatarPreset,
 } from '../game/avatar/avatarSprites'
 import ReactWorld from './ReactWorld'
 import DialogueOverlay from './dialogue/DialogueOverlay'
@@ -42,6 +47,62 @@ interface ActiveDialogueState {
   lineIndex: number
 }
 
+function resolveAvatarPrimarySubtitle(preset: AvatarPreset, skinColors: SkinColorSelections) {
+  const primarySlot = preset.colorSlots.find((slot) => slot.id === 'fur') ?? preset.colorSlots[0]
+  if (!primarySlot) {
+    return preset.label
+  }
+
+  const normalizedSelections = normalizeAvatarColorSelections(preset, skinColors)
+  const currentOption =
+    primarySlot.options.find((option) => option.id === normalizedSelections[primarySlot.id]) ??
+    primarySlot.options.find((option) => option.id === primarySlot.defaultOptionId) ??
+    primarySlot.options[0]
+
+  return currentOption?.subtitle ?? currentOption?.label ?? preset.label
+}
+
+function MenuAvatarPreview({
+  skinId,
+  skinColors,
+  displayName,
+}: {
+  skinId: string
+  skinColors: SkinColorSelections
+  displayName: string
+}) {
+  const preset = resolveAvatarPreset(skinId)
+  const frame = preset.idleFrames[0]
+  const sheetUrl = resolveAvatarSheetUrl(preset, skinColors)
+  const size = 56
+  const scale = size / preset.frameWidth
+
+  return (
+    <div
+      className="menu-avatar-preview"
+      aria-hidden="true"
+      title={`${displayName} · ${preset.label}`}
+      style={{
+        width: `${size}px`,
+        height: `${size}px`,
+      }}
+    >
+      <img
+        src={sheetUrl}
+        alt=""
+        draggable={false}
+        className="menu-avatar-preview-sheet"
+        style={{
+          width: `${preset.sheetWidth * scale}px`,
+          height: `${preset.sheetHeight * scale}px`,
+          left: `${-frame.column * preset.frameWidth * scale}px`,
+          top: `${-frame.row * preset.frameHeight * scale}px`,
+        }}
+      />
+    </div>
+  )
+}
+
 function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const MAX_HEADLINE_SPEECH_CHARS = 30
   const [pathname, setPathname] = useState(() => window.location.pathname)
@@ -56,6 +117,8 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const [optionsOpen, setOptionsOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   const [debugEnabled, setDebugEnabled] = useState(false)
+  const [friends, setFriends] = useState<FriendSummary[]>([])
+  const [addingFriendUserId, setAddingFriendUserId] = useState<string | null>(null)
   const [activeDialogue, setActiveDialogue] = useState<ActiveDialogueState | null>(null)
   const [dialogueVisibleChars, setDialogueVisibleChars] = useState(0)
   const [npcInteractionLocked, setNpcInteractionLocked] = useState(false)
@@ -383,6 +446,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       setFloatingMessages([])
       setActiveSpeechByUserId({})
       setTypingByUserId({})
+      setFriends([])
       localTypingStateRef.current = false
       nextSocket.emit(clientEvents.connectToGame, { profile: sessionProfileRef.current })
     })
@@ -390,14 +454,16 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     nextSocket.on('disconnect', () => {
       setConnected(false)
       setTypingByUserId({})
+       setFriends([])
       localTypingStateRef.current = false
       setInitialSkinSetupSubmitting(false)
     })
 
     nextSocket.on(
       serverEvents.connectionAccepted,
-      ({ profile, needsOnboarding, progress, inventory }: ConnectionAcceptedPayload) => {
+      ({ profile, needsOnboarding, progress, inventory, friends }: ConnectionAcceptedPayload) => {
         sessionProfileRef.current = profile
+        setFriends(friends)
 
         const nextSession: AuthSession = {
           ...session,
@@ -432,6 +498,10 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
         })
       },
     )
+
+    nextSocket.on(serverEvents.socialState, ({ friends }: SocialStatePayload) => {
+      setFriends(friends)
+    })
 
     nextSocket.on(serverEvents.roomState, (nextRoom: RoomState) => {
       setRoom(nextRoom)
@@ -504,10 +574,19 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     selectedSkinColorsBySkinId[selectedSkinPreset.id] ??
     getDefaultAvatarColorSelections(selectedSkinPreset)
   const activePlayers = room?.players ?? []
+  const friendUserIds = new Set(friends.map((friend) => friend.userId))
   const currentDialogueLine = activeDialogue
     ? activeDialogue.dialogue.lines[activeDialogue.lineIndex] ?? ''
     : ''
   const isDialogueLineComplete = dialogueVisibleChars >= currentDialogueLine.length
+
+  useEffect(() => {
+    if (!optionsOpen) {
+      return
+    }
+
+    socketRef.current?.emit(clientEvents.requestSocialState)
+  }, [optionsOpen])
 
   const handleOpenChat = () => {
     floatingTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId))
@@ -525,6 +604,25 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     socket.emit(clientEvents.stopNavigation, {
       roomId: room.roomId,
     })
+  })
+
+  const handleAddFriend = useEffectEvent((friendUserId: string) => {
+    const socket = socketRef.current
+    if (!socket || addingFriendUserId) {
+      return
+    }
+
+    setAddingFriendUserId(friendUserId)
+    socket.emit(
+      clientEvents.addFriend,
+      { friendUserId },
+      (response: { ok: boolean; friends?: FriendSummary[] }) => {
+        setAddingFriendUserId(null)
+        if (response.ok && response.friends) {
+          setFriends(response.friends)
+        }
+      },
+    )
   })
 
   const ensureDialogueAudioUnlocked = useEffectEvent(async () => {
@@ -1027,24 +1125,90 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                       <strong>{activePlayers.length}</strong>
                     </article>
                   </div>
-                  <div className="dropdown-block">
-                    <span>Jugadores en linea</span>
-                    <ul className="players-list">
-                      {activePlayers.length === 0 ? (
-                        <li>Sin jugadores visibles</li>
+                  <details className="dropdown-section" open>
+                    <summary>Personajes en la sala</summary>
+                    <div className="dropdown-section-body">
+                      <ul className="players-list players-list-rich">
+                        {activePlayers.length === 0 ? (
+                          <li>Sin jugadores visibles</li>
+                        ) : (
+                          activePlayers.map((player) => {
+                            const preset = resolveAvatarPreset(player.skinId)
+                            const skinSubtitle = resolveAvatarPrimarySubtitle(preset, player.skinColors)
+                            const isCurrentPlayer = player.userId === session.profile.userId
+                            const isFriend = friendUserIds.has(player.userId)
+
+                            return (
+                              <li
+                                key={player.sessionId}
+                                className={isCurrentPlayer ? 'is-current-player' : ''}
+                              >
+                                <div className="player-entry-main">
+                                  <MenuAvatarPreview
+                                    skinId={player.skinId}
+                                    skinColors={player.skinColors}
+                                    displayName={player.displayName}
+                                  />
+                                  <div className="player-entry-copy">
+                                    <strong>{player.displayName}</strong>
+                                    <small>{`${preset.label} · ${skinSubtitle}`}</small>
+                                  </div>
+                                </div>
+                                {isCurrentPlayer ? (
+                                  <span className="menu-inline-tag is-current">Tu personaje</span>
+                                ) : isFriend ? (
+                                  <span className="menu-inline-tag is-friend">Amistad</span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="mini-action-button"
+                                    onClick={() => handleAddFriend(player.userId)}
+                                    disabled={addingFriendUserId === player.userId}
+                                  >
+                                    {addingFriendUserId === player.userId ? 'Guardando...' : 'Agregar'}
+                                  </button>
+                                )}
+                              </li>
+                            )
+                          })
+                        )}
+                      </ul>
+                    </div>
+                  </details>
+                  <details className="dropdown-section" open={friends.length > 0}>
+                    <summary>Amistades</summary>
+                    <div className="dropdown-section-body">
+                      {friends.length === 0 ? (
+                        <p className="empty-state">Todavia no agregas amistades.</p>
                       ) : (
-                        activePlayers.map((player) => (
-                          <li
-                            key={player.sessionId}
-                            className={player.userId === session.profile.userId ? 'is-current-player' : ''}
-                          >
-                            <strong>{player.displayName}</strong>
-                            {player.userId === session.profile.userId ? <small>Tu personaje</small> : null}
-                          </li>
-                        ))
+                        <ul className="players-list players-list-rich">
+                          {friends.map((friend) => {
+                            const preset = resolveAvatarPreset(friend.skinId)
+                            const skinSubtitle = resolveAvatarPrimarySubtitle(preset, friend.skinColors)
+
+                            return (
+                              <li key={friend.userId}>
+                                <div className="player-entry-main">
+                                  <MenuAvatarPreview
+                                    skinId={friend.skinId}
+                                    skinColors={friend.skinColors}
+                                    displayName={friend.displayName}
+                                  />
+                                  <div className="player-entry-copy">
+                                    <strong>{friend.displayName}</strong>
+                                    <small>{`${preset.label} · ${skinSubtitle}`}</small>
+                                  </div>
+                                </div>
+                                <span className={`friend-status-pill ${friend.isOnline ? 'is-online' : 'is-offline'}`}>
+                                  {friend.isOnline ? 'Conectado' : 'Desconectado'}
+                                </span>
+                              </li>
+                            )
+                          })}
+                        </ul>
                       )}
-                    </ul>
-                  </div>
+                    </div>
+                  </details>
                   <div className="dropdown-actions">
                     <button
                       type="button"

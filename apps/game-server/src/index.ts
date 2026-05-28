@@ -7,6 +7,7 @@ import {
   DEFAULT_ROOM_CAPACITY,
   PLAYER_REACH_THRESHOLD,
   PLAYER_SPEED,
+  addFriendSchema,
   clientEvents,
   completeOnboardingSchema,
   connectToGameSchema,
@@ -23,6 +24,7 @@ import {
   type ChatMessage,
   type ConnectionAcceptedPayload,
   type Direction,
+  type FriendSummary,
   type PlayerInventory,
   type PlayerProgress,
   type Position,
@@ -120,6 +122,34 @@ let lastSimulationTick = Date.now()
 
 function hasMovementInput(input: SessionState['movementInput']) {
   return input.up || input.down || input.left || input.right
+}
+
+function sessionsHasUser(userId: string) {
+  return Array.from(sessions.values()).some((session) => session.profile.userId === userId)
+}
+
+async function buildFriendSummariesForUser(userId: string): Promise<FriendSummary[]> {
+  const persistedFriends = await gameRepository.getFriends(userId)
+  const onlineUserIds = new Set(Array.from(sessions.values()).map((session) => session.profile.userId))
+
+  return persistedFriends.map((friend) => ({
+    ...friend,
+    isOnline: onlineUserIds.has(friend.userId),
+  }))
+}
+
+async function emitSocialStateToSocket(socketId: string) {
+  const session = sessions.get(socketId)
+  if (!session) {
+    return
+  }
+
+  const friends = await buildFriendSummariesForUser(session.profile.userId)
+  io.to(socketId).emit(serverEvents.socialState, { friends })
+}
+
+async function refreshSocialStateForAllSessions() {
+  await Promise.all(Array.from(sessions.keys()).map((socketId) => emitSocialStateToSocket(socketId)))
 }
 
 function getOrCreateRoom(roomId: string, templateId: string): RoomState | null {
@@ -960,9 +990,14 @@ io.on('connection', (socket) => {
       needsOnboarding: resolvedProfileResult.needsOnboarding,
       progress: resolvedProfileResult.progress,
       inventory: resolvedProfileResult.inventory,
+      friends: resolvedProfileResult.friends.map((friend) => ({
+        ...friend,
+        isOnline: sessionsHasUser(friend.userId),
+      })),
     }
 
     socket.emit(serverEvents.connectionAccepted, connectionAcceptedPayload)
+    void refreshSocialStateForAllSessions()
   })
 
   socket.on(clientEvents.completeOnboarding, async (rawPayload, callback) => {
@@ -989,6 +1024,8 @@ io.on('connection', (socket) => {
       progress: session.progress,
       inventory: session.inventory,
     })
+
+    void emitSocialStateToSocket(socket.id)
   })
 
   socket.on(clientEvents.joinRoom, async (rawPayload) => {
@@ -1168,6 +1205,39 @@ io.on('connection', (socket) => {
     })
   })
 
+  socket.on(clientEvents.requestSocialState, () => {
+    void emitSocialStateToSocket(socket.id)
+  })
+
+  socket.on(clientEvents.addFriend, async (rawPayload, callback) => {
+    const parsed = addFriendSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible registrar la amistad.',
+      })
+      return
+    }
+
+    const result = await gameRepository.addFriend(session.profile.userId, parsed.data.friendUserId)
+
+    if (!result.ok) {
+      callback?.(result)
+      return
+    }
+
+    const friends = await buildFriendSummariesForUser(session.profile.userId)
+    socket.emit(serverEvents.socialState, { friends })
+    await refreshSocialStateForAllSessions()
+
+    callback?.({
+      ok: true,
+      friends,
+    })
+  })
+
   socket.on(clientEvents.sendChatMessage, (rawPayload) => {
     const parsed = sendChatMessageSchema.safeParse(rawPayload)
     const session = sessions.get(socket.id)
@@ -1245,6 +1315,7 @@ io.on('connection', (socket) => {
     }
 
     sessions.delete(socket.id)
+    void refreshSocialStateForAllSessions()
   })
 })
 

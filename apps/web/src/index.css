@@ -470,6 +470,39 @@ button {
   font-size: 0.94rem;
 }
 
+.dropdown-section {
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.dropdown-section summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 12px 14px;
+  font-size: 0.82rem;
+  color: #dce6f6;
+  font-weight: 700;
+}
+
+.dropdown-section summary::-webkit-details-marker {
+  display: none;
+}
+
+.dropdown-section summary::after {
+  content: '+';
+  float: right;
+  color: #9cb0cb;
+}
+
+.dropdown-section[open] summary::after {
+  content: '−';
+}
+
+.dropdown-section-body {
+  padding: 0 10px 10px;
+}
+
 .dropdown-stats {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -508,8 +541,9 @@ button {
 
 .players-list li {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   padding: 9px 12px;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.04);
@@ -518,6 +552,99 @@ button {
 .players-list li.is-current-player {
   background: rgba(156, 222, 113, 0.12);
   box-shadow: inset 0 0 0 1px rgba(156, 222, 113, 0.24);
+}
+
+.players-list-rich li {
+  align-items: center;
+}
+
+.player-entry-main {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.player-entry-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.player-entry-copy strong,
+.player-entry-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu-avatar-preview {
+  position: relative;
+  overflow: hidden;
+  flex: 0 0 auto;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
+.menu-avatar-preview-sheet {
+  position: absolute;
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+
+.mini-action-button,
+.menu-inline-tag,
+.friend-status-pill {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 7px 10px;
+  font-size: 0.64rem;
+  line-height: 1.2;
+}
+
+.mini-action-button {
+  border: 1px solid rgba(156, 222, 113, 0.24);
+  background: rgba(156, 222, 113, 0.14);
+  color: #ebffd7;
+  font-family: 'Press Start 2P', monospace;
+  cursor: pointer;
+}
+
+.mini-action-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.menu-inline-tag {
+  background: rgba(255, 255, 255, 0.08);
+  color: #d6e1f5;
+}
+
+.menu-inline-tag.is-current {
+  background: rgba(156, 222, 113, 0.14);
+  color: #e4ffcf;
+}
+
+.menu-inline-tag.is-friend {
+  background: rgba(76, 209, 160, 0.14);
+  color: #d5fff1;
+}
+
+.friend-status-pill {
+  background: rgba(255, 255, 255, 0.06);
+  color: #d6e1f5;
+}
+
+.friend-status-pill.is-online {
+  background: rgba(76, 209, 160, 0.14);
+  color: #d6fff1;
+}
+
+.friend-status-pill.is-offline {
+  background: rgba(255, 255, 255, 0.08);
+  color: #a8b9d3;
 }
 
 .players-list small,
@@ -857,6 +984,22 @@ button {
 
   .dropdown-stats {
     grid-template-columns: 1fr;
+  }
+
+  .players-list li {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .player-entry-main {
+    width: 100%;
+  }
+
+  .mini-action-button,
+  .menu-inline-tag,
+  .friend-status-pill {
+    width: 100%;
+    text-align: center;
   }
 
   .secondary-action-button {

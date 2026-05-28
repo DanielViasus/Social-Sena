@@ -26,6 +26,14 @@ export interface InventoryItemState {
 
 export type PlayerInventory = Record<string, InventoryItemState>
 
+export interface FriendSummary {
+  userId: string
+  displayName: string
+  skinId: string
+  skinColors: SkinColorSelections
+  isOnline: boolean
+}
+
 export interface Position {
   x: number
   y: number
@@ -81,6 +89,7 @@ export interface ConnectionAcceptedPayload {
   needsOnboarding: boolean
   progress: PlayerProgress
   inventory: PlayerInventory
+  friends: FriendSummary[]
 }
 
 export interface CompleteOnboardingPayload {
@@ -114,6 +123,14 @@ export interface UpdateSkinPayload {
 
 export interface UpdateInventoryPayload {
   inventory: PlayerInventory
+}
+
+export interface AddFriendPayload {
+  friendUserId: string
+}
+
+export interface SocialStatePayload {
+  friends: FriendSummary[]
 }
 
 export interface SendChatMessagePayload {
