@@ -1,13 +1,24 @@
 import { useAuth0 } from '@auth0/auth0-react'
 import { useEffect, useState } from 'react'
 import { resolvePostLoginRoute } from '../auth/auth0Config'
-import { createAuth0Session, type AuthSession } from '../auth/localSession'
+import {
+  createAuth0Session,
+  createLocalAuthSession,
+  readStoredAuthSession,
+  saveAuthSession,
+  clearAuthSession,
+  type AuthSession,
+} from '../auth/localSession'
 import GameClient from './GameClient'
 import LoginScreen from './LoginScreen'
 
 function Auth0App() {
   const { error, isAuthenticated, isLoading, loginWithRedirect, logout, user } = useAuth0()
   const [session, setSession] = useState<AuthSession | null>(null)
+  const [localSession, setLocalSession] = useState<AuthSession | null>(() => {
+    const storedSession = readStoredAuthSession()
+    return storedSession?.provider === 'local' ? storedSession : null
+  })
   const displayName =
     user?.name ?? user?.nickname ?? user?.given_name ?? user?.email?.split('@')[0] ?? 'Jugador'
   const auth0UserId = user?.sub ?? null
@@ -30,6 +41,19 @@ function Auth0App() {
         prompt: 'select_account',
       },
     })
+
+
+  const handleLocalLogin = (displayName: string) => {
+    const nextSession = createLocalAuthSession(displayName)
+    saveAuthSession(nextSession)
+    window.history.replaceState({}, '', '/Room_1909')
+    setLocalSession(nextSession)
+  }
+
+  const handleLocalLogout = () => {
+    clearAuthSession()
+    setLocalSession(null)
+  }
 
   useEffect(() => {
     if (!isAuthenticated || !user || !auth0UserId) {
@@ -82,12 +106,16 @@ function Auth0App() {
   }
 
   if (!isAuthenticated || !user) {
+    if (localSession) {
+      return <GameClient session={localSession} onSessionChange={setLocalSession} onLogout={handleLocalLogout} />
+    }
+
     return (
       <LoginScreen
         auth0Ready
         onAuth0Login={handleAuth0Login}
         onAuth0ChooseAccount={handleAuth0ChooseAccount}
-        onLogin={() => {}}
+        onLogin={handleLocalLogin}
       />
     )
   }
