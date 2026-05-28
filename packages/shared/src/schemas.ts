@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { WORLD_HEIGHT, WORLD_WIDTH } from './constants'
 
 export const directionSchema = z.enum(['up', 'down', 'left', 'right'])
+export const skinColorSelectionsSchema = z.record(z.string().trim().min(1), z.string().trim().min(1))
 export const positionSchema = z.object({
   x: z.number().min(0).max(WORLD_WIDTH),
   y: z.number().min(0).max(WORLD_HEIGHT),
@@ -12,6 +13,7 @@ export const userProfileSchema = z.object({
   username: z.string().min(1),
   displayName: z.string().min(1),
   skinId: z.string().min(1),
+  skinColors: skinColorSelectionsSchema.default({}),
 })
 
 export const connectToGameSchema = z.object({
@@ -44,6 +46,7 @@ export const movementInputSchema = z.object({
 export const updateSkinSchema = z.object({
   roomId: z.string().min(1),
   skinId: z.string().trim().min(1),
+  skinColors: skinColorSelectionsSchema.optional(),
 })
 
 export const setTypingStateSchema = z.object({

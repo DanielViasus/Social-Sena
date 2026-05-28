@@ -11,6 +11,8 @@ function Auth0App() {
   const displayName =
     user?.name ?? user?.nickname ?? user?.given_name ?? user?.email?.split('@')[0] ?? 'Jugador'
   const auth0UserId = user?.sub ?? null
+  const sameSkinColors = (left: AuthSession | null, right: AuthSession) =>
+    JSON.stringify(left?.profile.skinColors ?? {}) === JSON.stringify(right.profile.skinColors ?? {})
 
   useEffect(() => {
     if (!isAuthenticated || !user || !auth0UserId) {
@@ -29,7 +31,7 @@ function Auth0App() {
       if (
         currentSession &&
         currentSession.profile.userId === nextSession.profile.userId &&
-        currentSession.profile.skinId !== nextSession.profile.skinId
+        (currentSession.profile.skinId !== nextSession.profile.skinId || !sameSkinColors(currentSession, nextSession))
       ) {
         return currentSession
       }

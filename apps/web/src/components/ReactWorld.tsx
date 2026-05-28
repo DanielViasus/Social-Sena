@@ -7,7 +7,7 @@ import type {
   RoomState,
   RoomTemplate
 } from '@social-sena/shared'
-import { resolveAvatarPreset } from '../game/avatar/avatarSprites'
+import { resolveAvatarPreset, resolveAvatarSheetUrl } from '../game/avatar/avatarSprites'
 import bkGarden from '../assets/Places/bk_garden.svg'
 import plazaSeparator1 from '../assets/Decoration/Plaza/Separador_Plaza_1.svg'
 import plazaSeparator2 from '../assets/Decoration/Plaza/Separador_Plaza_2.svg'
@@ -205,6 +205,7 @@ function getAnimatedNpcFrame(
 
 function getAvatarFrame(player: Presence, now: number, facingPose: FacingPose) {
   const preset = resolveAvatarPreset(player.skinId)
+  const sheetUrl = resolveAvatarSheetUrl(preset, player.skinColors)
   const useBack = facingPose === 'back-left' || facingPose === 'back-right'
   const flipX = facingPose === 'front-left' || facingPose === 'back-left'
   const frames = player.moving
@@ -219,6 +220,7 @@ function getAvatarFrame(player: Presence, now: number, facingPose: FacingPose) {
 
   return {
     preset,
+    sheetUrl,
     texture: frames[frameIndex],
     frameIndex,
     flipX,

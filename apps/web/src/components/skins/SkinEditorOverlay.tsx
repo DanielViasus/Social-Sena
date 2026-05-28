@@ -1,11 +1,18 @@
-import { useEffect, useState } from 'react'
-import type { AvatarPreset, AvatarTextureDefinition } from '../../game/avatar/avatarSprites'
+import { useEffect, useMemo, useState } from 'react'
+import {
+  resolveAvatarSheetUrl,
+  type AvatarColorSelections,
+  type AvatarPreset,
+  type AvatarTextureDefinition,
+} from '../../game/avatar/avatarSprites'
 
 interface SkinEditorOverlayProps {
   presets: AvatarPreset[]
   selectedSkinId: string
   appliedSkinId: string
+  selectedSkinColors: AvatarColorSelections
   onSelectSkin: (skinId: string) => void
+  onSelectColor: (slotId: string, optionId: string) => void
   onApply: () => void
   onClose: () => void
 }
@@ -13,10 +20,12 @@ interface SkinEditorOverlayProps {
 function SkinSpritePreview({
   preset,
   frame,
+  sheetUrl,
   size,
 }: {
   preset: AvatarPreset
   frame: AvatarTextureDefinition
+  sheetUrl: string
   size: number
 }) {
   const scale = size / preset.frameWidth
@@ -30,7 +39,7 @@ function SkinSpritePreview({
       }}
     >
       <img
-        src={preset.sheetUrl}
+        src={sheetUrl}
         alt={preset.label}
         draggable={false}
         className="skin-preview-spritesheet"
@@ -49,11 +58,14 @@ export default function SkinEditorOverlay({
   presets,
   selectedSkinId,
   appliedSkinId,
+  selectedSkinColors,
   onSelectSkin,
+  onSelectColor,
   onApply,
   onClose,
 }: SkinEditorOverlayProps) {
   const [previewFrameIndex, setPreviewFrameIndex] = useState(0)
+  const [activeTab, setActiveTab] = useState<'skins' | 'colors'>('skins')
   const selectedPreset =
     presets.find((preset) => preset.id === selectedSkinId) ??
     presets.find((preset) => preset.id === appliedSkinId) ??
@@ -70,6 +82,10 @@ export default function SkinEditorOverlay({
   const previewFrame =
     selectedPreset?.idleFrames[previewFrameIndex % selectedPreset.idleFrames.length] ??
     selectedPreset?.idleFrames[0]
+  const previewSheetUrl = useMemo(
+    () => (selectedPreset ? resolveAvatarSheetUrl(selectedPreset, selectedSkinColors) : ''),
+    [selectedPreset, selectedSkinColors],
+  )
 
   return (
     <div className="skin-editor-overlay" role="dialog" aria-modal="true" aria-label="Editor de skins">
@@ -82,32 +98,88 @@ export default function SkinEditorOverlay({
         <div className="skin-editor-grid">
           <div className="skin-editor-sidebar">
             <h2>SKINS</h2>
-            <div className="skin-editor-options">
-              {presets.map((preset) => {
-                const frame = preset.idleFrames[0]
-                const isSelected = preset.id === selectedSkinId
-                const isApplied = preset.id === appliedSkinId
-
-                return (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    className={`skin-editor-option ${isSelected ? 'is-selected' : ''} ${isApplied ? 'is-applied' : ''}`}
-                    onClick={() => onSelectSkin(preset.id)}
-                    aria-pressed={isSelected}
-                  >
-                    <SkinSpritePreview preset={preset} frame={frame} size={112} />
-                  </button>
-                )
-              })}
+            <div className="skin-editor-tabs" role="tablist" aria-label="Editor de apariencia">
+              <button
+                type="button"
+                className={`skin-editor-tab ${activeTab === 'skins' ? 'is-active' : ''}`}
+                onClick={() => setActiveTab('skins')}
+                role="tab"
+                aria-selected={activeTab === 'skins'}
+              >
+                skins
+              </button>
+              <button
+                type="button"
+                className={`skin-editor-tab ${activeTab === 'colors' ? 'is-active' : ''}`}
+                onClick={() => setActiveTab('colors')}
+                role="tab"
+                aria-selected={activeTab === 'colors'}
+              >
+                colores
+              </button>
             </div>
+
+            {activeTab === 'skins' ? (
+              <div className="skin-editor-options">
+                {presets.map((preset) => {
+                  const frame = preset.idleFrames[0]
+                  const isSelected = preset.id === selectedSkinId
+                  const isApplied = preset.id === appliedSkinId
+                  const optionSheetUrl = resolveAvatarSheetUrl(preset, selectedPreset?.id === preset.id ? selectedSkinColors : undefined)
+
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      className={`skin-editor-option ${isSelected ? 'is-selected' : ''} ${isApplied ? 'is-applied' : ''}`}
+                      onClick={() => onSelectSkin(preset.id)}
+                      aria-pressed={isSelected}
+                    >
+                      <SkinSpritePreview preset={preset} frame={frame} sheetUrl={optionSheetUrl} size={112} />
+                    </button>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="skin-editor-color-groups">
+                {selectedPreset?.colorSlots.length ? (
+                  selectedPreset.colorSlots.map((slot) => (
+                    <section key={slot.id} className="skin-editor-color-group">
+                      <header>
+                        <h4>{slot.label}</h4>
+                      </header>
+                      <div className="skin-editor-color-options">
+                        {slot.options.map((option) => {
+                          const isSelected = selectedSkinColors[slot.id] === option.id
+                          return (
+                            <button
+                              key={option.id}
+                              type="button"
+                              className={`skin-editor-color-option ${isSelected ? 'is-selected' : ''}`}
+                              onClick={() => onSelectColor(slot.id, option.id)}
+                              aria-pressed={isSelected}
+                              title={option.label}
+                            >
+                              <span className="skin-editor-color-swatch" style={{ background: option.swatch }} />
+                              <span className="skin-editor-color-label">{option.label}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </section>
+                  ))
+                ) : (
+                  <div className="skin-editor-color-empty">Esta skin aun no tiene variantes de color.</div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="skin-editor-preview">
             <h3>{selectedPreset?.label ?? 'Skin'}</h3>
             <div className="skin-editor-preview-stage">
               {selectedPreset && previewFrame ? (
-                <SkinSpritePreview preset={selectedPreset} frame={previewFrame} size={256} />
+                <SkinSpritePreview preset={selectedPreset} frame={previewFrame} sheetUrl={previewSheetUrl} size={256} />
               ) : (
                 <div className="skin-editor-preview-empty" />
               )}
