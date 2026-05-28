@@ -4,6 +4,11 @@ import { fileURLToPath } from 'node:url'
 import { Pool } from 'pg'
 
 const connectionString = process.env.DATABASE_URL?.trim()
+const isProduction = process.env.NODE_ENV === 'production'
+
+if (!connectionString && isProduction) {
+  throw new Error('[db] DATABASE_URL no esta configurada en produccion. La persistencia es obligatoria para iniciar el servidor.')
+}
 
 const pool = connectionString
   ? new Pool({
@@ -39,5 +44,8 @@ export async function initializeDatabase() {
     console.log('[db] Esquema de Postgres validado correctamente.')
   } catch (error) {
     console.error('[db] No fue posible inicializar el esquema de Postgres.', error)
+    if (isProduction) {
+      throw error
+    }
   }
 }
