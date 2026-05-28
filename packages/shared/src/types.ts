@@ -1,12 +1,14 @@
 import type { RoomTemplate } from './rooms/types'
 
 export type Direction = 'up' | 'down' | 'left' | 'right'
+export type SkinColorSelections = Record<string, string>
 
 export interface UserProfile {
   userId: string
   username: string
   displayName: string
   skinId: string
+  skinColors: SkinColorSelections
 }
 
 export interface Position {
@@ -29,6 +31,7 @@ export interface Presence {
   direction: Direction
   moving: boolean
   skinId: string
+  skinColors: SkinColorSelections
   animation: string
   destination: Position | null
   route: RouteState | null
@@ -78,6 +81,7 @@ export interface MovementInputPayload {
 export interface UpdateSkinPayload {
   roomId: string
   skinId: string
+  skinColors?: SkinColorSelections
 }
 
 export interface SendChatMessagePayload {

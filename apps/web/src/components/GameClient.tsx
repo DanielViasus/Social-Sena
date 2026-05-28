@@ -10,10 +10,16 @@ import {
   type RoomState,
   type TypingStateChangedPayload,
 } from '@social-sena/shared'
-import { saveAuthSession, savePreferredSkin, type AuthSession } from '../auth/localSession'
+import { saveAuthSession, savePreferredSkin, savePreferredSkinColors, type AuthSession } from '../auth/localSession'
 import type { DialogueDefinition } from '../dialogue/registry'
 import { getDialogueById } from '../dialogue/registry'
-import { getAvailableAvatarPresets } from '../game/avatar/avatarSprites'
+import {
+  getAvailableAvatarPresets,
+  getDefaultAvatarColorSelections,
+  normalizeAvatarColorSelections,
+  resolveAvatarPreset,
+  type AvatarColorSelections,
+} from '../game/avatar/avatarSprites'
 import ReactWorld from './ReactWorld'
 import DialogueOverlay from './dialogue/DialogueOverlay'
 import MobileNpcInteractButton from './MobileNpcInteractButton'
@@ -54,7 +60,15 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const [mobileInteractionEnabled, setMobileInteractionEnabled] = useState(false)
   const [activeInteractableNpc, setActiveInteractableNpc] = useState<RoomNpcTemplate | null>(null)
   const [skinEditorOpen, setSkinEditorOpen] = useState(false)
-  const [selectedSkinId, setSelectedSkinId] = useState(session.profile.skinId)
+  const [selectedSkinId, setSelectedSkinId] = useState(() => resolveAvatarPreset(session.profile.skinId).id)
+  const [selectedSkinColorsBySkinId, setSelectedSkinColorsBySkinId] = useState<Record<string, AvatarColorSelections>>(
+    () => {
+      const initialPreset = resolveAvatarPreset(session.profile.skinId)
+      return {
+        [initialPreset.id]: normalizeAvatarColorSelections(initialPreset, session.profile.skinColors),
+      }
+    },
+  )
   const socketRef = useRef<Socket | null>(null)
   const sessionProfileRef = useRef(session.profile)
   const movementInputRef = useRef({
@@ -565,6 +579,16 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const currentPlayer =
     room?.players.find((player) => player.userId === session.profile.userId) ?? null
   const appliedSkinId = currentPlayer?.skinId ?? sessionProfileRef.current.skinId
+  const appliedSkinPreset = resolveAvatarPreset(appliedSkinId)
+  const appliedSkinColors = normalizeAvatarColorSelections(
+    appliedSkinPreset,
+    currentPlayer?.skinColors ?? sessionProfileRef.current.skinColors,
+  )
+  const appliedSkinColorsKey = JSON.stringify(appliedSkinColors)
+  const selectedSkinPreset = resolveAvatarPreset(selectedSkinId)
+  const selectedSkinColors =
+    selectedSkinColorsBySkinId[selectedSkinPreset.id] ??
+    getDefaultAvatarColorSelections(selectedSkinPreset)
   const activePlayers = room?.players ?? []
   const currentDialogueLine = activeDialogue
     ? activeDialogue.dialogue.lines[activeDialogue.lineIndex] ?? ''
@@ -795,28 +819,67 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
   })
 
+  const handleSelectSkin = useEffectEvent((nextSkinId: string) => {
+    const nextPreset = resolveAvatarPreset(nextSkinId)
+
+    setSelectedSkinId(nextPreset.id)
+    setSelectedSkinColorsBySkinId((currentValue) => {
+      if (currentValue[nextPreset.id]) {
+        return currentValue
+      }
+
+      const seedColors =
+        nextPreset.id === appliedSkinPreset.id
+          ? appliedSkinColors
+          : getDefaultAvatarColorSelections(nextPreset)
+
+      return {
+        ...currentValue,
+        [nextPreset.id]: normalizeAvatarColorSelections(nextPreset, seedColors),
+      }
+    })
+  })
+
+  const handleSelectSkinColor = useEffectEvent((slotId: string, optionId: string) => {
+    setSelectedSkinColorsBySkinId((currentValue) => ({
+      ...currentValue,
+      [selectedSkinPreset.id]: normalizeAvatarColorSelections(selectedSkinPreset, {
+        ...selectedSkinColors,
+        [slotId]: optionId,
+      }),
+    }))
+  })
+
   const handleApplySkin = useEffectEvent(() => {
     if (!room) {
       setSkinEditorOpen(false)
       return
     }
 
-    const nextSkinId = selectedSkinId.trim()
+    const nextSkinId = selectedSkinPreset.id
     if (!nextSkinId) {
       return
     }
+
+    const nextSkinPreset = resolveAvatarPreset(nextSkinId)
+    const nextSkinColors = normalizeAvatarColorSelections(
+      nextSkinPreset,
+      selectedSkinColorsBySkinId[nextSkinPreset.id] ?? {},
+    )
 
     const socket = socketRef.current
     if (socket) {
       socket.emit(clientEvents.updateSkin, {
         roomId: room.roomId,
         skinId: nextSkinId,
+        skinColors: nextSkinColors,
       })
     }
 
     sessionProfileRef.current = {
       ...sessionProfileRef.current,
       skinId: nextSkinId,
+      skinColors: nextSkinColors,
     }
 
     const nextSession: AuthSession = {
@@ -824,10 +887,12 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       profile: {
         ...session.profile,
         skinId: nextSkinId,
+        skinColors: nextSkinColors,
       },
     }
 
     savePreferredSkin(session.profile.userId, nextSkinId)
+    savePreferredSkinColors(session.profile.userId, nextSkinId, nextSkinColors)
     if (session.provider === 'local') {
       saveAuthSession(nextSession)
     }
@@ -845,6 +910,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
             ? {
                 ...player,
                 skinId: nextSkinId,
+                skinColors: nextSkinColors,
               }
             : player,
         ),
@@ -859,8 +925,12 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       return
     }
 
-    setSelectedSkinId(appliedSkinId)
-  }, [appliedSkinId, skinEditorOpen])
+    setSelectedSkinId(appliedSkinPreset.id)
+    setSelectedSkinColorsBySkinId((currentValue) => ({
+      ...currentValue,
+      [appliedSkinPreset.id]: appliedSkinColors,
+    }))
+  }, [appliedSkinColorsKey, appliedSkinPreset.id, skinEditorOpen])
 
   const handleChatSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -1032,7 +1102,9 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
               presets={availableSkins}
               selectedSkinId={selectedSkinId}
               appliedSkinId={appliedSkinId}
-              onSelectSkin={setSelectedSkinId}
+              selectedSkinColors={selectedSkinColors}
+              onSelectSkin={handleSelectSkin}
+              onSelectColor={handleSelectSkinColor}
               onApply={handleApplySkin}
               onClose={() => setSkinEditorOpen(false)}
             />

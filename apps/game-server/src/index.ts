@@ -158,6 +158,7 @@ function buildPresence(profile: UserProfile, sessionId: string, room: RoomState)
     direction: 'down',
     moving: false,
     skinId: profile.skinId,
+    skinColors: { ...(profile.skinColors ?? {}) },
     animation: 'idle-down',
     destination: null,
     route: null,
@@ -1077,7 +1078,9 @@ io.on('connection', (socket) => {
     }
 
     session.profile.skinId = parsed.data.skinId
+    session.profile.skinColors = { ...(parsed.data.skinColors ?? {}) }
     player.skinId = parsed.data.skinId
+    player.skinColors = { ...(parsed.data.skinColors ?? {}) }
     io.to(room.roomId).emit(serverEvents.playerMoved, player)
     io.to(room.roomId).emit(serverEvents.roomState, room)
   })

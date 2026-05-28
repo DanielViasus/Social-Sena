@@ -12,6 +12,7 @@ interface WorldPlayerProps {
   frame: {
     preset: AvatarPreset
     texture: AvatarTextureDefinition
+    sheetUrl: string
     flipX: boolean
   }
   debugEnabled: boolean
@@ -58,7 +59,7 @@ export function WorldPlayer({
         }}
       >
         <img
-          src={frame.preset.sheetUrl}
+          src={frame.sheetUrl}
           alt={player.displayName}
           draggable={false}
           className="react-world-avatar-spritesheet"
