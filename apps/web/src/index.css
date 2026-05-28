@@ -417,6 +417,7 @@ button {
 
 .dropdown-panel {
   width: min(360px, calc(100vw - 32px));
+  max-height: min(72dvh, 560px);
   margin-top: 14px;
   border-radius: 18px;
   overflow: hidden;
@@ -436,11 +437,20 @@ button {
   font-size: 1.1rem;
 }
 
+.dropdown-header-subtitle {
+  margin: 6px 0 0;
+  color: #90a5c5;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
 .dropdown-body {
   display: flex;
   flex-direction: column;
   gap: 14px;
   padding: 0 18px 18px;
+  max-height: calc(min(72dvh, 560px) - 74px);
+  overflow-y: auto;
 }
 
 .dropdown-row,
@@ -460,6 +470,33 @@ button {
   font-size: 0.94rem;
 }
 
+.dropdown-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.dropdown-stat {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.dropdown-stat span {
+  font-size: 0.75rem;
+  color: #9cb0cb;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.dropdown-stat strong {
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
 .players-list {
   margin: 0;
   padding-left: 0;
@@ -473,15 +510,25 @@ button {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 10px 12px;
+  padding: 9px 12px;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.04);
+}
+
+.players-list li.is-current-player {
+  background: rgba(156, 222, 113, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(156, 222, 113, 0.24);
 }
 
 .players-list small,
 .dropdown-subtext {
   font-size: 0.76rem;
   color: #8ca3c3;
+}
+
+.dropdown-actions {
+  display: grid;
+  gap: 10px;
 }
 
 .secondary-action-button {
@@ -766,6 +813,15 @@ button {
     font-size: 0.64rem;
   }
 
+  .dropdown-panel.options-panel {
+    width: min(360px, calc(100vw - 24px));
+    max-height: calc(100dvh - 92px - env(safe-area-inset-top));
+  }
+
+  .dropdown-body {
+    max-height: calc(100dvh - 170px - env(safe-area-inset-top));
+  }
+
   .chat-bubble-stack {
     bottom: 88px;
   }
@@ -781,6 +837,31 @@ button {
 
   .shortcut-board {
     display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .dropdown-panel.options-panel {
+    width: calc(100vw - 24px);
+    border-radius: 16px;
+  }
+
+  .dropdown-header {
+    padding: 14px 16px 10px;
+  }
+
+  .dropdown-body {
+    gap: 12px;
+    padding: 0 16px 16px;
+  }
+
+  .dropdown-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .secondary-action-button {
+    font-size: 0.64rem;
+    padding: 12px;
   }
 }
 

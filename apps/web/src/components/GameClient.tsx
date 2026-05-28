@@ -1013,63 +1013,53 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
             {optionsOpen ? (
               <section className="dropdown-panel options-panel">
                 <header className="dropdown-header">
-                  <h2>Opciones</h2>
+                  <h2>Menu</h2>
+                  <p className="dropdown-header-subtitle">Ajustes rapidos para tu sesion actual.</p>
                 </header>
                 <div className="dropdown-body">
-                  <div className="dropdown-row">
-                    <span>Conectividad</span>
-                    <strong>{connected ? 'Online' : 'Offline'}</strong>
-                  </div>
-                  <div className="dropdown-row">
-                    <span>Ruta</span>
-                    <strong>/{activeTemplate.routeSegment}</strong>
-                  </div>
-                  <div className="dropdown-row">
-                    <span>Posicion</span>
-                    <strong>
-                      {currentPlayer
-                        ? `${Math.round(currentPlayer.position.x)}, ${Math.round(currentPlayer.position.y)}`
-                        : 'sin datos'}
-                    </strong>
-                  </div>
-                  <div className="dropdown-row">
-                    <span>Mi usuario</span>
-                    <strong>{session.profile.displayName}</strong>
-                    <small className="dropdown-subtext">{session.profile.userId}</small>
+                  <div className="dropdown-stats">
+                    <article className="dropdown-stat">
+                      <span>Sala</span>
+                      <strong>/{activeTemplate.routeSegment}</strong>
+                    </article>
+                    <article className="dropdown-stat">
+                      <span>Jugadores</span>
+                      <strong>{activePlayers.length}</strong>
+                    </article>
                   </div>
                   <div className="dropdown-block">
-                    <span>Usuarios activos</span>
+                    <span>Jugadores en linea</span>
                     <ul className="players-list">
                       {activePlayers.length === 0 ? (
                         <li>Sin jugadores visibles</li>
                       ) : (
                         activePlayers.map((player) => (
-                          <li key={player.sessionId}>
+                          <li
+                            key={player.sessionId}
+                            className={player.userId === session.profile.userId ? 'is-current-player' : ''}
+                          >
                             <strong>{player.displayName}</strong>
-                            <small>{player.userId}</small>
+                            {player.userId === session.profile.userId ? <small>Tu personaje</small> : null}
                           </li>
                         ))
                       )}
                     </ul>
                   </div>
-                  <div className="dropdown-row">
-                    <span>Modo debug</span>
-                    <strong>{debugEnabled ? 'Activo' : 'Inactivo'}</strong>
-                    <small className="dropdown-subtext">Atajo rapido: tecla P</small>
+                  <div className="dropdown-actions">
+                    <button
+                      type="button"
+                      className={`secondary-action-button ${debugEnabled ? 'is-active' : ''}`}
+                      onClick={toggleDebug}
+                    >
+                      {debugEnabled ? 'Ocultar coliders' : 'Mostrar coliders'}
+                    </button>
+                    <button type="button" className="secondary-action-button" onClick={toggleSkinEditor}>
+                      Personalizar skin
+                    </button>
+                    <button type="button" className="secondary-action-button" onClick={onLogout}>
+                      Cerrar sesion
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    className={`secondary-action-button ${debugEnabled ? 'is-active' : ''}`}
-                    onClick={toggleDebug}
-                  >
-                    {debugEnabled ? 'Ocultar coliders' : 'Mostrar coliders'}
-                  </button>
-                  <button type="button" className="secondary-action-button" onClick={toggleSkinEditor}>
-                    Personalizar skin
-                  </button>
-                  <button type="button" className="secondary-action-button" onClick={onLogout}>
-                    Cerrar sesion
-                  </button>
                 </div>
               </section>
             ) : null}
