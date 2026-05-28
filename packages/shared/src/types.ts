@@ -67,6 +67,14 @@ export interface NavigateToPayload {
   target: Position
 }
 
+export interface MovementInputPayload {
+  roomId: string
+  up: boolean
+  down: boolean
+  left: boolean
+  right: boolean
+}
+
 export interface UpdateSkinPayload {
   roomId: string
   skinId: string

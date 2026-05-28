@@ -33,6 +33,14 @@ export const stopNavigationSchema = z.object({
   roomId: z.string().min(1),
 })
 
+export const movementInputSchema = z.object({
+  roomId: z.string().min(1),
+  up: z.boolean(),
+  down: z.boolean(),
+  left: z.boolean(),
+  right: z.boolean(),
+})
+
 export const updateSkinSchema = z.object({
   roomId: z.string().min(1),
   skinId: z.string().trim().min(1),

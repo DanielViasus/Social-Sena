@@ -9,6 +9,7 @@ import {
   connectToGameSchema,
   getRoomTemplateById,
   joinRoomSchema,
+  movementInputSchema,
   navigateToSchema,
   updateSkinSchema,
   setTypingStateSchema,
@@ -27,6 +28,13 @@ interface SessionState {
   sessionId: string
   profile: UserProfile
   roomId: string | null
+  movementInput: {
+    up: boolean
+    down: boolean
+    left: boolean
+    right: boolean
+  }
+  keyboardControlling: boolean
 }
 
 interface RectBounds {
@@ -100,6 +108,10 @@ const io = new Server(httpServer, {
 const sessions = new Map<string, SessionState>()
 const rooms = new Map<string, RoomState>()
 let lastSimulationTick = Date.now()
+
+function hasMovementInput(input: SessionState['movementInput']) {
+  return input.up || input.down || input.left || input.right
+}
 
 function getOrCreateRoom(roomId: string, templateId: string): RoomState | null {
   const existingRoom = rooms.get(roomId)
@@ -765,9 +777,89 @@ function stopPlayer(player: Presence) {
   player.animation = `idle-${player.direction}`
 }
 
+function movePlayerWithKeyboard(room: RoomState, player: Presence, session: SessionState, deltaSeconds: number) {
+  if (!ensureNavigablePlayerPosition(room, player)) {
+    stopPlayer(player)
+    return
+  }
+
+  const horizontal = (session.movementInput.right ? 1 : 0) - (session.movementInput.left ? 1 : 0)
+  const vertical = (session.movementInput.down ? 1 : 0) - (session.movementInput.up ? 1 : 0)
+
+  if (horizontal === 0 && vertical === 0) {
+    stopPlayer(player)
+    return
+  }
+
+  stopPlayer(player)
+
+  const magnitude = Math.hypot(horizontal, vertical)
+  const normalizedX = horizontal / magnitude
+  const normalizedY = vertical / magnitude
+  const step = PLAYER_SPEED * deltaSeconds
+
+  const combinedPosition = clampPositionToRoom(room, {
+    x: player.position.x + normalizedX * step,
+    y: player.position.y + normalizedY * step,
+  })
+
+  const xOnlyPosition = clampPositionToRoom(room, {
+    x: player.position.x + normalizedX * step,
+    y: player.position.y,
+  })
+
+  const yOnlyPosition = clampPositionToRoom(room, {
+    x: player.position.x,
+    y: player.position.y + normalizedY * step,
+  })
+
+  let nextPosition = player.position
+
+  if (!isBlockedByRoomObjects(room, combinedPosition) && !isRouteSegmentBlocked(room, player.position, combinedPosition)) {
+    nextPosition = combinedPosition
+  } else if (
+    horizontal !== 0 &&
+    !isBlockedByRoomObjects(room, xOnlyPosition) &&
+    !isRouteSegmentBlocked(room, player.position, xOnlyPosition)
+  ) {
+    nextPosition = xOnlyPosition
+  } else if (
+    vertical !== 0 &&
+    !isBlockedByRoomObjects(room, yOnlyPosition) &&
+    !isRouteSegmentBlocked(room, player.position, yOnlyPosition)
+  ) {
+    nextPosition = yOnlyPosition
+  }
+
+  const targetDirection = resolveDirection(player.position, {
+    x: player.position.x + horizontal,
+    y: player.position.y + vertical,
+  })
+
+  player.direction = targetDirection
+
+  if (isSamePosition(nextPosition, player.position)) {
+    player.moving = false
+    player.animation = `idle-${player.direction}`
+    return
+  }
+
+  player.position = nextPosition
+  player.moving = true
+  player.animation = `walk-${player.direction}`
+}
+
 function simulateMovement(deltaSeconds: number) {
   rooms.forEach((room) => {
     room.players.forEach((player) => {
+      const session = sessions.get(player.sessionId)
+
+      if (session?.keyboardControlling) {
+        movePlayerWithKeyboard(room, player, session, deltaSeconds)
+        io.to(room.roomId).emit(serverEvents.playerMoved, player)
+        return
+      }
+
       if (!player.destination) {
         return
       }
@@ -831,6 +923,13 @@ io.on('connection', (socket) => {
       sessionId: socket.id,
       profile: parsed.data.profile,
       roomId: null,
+      movementInput: {
+        up: false,
+        down: false,
+        left: false,
+        right: false,
+      },
+      keyboardControlling: false,
     }
 
     sessions.set(socket.id, session)
@@ -922,6 +1021,44 @@ io.on('connection', (socket) => {
 
     stopPlayer(player)
     io.to(room.roomId).emit(serverEvents.playerMoved, player)
+  })
+
+  socket.on(clientEvents.setMovementInput, (rawPayload) => {
+    const parsed = movementInputSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session?.roomId || parsed.data.roomId !== session.roomId) {
+      return
+    }
+
+    const room = rooms.get(session.roomId)
+    const player = room?.players.find((presence) => presence.sessionId === socket.id)
+
+    if (!room || !player) {
+      return
+    }
+
+    const nextInput = {
+      up: parsed.data.up,
+      down: parsed.data.down,
+      left: parsed.data.left,
+      right: parsed.data.right,
+    }
+
+    const wasKeyboardControlling = session.keyboardControlling
+    session.movementInput = nextInput
+    session.keyboardControlling = hasMovementInput(nextInput)
+
+    if (session.keyboardControlling) {
+      stopPlayer(player)
+      io.to(room.roomId).emit(serverEvents.playerMoved, player)
+      return
+    }
+
+    if (wasKeyboardControlling) {
+      stopPlayer(player)
+      io.to(room.roomId).emit(serverEvents.playerMoved, player)
+    }
   })
 
   socket.on(clientEvents.updateSkin, (rawPayload) => {
