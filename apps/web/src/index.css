@@ -1095,6 +1095,8 @@ button {
   position: relative;
   width: min(1250px, calc(100vw - 80px));
   min-height: 640px;
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
   padding: 32px;
   background: #b0adad;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.32);
@@ -1175,12 +1177,12 @@ button {
 
 .skin-editor-color-groups {
   display: grid;
-  gap: 18px;
+  gap: 16px;
 }
 
 .skin-editor-color-group {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .skin-editor-color-group h4 {
@@ -1194,18 +1196,19 @@ button {
 .skin-editor-color-options {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 8px;
 }
 
 .skin-editor-color-option {
-  min-width: 120px;
+  width: 54px;
+  height: 54px;
   border: 3px solid transparent;
   background: rgba(255, 255, 255, 0.12);
   color: #ffffff;
   display: grid;
-  gap: 8px;
-  justify-items: center;
-  padding: 12px 10px;
+  place-items: center;
+  padding: 6px;
+  border-radius: 14px;
 }
 
 .skin-editor-color-option.is-selected {
@@ -1214,18 +1217,11 @@ button {
 }
 
 .skin-editor-color-swatch {
-  width: 38px;
-  height: 38px;
+  width: 100%;
+  height: 100%;
   border-radius: 999px;
   border: 2px solid rgba(37, 29, 29, 0.78);
   box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.14);
-}
-
-.skin-editor-color-label {
-  font-family: 'Press Start 2P', monospace;
-  font-size: 0.62rem;
-  line-height: 1.5;
-  text-align: center;
 }
 
 .skin-editor-color-empty {
@@ -1245,6 +1241,21 @@ button {
   display: grid;
   grid-template-rows: auto 1fr auto;
   min-height: 100%;
+}
+
+.skin-editor-preview-copy {
+  display: grid;
+  gap: 8px;
+}
+
+.skin-editor-preview-subtitle {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.94);
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.58rem;
+  line-height: 1.8;
+  color: rgba(232, 241, 255, 0.78);
+  text-transform: none;
 }
 
 .skin-editor-preview-stage {
@@ -1272,6 +1283,97 @@ button {
   font-size: clamp(1.4rem, 2.4vw, 2.6rem);
   text-transform: lowercase;
   padding: 28px 32px;
+}
+
+@media (max-width: 980px) {
+  .skin-editor-overlay {
+    place-items: stretch;
+    padding: 12px;
+  }
+
+  .skin-editor-panel {
+    width: 100%;
+    min-height: auto;
+    max-height: calc(100dvh - 24px);
+    padding: 20px 18px 18px;
+  }
+
+  .skin-editor-close {
+    top: 12px;
+    right: 12px;
+    width: 52px;
+    height: 52px;
+    font-size: 22px;
+  }
+
+  .skin-editor-grid {
+    grid-template-columns: 1fr;
+    gap: 22px;
+  }
+
+  .skin-editor-sidebar h2,
+  .skin-editor-preview h3 {
+    padding-right: 64px;
+    font-size: clamp(1.5rem, 6vw, 2.3rem);
+  }
+
+  .skin-editor-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .skin-editor-option {
+    min-height: 144px;
+    padding: 12px;
+  }
+
+  .skin-editor-preview {
+    gap: 16px;
+  }
+
+  .skin-editor-preview-stage {
+    min-height: 260px;
+    padding: 18px;
+  }
+
+  .skin-editor-apply {
+    position: sticky;
+    bottom: 0;
+    width: 100%;
+    min-width: 0;
+    justify-self: stretch;
+    margin-top: 0;
+    padding: 20px 18px;
+    background: rgba(131, 131, 131, 0.94);
+    box-shadow: 0 -14px 24px rgba(0, 0, 0, 0.16);
+  }
+}
+
+@media (max-width: 640px) {
+  .skin-editor-tabs {
+    gap: 8px;
+  }
+
+  .skin-editor-tab {
+    flex: 1 1 0;
+    font-size: 0.64rem;
+    padding: 10px 12px;
+  }
+
+  .skin-editor-color-group h4 {
+    font-size: 0.68rem;
+  }
+
+  .skin-editor-color-option {
+    width: 48px;
+    height: 48px;
+    padding: 5px;
+    border-width: 2px;
+  }
+
+  .skin-editor-preview-subtitle {
+    font-size: 0.46rem;
+  }
 }
 
 .skin-preview-sprite {

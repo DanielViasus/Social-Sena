@@ -86,6 +86,22 @@ export default function SkinEditorOverlay({
     () => (selectedPreset ? resolveAvatarSheetUrl(selectedPreset, selectedSkinColors) : ''),
     [selectedPreset, selectedSkinColors],
   )
+  const selectedPrimarySubtitle = useMemo(
+    () => {
+      const primarySlot = selectedPreset?.colorSlots.find((slot) => slot.id === 'fur') ?? selectedPreset?.colorSlots[0]
+      if (!primarySlot) {
+        return ''
+      }
+
+      const option =
+        primarySlot.options.find((currentOption) => currentOption.id === selectedSkinColors[primarySlot.id]) ??
+        primarySlot.options.find((currentOption) => currentOption.id === primarySlot.defaultOptionId) ??
+        primarySlot.options[0]
+
+      return option?.subtitle ?? option?.label ?? ''
+    },
+    [selectedPreset, selectedSkinColors],
+  )
 
   return (
     <div className="skin-editor-overlay" role="dialog" aria-modal="true" aria-label="Editor de skins">
@@ -158,10 +174,10 @@ export default function SkinEditorOverlay({
                               className={`skin-editor-color-option ${isSelected ? 'is-selected' : ''}`}
                               onClick={() => onSelectColor(slot.id, option.id)}
                               aria-pressed={isSelected}
-                              title={option.label}
+                              aria-label={`${slot.label}: ${option.subtitle}`}
+                              title={`${slot.label}: ${option.subtitle}`}
                             >
                               <span className="skin-editor-color-swatch" style={{ background: option.swatch }} />
-                              <span className="skin-editor-color-label">{option.label}</span>
                             </button>
                           )
                         })}
@@ -176,7 +192,14 @@ export default function SkinEditorOverlay({
           </div>
 
           <div className="skin-editor-preview">
-            <h3>{selectedPreset?.label ?? 'Skin'}</h3>
+            <div className="skin-editor-preview-copy">
+              <h3>{selectedPreset?.label ?? 'Skin'}</h3>
+              {selectedPrimarySubtitle ? (
+                <p className="skin-editor-preview-subtitle" aria-label="Paleta principal seleccionada">
+                  {selectedPrimarySubtitle}
+                </p>
+              ) : null}
+            </div>
             <div className="skin-editor-preview-stage">
               {selectedPreset && previewFrame ? (
                 <SkinSpritePreview preset={selectedPreset} frame={previewFrame} sheetUrl={previewSheetUrl} size={256} />

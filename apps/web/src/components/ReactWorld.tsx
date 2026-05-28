@@ -395,6 +395,7 @@ function ReactWorld({
   pointerNpcInteractionEnabled = false,
 }: ReactWorldProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null)
+  const roomRef = useRef(room)
   const runtimeRef = useRef<WorldRuntimeState>({
     now: performance.now(),
     cameraX: 0,
@@ -404,6 +405,10 @@ function ReactWorld({
   })
   const [viewportSize, setViewportSize] = useState({ width: 1600, height: 900 })
   const [runtime, setRuntime] = useState<WorldRuntimeState>(runtimeRef.current)
+
+  useEffect(() => {
+    roomRef.current = room
+  }, [room])
 
   useEffect(() => {
     if (!viewportRef.current) {
@@ -437,8 +442,9 @@ function ReactWorld({
       const previousState = runtimeRef.current
       const nextPlayersBySession: Record<string, AnimatedPlayerPosition> = { ...previousState.playersBySession }
       const nextFacingBySession: Record<string, FacingPose> = { ...previousState.facingBySession }
-      const targetPlayers = room?.players ?? []
+      const targetPlayers = roomRef.current?.players ?? []
       const activeSessionIds = new Set(targetPlayers.map((player) => player.sessionId))
+      const playerLerp = 1 - Math.exp(-delta / 120)
 
       Object.keys(nextPlayersBySession).forEach((sessionId) => {
         if (!activeSessionIds.has(sessionId)) {
@@ -449,18 +455,10 @@ function ReactWorld({
 
       targetPlayers.forEach((player) => {
         const previousPosition = nextPlayersBySession[player.sessionId] ?? player.position
-        const isCurrentPlayer = player.userId === currentUserId
-        const isKeyboardDrivenPlayer = isCurrentPlayer && player.destination === null
-        const playerLerpMs = isKeyboardDrivenPlayer ? 36 : isCurrentPlayer ? 78 : 120
-        const playerLerp = 1 - Math.exp(-delta / playerLerpMs)
-
-        nextPlayersBySession[player.sessionId] =
-          isKeyboardDrivenPlayer && !player.moving
-            ? { ...player.position }
-            : {
-                x: previousPosition.x + (player.position.x - previousPosition.x) * playerLerp,
-                y: previousPosition.y + (player.position.y - previousPosition.y) * playerLerp,
-              }
+        nextPlayersBySession[player.sessionId] = {
+          x: previousPosition.x + (player.position.x - previousPosition.x) * playerLerp,
+          y: previousPosition.y + (player.position.y - previousPosition.y) * playerLerp,
+        }
 
         const previousFacing = nextFacingBySession[player.sessionId] ?? 'front-right'
         nextFacingBySession[player.sessionId] = resolveFacingPose(player, previousFacing)
@@ -481,11 +479,7 @@ function ReactWorld({
         const maxCameraY = Math.max(0, template.world.height - viewportSize.height)
         const desiredCameraX = template.camera.clampBorders ? clamp(unclampedCameraX, 0, maxCameraX) : unclampedCameraX
         const desiredCameraY = template.camera.clampBorders ? clamp(unclampedCameraY, 0, maxCameraY) : unclampedCameraY
-        const keyboardDrivenCurrentPlayer = currentPlayer.destination === null
-        const effectiveCameraDelayMs = keyboardDrivenCurrentPlayer
-          ? Math.max(42, template.camera.delayMs * 0.35)
-          : template.camera.delayMs
-        const cameraLerp = 1 - Math.exp(-delta / effectiveCameraDelayMs)
+        const cameraLerp = 1 - Math.exp(-delta / template.camera.delayMs)
 
         nextCameraX = previousState.cameraX + (desiredCameraX - previousState.cameraX) * cameraLerp
         nextCameraY = previousState.cameraY + (desiredCameraY - previousState.cameraY) * cameraLerp
@@ -506,7 +500,7 @@ function ReactWorld({
 
     frameId = window.requestAnimationFrame(tick)
     return () => window.cancelAnimationFrame(frameId)
-  }, [currentUserId, room, template, viewportSize.height, viewportSize.width])
+  }, [currentUserId, template, viewportSize.height, viewportSize.width])
 
   const playerViews = useMemo(() => {
     return (room?.players ?? []).map((player) => {
