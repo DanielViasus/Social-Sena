@@ -204,6 +204,7 @@ function getOrCreateRoom(roomId: string, templateId: string): RoomState | null {
 
 function buildPresence(
   profile: UserProfile,
+  progress: PlayerProgress,
   sessionId: string,
   room: RoomState,
   spawnPosition: Position = room.template.world.spawn,
@@ -213,6 +214,7 @@ function buildPresence(
     displayName: profile.displayName,
     sessionId,
     roomId: room.roomId,
+    level: progress.level,
     position: { ...spawnPosition },
     direction: 'down',
     moving: false,
@@ -1083,7 +1085,7 @@ io.on('connection', (socket) => {
         ? clampPositionToRoom(room, persistedState.position)
         : room.template.world.spawn
 
-    const presence = buildPresence(session.profile, socket.id, room, preferredSpawnPosition)
+    const presence = buildPresence(session.profile, session.progress, socket.id, room, preferredSpawnPosition)
     ensureNavigablePlayerPosition(room, presence)
     room.players.push(presence)
     void gameRepository.savePlayerState(session.profile.userId, {

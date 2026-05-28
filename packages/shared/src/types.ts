@@ -31,6 +31,7 @@ export interface FriendSummary {
   displayName: string
   skinId: string
   skinColors: SkinColorSelections
+  level: number
   isOnline: boolean
 }
 
@@ -40,6 +41,7 @@ export interface FriendRequestSummary {
   displayName: string
   skinId: string
   skinColors: SkinColorSelections
+  level: number
   createdAt: string
 }
 
@@ -59,6 +61,7 @@ export interface Presence {
   displayName: string
   sessionId: string
   roomId: string
+  level: number
   position: Position
   direction: Direction
   moving: boolean

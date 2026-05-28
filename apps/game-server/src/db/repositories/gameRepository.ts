@@ -86,6 +86,7 @@ function normalizeFriendRows(
     display_name: string | null
     skin_id: string | null
     skin_colors: unknown
+    level: number | null
   }>,
 ): FriendSummary[] {
   return rows.map((row) => ({
@@ -93,6 +94,7 @@ function normalizeFriendRows(
     displayName: row.display_name?.trim() || 'Jugador',
     skinId: row.skin_id?.trim() || 'crock',
     skinColors: normalizeSkinColors(row.skin_colors),
+    level: row.level ?? 1,
     isOnline: false,
   }))
 }
@@ -104,6 +106,7 @@ function normalizeFriendRequestRows(
     display_name: string | null
     skin_id: string | null
     skin_colors: unknown
+    level: number | null
     created_at: string | Date
   }>,
 ): FriendRequestSummary[] {
@@ -113,6 +116,7 @@ function normalizeFriendRequestRows(
     displayName: row.display_name?.trim() || 'Jugador',
     skinId: row.skin_id?.trim() || 'crock',
     skinColors: normalizeSkinColors(row.skin_colors),
+    level: row.level ?? 1,
     createdAt:
       row.created_at instanceof Date ? row.created_at.toISOString() : new Date(row.created_at).toISOString(),
   }))
@@ -190,6 +194,7 @@ class GameRepository {
           display_name: string | null
           skin_id: string | null
           skin_colors: unknown
+          level: number | null
         }>(
           `
             select
@@ -197,9 +202,12 @@ class GameRepository {
               users.display_name,
               player_profiles.skin_id,
               player_profiles.skin_colors
+              ,
+              player_progress.level
             from friendships
             inner join users on users.user_id = friendships.friend_user_id
             left join player_profiles on player_profiles.user_id = friendships.friend_user_id
+            left join player_progress on player_progress.user_id = friendships.friend_user_id
             where friendships.user_id = $1
             order by users.display_name asc
           `,
@@ -211,6 +219,7 @@ class GameRepository {
           display_name: string | null
           skin_id: string | null
           skin_colors: unknown
+          level: number | null
           created_at: string | Date
         }>(
           `
@@ -220,10 +229,12 @@ class GameRepository {
               users.display_name,
               player_profiles.skin_id,
               player_profiles.skin_colors,
+              player_progress.level,
               friend_requests.created_at
             from friend_requests
             inner join users on users.user_id = friend_requests.from_user_id
             left join player_profiles on player_profiles.user_id = friend_requests.from_user_id
+            left join player_progress on player_progress.user_id = friend_requests.from_user_id
             where friend_requests.to_user_id = $1
             order by friend_requests.created_at desc
           `,
@@ -570,16 +581,19 @@ class GameRepository {
         display_name: string | null
         skin_id: string | null
         skin_colors: unknown
+        level: number | null
       }>(
         `
           select
             friendships.friend_user_id,
             users.display_name,
             player_profiles.skin_id,
-            player_profiles.skin_colors
+            player_profiles.skin_colors,
+            player_progress.level
           from friendships
           inner join users on users.user_id = friendships.friend_user_id
           left join player_profiles on player_profiles.user_id = friendships.friend_user_id
+          left join player_progress on player_progress.user_id = friendships.friend_user_id
           where friendships.user_id = $1
           order by users.display_name asc
         `,
@@ -606,6 +620,7 @@ class GameRepository {
         display_name: string | null
         skin_id: string | null
         skin_colors: unknown
+        level: number | null
         created_at: string | Date
       }>(
         `
@@ -615,10 +630,12 @@ class GameRepository {
             users.display_name,
             player_profiles.skin_id,
             player_profiles.skin_colors,
+            player_progress.level,
             friend_requests.created_at
           from friend_requests
           inner join users on users.user_id = friend_requests.from_user_id
           left join player_profiles on player_profiles.user_id = friend_requests.from_user_id
+          left join player_progress on player_progress.user_id = friend_requests.from_user_id
           where friend_requests.to_user_id = $1
           order by friend_requests.created_at desc
         `,
@@ -668,6 +685,7 @@ class GameRepository {
         display_name: string | null
         skin_id: string | null
         skin_colors: unknown
+        level: number | null
         created_at: string | Date
       }>(
         `
@@ -677,10 +695,12 @@ class GameRepository {
             users.display_name,
             player_profiles.skin_id,
             player_profiles.skin_colors,
+            player_progress.level,
             friend_requests.created_at
           from friend_requests
           inner join users on users.user_id = friend_requests.from_user_id
           left join player_profiles on player_profiles.user_id = friend_requests.from_user_id
+          left join player_progress on player_progress.user_id = friend_requests.from_user_id
           where friend_requests.request_id = $1
           limit 1
         `,

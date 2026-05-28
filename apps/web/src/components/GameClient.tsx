@@ -25,7 +25,6 @@ import {
   resolveAvatarPreset,
   resolveAvatarSheetUrl,
   type AvatarColorSelections,
-  type AvatarPreset,
 } from '../game/avatar/avatarSprites'
 import ReactWorld from './ReactWorld'
 import DialogueOverlay from './dialogue/DialogueOverlay'
@@ -48,19 +47,8 @@ interface ActiveDialogueState {
   lineIndex: number
 }
 
-function resolveAvatarPrimarySubtitle(preset: AvatarPreset, skinColors: SkinColorSelections) {
-  const primarySlot = preset.colorSlots.find((slot) => slot.id === 'fur') ?? preset.colorSlots[0]
-  if (!primarySlot) {
-    return preset.label
-  }
-
-  const normalizedSelections = normalizeAvatarColorSelections(preset, skinColors)
-  const currentOption =
-    primarySlot.options.find((option) => option.id === normalizedSelections[primarySlot.id]) ??
-    primarySlot.options.find((option) => option.id === primarySlot.defaultOptionId) ??
-    primarySlot.options[0]
-
-  return currentOption?.subtitle ?? currentOption?.label ?? preset.label
+function resolveLevelSubtitle(level: number | null | undefined) {
+  return `Nivel ${Math.max(1, Math.floor(level ?? 1))}`
 }
 
 function MenuAvatarPreview({
@@ -150,6 +138,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const speechTimeoutsRef = useRef<Map<string, number>>(new Map())
   const typingIdleTimeoutRef = useRef<number | null>(null)
   const localTypingStateRef = useRef(false)
+  const dismissedFriendRequestIdsRef = useRef<Set<string>>(new Set())
   const dialogueCooldownTimeoutRef = useRef<number | null>(null)
   const dialogueAudioContextRef = useRef<AudioContext | null>(null)
   const dialogueAudioUnlockedRef = useRef(false)
@@ -456,6 +445,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       setIncomingFriendRequests([])
       setOutgoingFriendRequestUserIds([])
       setFriendRequestPopups([])
+      dismissedFriendRequestIdsRef.current.clear()
       localTypingStateRef.current = false
       nextSocket.emit(clientEvents.connectToGame, { profile: sessionProfileRef.current })
     })
@@ -467,6 +457,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       setIncomingFriendRequests([])
       setOutgoingFriendRequestUserIds([])
       setFriendRequestPopups([])
+      dismissedFriendRequestIdsRef.current.clear()
       localTypingStateRef.current = false
       setInitialSkinSetupSubmitting(false)
     })
@@ -533,11 +524,15 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
           ? currentValue
           : [request, ...currentValue],
       )
-      setFriendRequestPopups((currentValue) =>
-        currentValue.some((currentRequest) => currentRequest.requestId === request.requestId)
+      setFriendRequestPopups((currentValue) => {
+        if (dismissedFriendRequestIdsRef.current.has(request.requestId)) {
+          return currentValue
+        }
+
+        return currentValue.some((currentRequest) => currentRequest.requestId === request.requestId)
           ? currentValue
-          : [request, ...currentValue],
-      )
+          : [request, ...currentValue]
+      })
     })
 
     nextSocket.on(serverEvents.roomState, (nextRoom: RoomState) => {
@@ -620,11 +615,29 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const isDialogueLineComplete = dialogueVisibleChars >= currentDialogueLine.length
 
   useEffect(() => {
-    setFriendRequestPopups((currentValue) =>
-      currentValue.filter((popup) =>
-        incomingFriendRequests.some((request) => request.requestId === popup.requestId),
-      ),
-    )
+    const availableRequestIds = new Set(incomingFriendRequests.map((request) => request.requestId))
+    dismissedFriendRequestIdsRef.current.forEach((requestId) => {
+      if (!availableRequestIds.has(requestId)) {
+        dismissedFriendRequestIdsRef.current.delete(requestId)
+      }
+    })
+
+    setFriendRequestPopups((currentValue) => {
+      const activePopups = currentValue.filter((popup) => availableRequestIds.has(popup.requestId))
+      const existingIds = new Set(activePopups.map((popup) => popup.requestId))
+      const nextPopups = [...activePopups]
+
+      incomingFriendRequests.forEach((request) => {
+        if (existingIds.has(request.requestId) || dismissedFriendRequestIdsRef.current.has(request.requestId)) {
+          return
+        }
+
+        nextPopups.push(request)
+        existingIds.add(request.requestId)
+      })
+
+      return nextPopups
+    })
   }, [incomingFriendRequests])
 
   useEffect(() => {
@@ -654,6 +667,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   })
 
   const dismissFriendRequestPopup = useEffectEvent((requestId: string) => {
+    dismissedFriendRequestIdsRef.current.add(requestId)
     setFriendRequestPopups((currentValue) =>
       currentValue.filter((currentRequest) => currentRequest.requestId !== requestId),
     )
@@ -669,10 +683,10 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     socket.emit(
       clientEvents.addFriend,
       { friendUserId },
-      (response: { ok: boolean; friends?: FriendSummary[] }) => {
+      (response: { ok: boolean }) => {
         setAddingFriendUserId(null)
-        if (response.ok && response.friends) {
-          setFriends(response.friends)
+        if (response.ok) {
+          socket.emit(clientEvents.requestSocialState)
         }
       },
     )
@@ -691,6 +705,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       (response: { ok: boolean }) => {
         setRespondingFriendRequestId(null)
         if (response.ok) {
+          dismissedFriendRequestIdsRef.current.delete(requestId)
           setIncomingFriendRequests((currentValue) =>
             currentValue.filter((currentRequest) => currentRequest.requestId !== requestId),
           )
@@ -1224,8 +1239,6 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                           <li>Sin jugadores visibles</li>
                         ) : (
                           activePlayers.map((player) => {
-                            const preset = resolveAvatarPreset(player.skinId)
-                            const skinSubtitle = resolveAvatarPrimarySubtitle(preset, player.skinColors)
                             const isCurrentPlayer = player.userId === session.profile.userId
                             const isFriend = friendUserIds.has(player.userId)
 
@@ -1242,7 +1255,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                                   />
                                   <div className="player-entry-copy">
                                     <strong>{player.displayName}</strong>
-                                    <small>{`${preset.label} · ${skinSubtitle}`}</small>
+                                    <small>{resolveLevelSubtitle(player.level)}</small>
                                   </div>
                                 </div>
                                 {isCurrentPlayer ? (
@@ -1278,8 +1291,6 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                       ) : (
                         <ul className="players-list players-list-rich">
                           {incomingFriendRequests.map((request) => {
-                            const preset = resolveAvatarPreset(request.skinId)
-                            const skinSubtitle = resolveAvatarPrimarySubtitle(preset, request.skinColors)
                             const isBusy = respondingFriendRequestId === request.requestId
 
                             return (
@@ -1292,7 +1303,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                                   />
                                   <div className="player-entry-copy">
                                     <strong>{request.displayName}</strong>
-                                    <small>{`${preset.label} · ${skinSubtitle}`}</small>
+                                    <small>{resolveLevelSubtitle(request.level)}</small>
                                   </div>
                                 </div>
                                 <div className="inline-actions">
@@ -1328,9 +1339,6 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                       ) : (
                         <ul className="players-list players-list-rich">
                           {friends.map((friend) => {
-                            const preset = resolveAvatarPreset(friend.skinId)
-                            const skinSubtitle = resolveAvatarPrimarySubtitle(preset, friend.skinColors)
-
                             return (
                               <li key={friend.userId}>
                                 <div className="player-entry-main">
@@ -1341,7 +1349,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                                   />
                                   <div className="player-entry-copy">
                                     <strong>{friend.displayName}</strong>
-                                    <small>{`${preset.label} · ${skinSubtitle}`}</small>
+                                    <small>{resolveLevelSubtitle(friend.level)}</small>
                                   </div>
                                 </div>
                                 <div className="inline-actions">
