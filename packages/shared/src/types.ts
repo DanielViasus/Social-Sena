@@ -34,6 +34,15 @@ export interface FriendSummary {
   isOnline: boolean
 }
 
+export interface FriendRequestSummary {
+  requestId: string
+  fromUserId: string
+  displayName: string
+  skinId: string
+  skinColors: SkinColorSelections
+  createdAt: string
+}
+
 export interface Position {
   x: number
   y: number
@@ -90,6 +99,8 @@ export interface ConnectionAcceptedPayload {
   progress: PlayerProgress
   inventory: PlayerInventory
   friends: FriendSummary[]
+  incomingFriendRequests: FriendRequestSummary[]
+  outgoingFriendRequestUserIds: string[]
 }
 
 export interface CompleteOnboardingPayload {
@@ -129,8 +140,19 @@ export interface AddFriendPayload {
   friendUserId: string
 }
 
+export interface RespondFriendRequestPayload {
+  requestId: string
+  action: 'accept' | 'reject'
+}
+
+export interface RemoveFriendPayload {
+  friendUserId: string
+}
+
 export interface SocialStatePayload {
   friends: FriendSummary[]
+  incomingFriendRequests: FriendRequestSummary[]
+  outgoingFriendRequestUserIds: string[]
 }
 
 export interface SendChatMessagePayload {

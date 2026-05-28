@@ -46,6 +46,18 @@ create table if not exists friendships (
 
 create index if not exists idx_friendships_friend_user_id on friendships(friend_user_id);
 
+create table if not exists friend_requests (
+  request_id text primary key,
+  from_user_id text not null references users(user_id) on delete cascade,
+  to_user_id text not null references users(user_id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (from_user_id, to_user_id),
+  check (from_user_id <> to_user_id)
+);
+
+create index if not exists idx_friend_requests_to_user_id on friend_requests(to_user_id);
+create index if not exists idx_friend_requests_from_user_id on friend_requests(from_user_id);
+
 alter table if exists player_profiles
 add column if not exists onboarding_completed boolean not null default true;
 

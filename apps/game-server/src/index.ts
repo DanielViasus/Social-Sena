@@ -15,6 +15,8 @@ import {
   joinRoomSchema,
   movementInputSchema,
   navigateToSchema,
+  removeFriendSchema,
+  respondFriendRequestSchema,
   updateSkinSchema,
   updateInventorySchema,
   setTypingStateSchema,
@@ -24,6 +26,7 @@ import {
   type ChatMessage,
   type ConnectionAcceptedPayload,
   type Direction,
+  type FriendRequestSummary,
   type FriendSummary,
   type PlayerInventory,
   type PlayerProgress,
@@ -138,14 +141,26 @@ async function buildFriendSummariesForUser(userId: string): Promise<FriendSummar
   }))
 }
 
+async function buildIncomingFriendRequestsForUser(userId: string): Promise<FriendRequestSummary[]> {
+  return gameRepository.getIncomingFriendRequests(userId)
+}
+
+async function buildOutgoingFriendRequestUserIdsForUser(userId: string): Promise<string[]> {
+  return gameRepository.getOutgoingFriendRequestUserIds(userId)
+}
+
 async function emitSocialStateToSocket(socketId: string) {
   const session = sessions.get(socketId)
   if (!session) {
     return
   }
 
-  const friends = await buildFriendSummariesForUser(session.profile.userId)
-  io.to(socketId).emit(serverEvents.socialState, { friends })
+  const [friends, incomingFriendRequests, outgoingFriendRequestUserIds] = await Promise.all([
+    buildFriendSummariesForUser(session.profile.userId),
+    buildIncomingFriendRequestsForUser(session.profile.userId),
+    buildOutgoingFriendRequestUserIdsForUser(session.profile.userId),
+  ])
+  io.to(socketId).emit(serverEvents.socialState, { friends, incomingFriendRequests, outgoingFriendRequestUserIds })
 }
 
 async function refreshSocialStateForAllSessions() {
@@ -994,6 +1009,8 @@ io.on('connection', (socket) => {
         ...friend,
         isOnline: sessionsHasUser(friend.userId),
       })),
+      incomingFriendRequests: resolvedProfileResult.incomingFriendRequests,
+      outgoingFriendRequestUserIds: resolvedProfileResult.outgoingFriendRequestUserIds,
     }
 
     socket.emit(serverEvents.connectionAccepted, connectionAcceptedPayload)
@@ -1216,26 +1233,108 @@ io.on('connection', (socket) => {
     if (!parsed.success || !session) {
       callback?.({
         ok: false,
-        message: 'No fue posible registrar la amistad.',
+        message: 'No fue posible enviar la solicitud.',
       })
       return
     }
 
-    const result = await gameRepository.addFriend(session.profile.userId, parsed.data.friendUserId)
+    const result = await gameRepository.sendFriendRequest(session.profile.userId, parsed.data.friendUserId)
 
     if (!result.ok) {
       callback?.(result)
       return
     }
 
-    const friends = await buildFriendSummariesForUser(session.profile.userId)
-    socket.emit(serverEvents.socialState, { friends })
+    await emitSocialStateToSocket(socket.id)
+
+    const targetSocketId = Array.from(sessions.entries()).find(
+      ([, currentSession]) => currentSession.profile.userId === parsed.data.friendUserId,
+    )?.[0]
+
+    if (targetSocketId) {
+      if (result.request) {
+        io.to(targetSocketId).emit(serverEvents.friendRequestReceived, result.request)
+      }
+      await emitSocialStateToSocket(targetSocketId)
+    }
+
     await refreshSocialStateForAllSessions()
 
     callback?.({
       ok: true,
-      friends,
+      request: result.request,
     })
+  })
+
+  socket.on(clientEvents.respondFriendRequest, async (rawPayload, callback) => {
+    const parsed = respondFriendRequestSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible responder la solicitud.',
+      })
+      return
+    }
+
+    const result = await gameRepository.respondToFriendRequest(
+      session.profile.userId,
+      parsed.data.requestId,
+      parsed.data.action,
+    )
+
+    if (!result.ok) {
+      callback?.(result)
+      return
+    }
+
+    await emitSocialStateToSocket(socket.id)
+
+    if (result.requesterUserId) {
+      const requesterSocketId = Array.from(sessions.entries()).find(
+        ([, currentSession]) => currentSession.profile.userId === result.requesterUserId,
+      )?.[0]
+
+      if (requesterSocketId) {
+        await emitSocialStateToSocket(requesterSocketId)
+      }
+    }
+
+    await refreshSocialStateForAllSessions()
+    callback?.({ ok: true })
+  })
+
+  socket.on(clientEvents.removeFriend, async (rawPayload, callback) => {
+    const parsed = removeFriendSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible quitar la amistad.',
+      })
+      return
+    }
+
+    const result = await gameRepository.removeFriend(session.profile.userId, parsed.data.friendUserId)
+    if (!result.ok) {
+      callback?.(result)
+      return
+    }
+
+    await emitSocialStateToSocket(socket.id)
+
+    const targetSocketId = Array.from(sessions.entries()).find(
+      ([, currentSession]) => currentSession.profile.userId === parsed.data.friendUserId,
+    )?.[0]
+
+    if (targetSocketId) {
+      await emitSocialStateToSocket(targetSocketId)
+    }
+
+    await refreshSocialStateForAllSessions()
+    callback?.({ ok: true })
   })
 
   socket.on(clientEvents.sendChatMessage, (rawPayload) => {

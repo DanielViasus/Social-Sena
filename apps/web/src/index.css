@@ -558,6 +558,10 @@ button {
   align-items: center;
 }
 
+.players-list-rich li.is-request-entry {
+  align-items: flex-start;
+}
+
 .player-entry-main {
   min-width: 0;
   display: flex;
@@ -617,6 +621,18 @@ button {
   opacity: 0.72;
 }
 
+.mini-action-button.is-danger {
+  border: 1px solid rgba(255, 117, 117, 0.24);
+  background: rgba(255, 117, 117, 0.14);
+  color: #ffd6d6;
+}
+
+.mini-action-button.is-ghost {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: #dce6f6;
+}
+
 .menu-inline-tag {
   background: rgba(255, 255, 255, 0.08);
   color: #d6e1f5;
@@ -630,6 +646,11 @@ button {
 .menu-inline-tag.is-friend {
   background: rgba(76, 209, 160, 0.14);
   color: #d5fff1;
+}
+
+.menu-inline-tag.is-pending {
+  background: rgba(255, 214, 102, 0.16);
+  color: #fff3bf;
 }
 
 .friend-status-pill {
@@ -656,6 +677,13 @@ button {
 .dropdown-actions {
   display: grid;
   gap: 10px;
+}
+
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .secondary-action-button {
@@ -779,6 +807,37 @@ button {
   display: grid;
   gap: 12px;
   width: min(328px, calc(100vw - 40px));
+}
+
+.friend-request-popup-stack {
+  position: absolute;
+  right: 28px;
+  top: calc(96px + env(safe-area-inset-top));
+  display: grid;
+  gap: 12px;
+  width: min(340px, calc(100vw - 40px));
+}
+
+.friend-request-popup {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(13, 24, 39, 0.95);
+  border: 1px solid rgba(255, 214, 102, 0.18);
+  color: #f4f8ff;
+  box-shadow: 0 16px 34px rgba(2, 8, 16, 0.34);
+}
+
+.friend-request-popup-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.friend-request-popup-copy span {
+  color: #9fb2cb;
+  font-size: 0.82rem;
+  line-height: 1.45;
 }
 
 .chat-bubble {
@@ -926,7 +985,8 @@ button {
 
   .chat-button,
   .chat-bubble-stack,
-  .chat-panel-floating {
+  .chat-panel-floating,
+  .friend-request-popup-stack {
     right: 18px;
   }
 
@@ -951,6 +1011,11 @@ button {
 
   .chat-bubble-stack {
     bottom: 88px;
+  }
+
+  .friend-request-popup-stack {
+    top: calc(84px + env(safe-area-inset-top));
+    width: min(320px, calc(100vw - 24px));
   }
 
   .chat-panel-floating {
@@ -995,11 +1060,21 @@ button {
     width: 100%;
   }
 
+  .inline-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
   .mini-action-button,
   .menu-inline-tag,
   .friend-status-pill {
     width: 100%;
     text-align: center;
+  }
+
+  .friend-request-popup .inline-actions {
+    display: grid;
+    grid-template-columns: 1fr;
   }
 
   .secondary-action-button {

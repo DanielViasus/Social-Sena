@@ -1,4 +1,13 @@
-import type { FriendSummary, PlayerInventory, PlayerProgress, Position, SkinColorSelections, UserProfile } from '@social-sena/shared'
+import { randomUUID } from 'node:crypto'
+import type {
+  FriendRequestSummary,
+  FriendSummary,
+  PlayerInventory,
+  PlayerProgress,
+  Position,
+  SkinColorSelections,
+  UserProfile,
+} from '@social-sena/shared'
 import { getDbPool } from '../client'
 
 interface PersistedPlayerState {
@@ -12,6 +21,8 @@ interface ResolvedUserProfileResult {
   progress: PlayerProgress
   inventory: PlayerInventory
   friends: FriendSummary[]
+  incomingFriendRequests: FriendRequestSummary[]
+  outgoingFriendRequestUserIds: string[]
 }
 
 function normalizeSkinColors(value: unknown): SkinColorSelections {
@@ -86,6 +97,27 @@ function normalizeFriendRows(
   }))
 }
 
+function normalizeFriendRequestRows(
+  rows: Array<{
+    request_id: string
+    from_user_id: string
+    display_name: string | null
+    skin_id: string | null
+    skin_colors: unknown
+    created_at: string | Date
+  }>,
+): FriendRequestSummary[] {
+  return rows.map((row) => ({
+    requestId: row.request_id,
+    fromUserId: row.from_user_id,
+    displayName: row.display_name?.trim() || 'Jugador',
+    skinId: row.skin_id?.trim() || 'crock',
+    skinColors: normalizeSkinColors(row.skin_colors),
+    createdAt:
+      row.created_at instanceof Date ? row.created_at.toISOString() : new Date(row.created_at).toISOString(),
+  }))
+}
+
 class GameRepository {
   async resolveUserProfile(incomingProfile: UserProfile): Promise<ResolvedUserProfileResult> {
     const pool = getDbPool()
@@ -99,6 +131,8 @@ class GameRepository {
         },
         inventory: {},
         friends: [],
+        incomingFriendRequests: [],
+        outgoingFriendRequestUserIds: [],
       }
     }
 
@@ -171,6 +205,40 @@ class GameRepository {
           `,
           [incomingProfile.userId],
         )
+        const incomingRequestsResult = await client.query<{
+          request_id: string
+          from_user_id: string
+          display_name: string | null
+          skin_id: string | null
+          skin_colors: unknown
+          created_at: string | Date
+        }>(
+          `
+            select
+              friend_requests.request_id,
+              friend_requests.from_user_id,
+              users.display_name,
+              player_profiles.skin_id,
+              player_profiles.skin_colors,
+              friend_requests.created_at
+            from friend_requests
+            inner join users on users.user_id = friend_requests.from_user_id
+            left join player_profiles on player_profiles.user_id = friend_requests.from_user_id
+            where friend_requests.to_user_id = $1
+            order by friend_requests.created_at desc
+          `,
+          [incomingProfile.userId],
+        )
+        const outgoingRequestsResult = await client.query<{
+          to_user_id: string
+        }>(
+          `
+            select to_user_id
+            from friend_requests
+            where from_user_id = $1
+          `,
+          [incomingProfile.userId],
+        )
         const inventoryResult = await client.query<{
           inventory: unknown
         }>(
@@ -209,6 +277,8 @@ class GameRepository {
           },
           inventory: normalizeInventory(inventoryResult.rows[0]?.inventory),
           friends: normalizeFriendRows(friendsResult.rows),
+          incomingFriendRequests: normalizeFriendRequestRows(incomingRequestsResult.rows),
+          outgoingFriendRequestUserIds: outgoingRequestsResult.rows.map((row) => row.to_user_id),
         }
       }
 
@@ -230,6 +300,8 @@ class GameRepository {
         },
         inventory: {},
         friends: [],
+        incomingFriendRequests: [],
+        outgoingFriendRequestUserIds: [],
       }
     } catch (error) {
       await client.query('ROLLBACK')
@@ -243,6 +315,8 @@ class GameRepository {
         },
         inventory: {},
         friends: [],
+        incomingFriendRequests: [],
+        outgoingFriendRequestUserIds: [],
       }
     } finally {
       client.release()
@@ -519,10 +593,111 @@ class GameRepository {
     }
   }
 
-  async addFriend(userId: string, friendUserId: string) {
+  async getIncomingFriendRequests(userId: string): Promise<FriendRequestSummary[]> {
+    const pool = getDbPool()
+    if (!pool) {
+      return []
+    }
+
+    try {
+      const result = await pool.query<{
+        request_id: string
+        from_user_id: string
+        display_name: string | null
+        skin_id: string | null
+        skin_colors: unknown
+        created_at: string | Date
+      }>(
+        `
+          select
+            friend_requests.request_id,
+            friend_requests.from_user_id,
+            users.display_name,
+            player_profiles.skin_id,
+            player_profiles.skin_colors,
+            friend_requests.created_at
+          from friend_requests
+          inner join users on users.user_id = friend_requests.from_user_id
+          left join player_profiles on player_profiles.user_id = friend_requests.from_user_id
+          where friend_requests.to_user_id = $1
+          order by friend_requests.created_at desc
+        `,
+        [userId],
+      )
+
+      return normalizeFriendRequestRows(result.rows)
+    } catch (error) {
+      console.error('[db] No fue posible leer las solicitudes de amistad.', error)
+      return []
+    }
+  }
+
+  async getOutgoingFriendRequestUserIds(userId: string): Promise<string[]> {
+    const pool = getDbPool()
+    if (!pool) {
+      return []
+    }
+
+    try {
+      const result = await pool.query<{ to_user_id: string }>(
+        `
+          select to_user_id
+          from friend_requests
+          where from_user_id = $1
+        `,
+        [userId],
+      )
+
+      return result.rows.map((row) => row.to_user_id)
+    } catch (error) {
+      console.error('[db] No fue posible leer las solicitudes enviadas.', error)
+      return []
+    }
+  }
+
+  async getFriendRequestById(requestId: string): Promise<FriendRequestSummary | null> {
+    const pool = getDbPool()
+    if (!pool) {
+      return null
+    }
+
+    try {
+      const result = await pool.query<{
+        request_id: string
+        from_user_id: string
+        display_name: string | null
+        skin_id: string | null
+        skin_colors: unknown
+        created_at: string | Date
+      }>(
+        `
+          select
+            friend_requests.request_id,
+            friend_requests.from_user_id,
+            users.display_name,
+            player_profiles.skin_id,
+            player_profiles.skin_colors,
+            friend_requests.created_at
+          from friend_requests
+          inner join users on users.user_id = friend_requests.from_user_id
+          left join player_profiles on player_profiles.user_id = friend_requests.from_user_id
+          where friend_requests.request_id = $1
+          limit 1
+        `,
+        [requestId],
+      )
+
+      return normalizeFriendRequestRows(result.rows)[0] ?? null
+    } catch (error) {
+      console.error('[db] No fue posible leer la solicitud de amistad.', error)
+      return null
+    }
+  }
+
+  async sendFriendRequest(userId: string, friendUserId: string) {
     const pool = getDbPool()
     if (!pool || userId === friendUserId) {
-      return { ok: false, message: 'No fue posible registrar la amistad.' }
+      return { ok: false, message: 'No fue posible registrar la solicitud.' }
     }
 
     const client = await pool.connect()
@@ -545,23 +720,169 @@ class GameRepository {
         return { ok: false, message: 'Ese jugador aun no tiene perfil disponible.' }
       }
 
-      await client.query(
+      const friendshipResult = await client.query<{ user_id: string }>(
         `
-          insert into friendships (user_id, friend_user_id)
-          values ($1, $2), ($2, $1)
-          on conflict (user_id, friend_user_id) do nothing
+          select user_id
+          from friendships
+          where user_id = $1 and friend_user_id = $2
+          limit 1
         `,
         [userId, friendUserId],
       )
 
+      if (friendshipResult.rowCount) {
+        await client.query('ROLLBACK')
+        return { ok: false, message: 'Ese jugador ya hace parte de tus amistades.' }
+      }
+
+      const reversePendingResult = await client.query<{ request_id: string }>(
+        `
+          select request_id
+          from friend_requests
+          where from_user_id = $1 and to_user_id = $2
+          limit 1
+        `,
+        [friendUserId, userId],
+      )
+
+      if (reversePendingResult.rowCount) {
+        await client.query('ROLLBACK')
+        return { ok: false, message: 'Ese jugador ya te envio una solicitud. Revísala en tu panel.' }
+      }
+
+      const existingPendingResult = await client.query<{ request_id: string }>(
+        `
+          select request_id
+          from friend_requests
+          where from_user_id = $1 and to_user_id = $2
+          limit 1
+        `,
+        [userId, friendUserId],
+      )
+
+      if (existingPendingResult.rowCount) {
+        await client.query('ROLLBACK')
+        return { ok: false, message: 'Ya tienes una solicitud pendiente con este jugador.' }
+      }
+
+      const requestId = randomUUID()
+      await client.query(
+        `
+          insert into friend_requests (request_id, from_user_id, to_user_id)
+          values ($1, $2, $3)
+        `,
+        [requestId, userId, friendUserId],
+      )
+
       await client.query('COMMIT')
-      return { ok: true }
+      const request = await this.getFriendRequestById(requestId)
+      return { ok: true, request }
     } catch (error) {
       await client.query('ROLLBACK')
-      console.error('[db] No fue posible guardar la amistad.', error)
-      return { ok: false, message: 'No fue posible guardar la amistad.' }
+      console.error('[db] No fue posible guardar la solicitud de amistad.', error)
+      return { ok: false, message: 'No fue posible guardar la solicitud de amistad.' }
     } finally {
       client.release()
+    }
+  }
+
+  async respondToFriendRequest(userId: string, requestId: string, action: 'accept' | 'reject') {
+    const pool = getDbPool()
+    if (!pool) {
+      return { ok: false, message: 'No fue posible responder la solicitud.' }
+    }
+
+    const client = await pool.connect()
+
+    try {
+      await client.query('BEGIN')
+
+      const requestResult = await client.query<{
+        request_id: string
+        from_user_id: string
+        to_user_id: string
+      }>(
+        `
+          select request_id, from_user_id, to_user_id
+          from friend_requests
+          where request_id = $1 and to_user_id = $2
+          limit 1
+        `,
+        [requestId, userId],
+      )
+
+      const request = requestResult.rows[0]
+      if (!request) {
+        await client.query('ROLLBACK')
+        return { ok: false, message: 'La solicitud ya no está disponible.' }
+      }
+
+      if (action === 'accept') {
+        await client.query(
+          `
+            insert into friendships (user_id, friend_user_id)
+            values ($1, $2), ($2, $1)
+            on conflict (user_id, friend_user_id) do nothing
+          `,
+          [request.from_user_id, request.to_user_id],
+        )
+      }
+
+      await client.query(
+        `
+          delete from friend_requests
+          where
+            request_id = $1
+            or (
+              (from_user_id = $2 and to_user_id = $3)
+              or (from_user_id = $3 and to_user_id = $2)
+            )
+        `,
+        [requestId, request.from_user_id, request.to_user_id],
+      )
+
+      await client.query('COMMIT')
+      return { ok: true, requesterUserId: request.from_user_id }
+    } catch (error) {
+      await client.query('ROLLBACK')
+      console.error('[db] No fue posible responder la solicitud de amistad.', error)
+      return { ok: false, message: 'No fue posible responder la solicitud.' }
+    } finally {
+      client.release()
+    }
+  }
+
+  async removeFriend(userId: string, friendUserId: string) {
+    const pool = getDbPool()
+    if (!pool || userId === friendUserId) {
+      return { ok: false, message: 'No fue posible quitar la amistad.' }
+    }
+
+    try {
+      await pool.query(
+        `
+          delete from friendships
+          where
+            (user_id = $1 and friend_user_id = $2)
+            or (user_id = $2 and friend_user_id = $1)
+        `,
+        [userId, friendUserId],
+      )
+
+      await pool.query(
+        `
+          delete from friend_requests
+          where
+            (from_user_id = $1 and to_user_id = $2)
+            or (from_user_id = $2 and to_user_id = $1)
+        `,
+        [userId, friendUserId],
+      )
+
+      return { ok: true }
+    } catch (error) {
+      console.error('[db] No fue posible quitar la amistad.', error)
+      return { ok: false, message: 'No fue posible quitar la amistad.' }
     }
   }
 }

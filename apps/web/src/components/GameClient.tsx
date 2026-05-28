@@ -5,6 +5,7 @@ import {
   serverEvents,
   type ChatMessage,
   type ConnectionAcceptedPayload,
+  type FriendRequestSummary,
   type FriendSummary,
   type Position,
   type Presence,
@@ -118,7 +119,12 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const [chatOpen, setChatOpen] = useState(false)
   const [debugEnabled, setDebugEnabled] = useState(false)
   const [friends, setFriends] = useState<FriendSummary[]>([])
+  const [incomingFriendRequests, setIncomingFriendRequests] = useState<FriendRequestSummary[]>([])
+  const [outgoingFriendRequestUserIds, setOutgoingFriendRequestUserIds] = useState<string[]>([])
+  const [friendRequestPopups, setFriendRequestPopups] = useState<FriendRequestSummary[]>([])
   const [addingFriendUserId, setAddingFriendUserId] = useState<string | null>(null)
+  const [respondingFriendRequestId, setRespondingFriendRequestId] = useState<string | null>(null)
+  const [removingFriendUserId, setRemovingFriendUserId] = useState<string | null>(null)
   const [activeDialogue, setActiveDialogue] = useState<ActiveDialogueState | null>(null)
   const [dialogueVisibleChars, setDialogueVisibleChars] = useState(0)
   const [npcInteractionLocked, setNpcInteractionLocked] = useState(false)
@@ -447,6 +453,9 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       setActiveSpeechByUserId({})
       setTypingByUserId({})
       setFriends([])
+      setIncomingFriendRequests([])
+      setOutgoingFriendRequestUserIds([])
+      setFriendRequestPopups([])
       localTypingStateRef.current = false
       nextSocket.emit(clientEvents.connectToGame, { profile: sessionProfileRef.current })
     })
@@ -454,16 +463,29 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     nextSocket.on('disconnect', () => {
       setConnected(false)
       setTypingByUserId({})
-       setFriends([])
+      setFriends([])
+      setIncomingFriendRequests([])
+      setOutgoingFriendRequestUserIds([])
+      setFriendRequestPopups([])
       localTypingStateRef.current = false
       setInitialSkinSetupSubmitting(false)
     })
 
     nextSocket.on(
       serverEvents.connectionAccepted,
-      ({ profile, needsOnboarding, progress, inventory, friends }: ConnectionAcceptedPayload) => {
+      ({
+        profile,
+        needsOnboarding,
+        progress,
+        inventory,
+        friends,
+        incomingFriendRequests,
+        outgoingFriendRequestUserIds,
+      }: ConnectionAcceptedPayload) => {
         sessionProfileRef.current = profile
         setFriends(friends)
+        setIncomingFriendRequests(incomingFriendRequests)
+        setOutgoingFriendRequestUserIds(outgoingFriendRequestUserIds)
 
         const nextSession: AuthSession = {
           ...session,
@@ -499,8 +521,23 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       },
     )
 
-    nextSocket.on(serverEvents.socialState, ({ friends }: SocialStatePayload) => {
+    nextSocket.on(serverEvents.socialState, ({ friends, incomingFriendRequests, outgoingFriendRequestUserIds }: SocialStatePayload) => {
       setFriends(friends)
+      setIncomingFriendRequests(incomingFriendRequests)
+      setOutgoingFriendRequestUserIds(outgoingFriendRequestUserIds)
+    })
+
+    nextSocket.on(serverEvents.friendRequestReceived, (request: FriendRequestSummary) => {
+      setIncomingFriendRequests((currentValue) =>
+        currentValue.some((currentRequest) => currentRequest.requestId === request.requestId)
+          ? currentValue
+          : [request, ...currentValue],
+      )
+      setFriendRequestPopups((currentValue) =>
+        currentValue.some((currentRequest) => currentRequest.requestId === request.requestId)
+          ? currentValue
+          : [request, ...currentValue],
+      )
     })
 
     nextSocket.on(serverEvents.roomState, (nextRoom: RoomState) => {
@@ -575,10 +612,20 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     getDefaultAvatarColorSelections(selectedSkinPreset)
   const activePlayers = room?.players ?? []
   const friendUserIds = new Set(friends.map((friend) => friend.userId))
+  const incomingFriendRequestUserIds = new Set(incomingFriendRequests.map((request) => request.fromUserId))
+  const outgoingFriendRequestUserIdSet = new Set(outgoingFriendRequestUserIds)
   const currentDialogueLine = activeDialogue
     ? activeDialogue.dialogue.lines[activeDialogue.lineIndex] ?? ''
     : ''
   const isDialogueLineComplete = dialogueVisibleChars >= currentDialogueLine.length
+
+  useEffect(() => {
+    setFriendRequestPopups((currentValue) =>
+      currentValue.filter((popup) =>
+        incomingFriendRequests.some((request) => request.requestId === popup.requestId),
+      ),
+    )
+  }, [incomingFriendRequests])
 
   useEffect(() => {
     if (!optionsOpen) {
@@ -606,6 +653,12 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
   })
 
+  const dismissFriendRequestPopup = useEffectEvent((requestId: string) => {
+    setFriendRequestPopups((currentValue) =>
+      currentValue.filter((currentRequest) => currentRequest.requestId !== requestId),
+    )
+  })
+
   const handleAddFriend = useEffectEvent((friendUserId: string) => {
     const socket = socketRef.current
     if (!socket || addingFriendUserId) {
@@ -623,6 +676,44 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
         }
       },
     )
+  })
+
+  const handleRespondToFriendRequest = useEffectEvent((requestId: string, action: 'accept' | 'reject') => {
+    const socket = socketRef.current
+    if (!socket || respondingFriendRequestId) {
+      return
+    }
+
+    setRespondingFriendRequestId(requestId)
+    socket.emit(
+      clientEvents.respondFriendRequest,
+      { requestId, action },
+      (response: { ok: boolean }) => {
+        setRespondingFriendRequestId(null)
+        if (response.ok) {
+          setIncomingFriendRequests((currentValue) =>
+            currentValue.filter((currentRequest) => currentRequest.requestId !== requestId),
+          )
+          dismissFriendRequestPopup(requestId)
+          socket.emit(clientEvents.requestSocialState)
+        }
+      },
+    )
+  })
+
+  const handleRemoveFriend = useEffectEvent((friendUserId: string) => {
+    const socket = socketRef.current
+    if (!socket || removingFriendUserId) {
+      return
+    }
+
+    setRemovingFriendUserId(friendUserId)
+    socket.emit(clientEvents.removeFriend, { friendUserId }, (response: { ok: boolean }) => {
+      setRemovingFriendUserId(null)
+      if (response.ok) {
+        socket.emit(clientEvents.requestSocialState)
+      }
+    })
   })
 
   const ensureDialogueAudioUnlocked = useEffectEvent(async () => {
@@ -1158,6 +1249,10 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                                   <span className="menu-inline-tag is-current">Tu personaje</span>
                                 ) : isFriend ? (
                                   <span className="menu-inline-tag is-friend">Amistad</span>
+                                ) : incomingFriendRequestUserIds.has(player.userId) ? (
+                                  <span className="menu-inline-tag is-pending">Te envio solicitud</span>
+                                ) : outgoingFriendRequestUserIdSet.has(player.userId) ? (
+                                  <span className="menu-inline-tag is-pending">Pendiente</span>
                                 ) : (
                                   <button
                                     type="button"
@@ -1165,7 +1260,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                                     onClick={() => handleAddFriend(player.userId)}
                                     disabled={addingFriendUserId === player.userId}
                                   >
-                                    {addingFriendUserId === player.userId ? 'Guardando...' : 'Agregar'}
+                                    {addingFriendUserId === player.userId ? 'Enviando...' : 'Solicitar'}
                                   </button>
                                 )}
                               </li>
@@ -1173,6 +1268,56 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                           })
                         )}
                       </ul>
+                    </div>
+                  </details>
+                  <details className="dropdown-section" open={incomingFriendRequests.length > 0}>
+                    <summary>Solicitudes</summary>
+                    <div className="dropdown-section-body">
+                      {incomingFriendRequests.length === 0 ? (
+                        <p className="empty-state">No tienes solicitudes pendientes.</p>
+                      ) : (
+                        <ul className="players-list players-list-rich">
+                          {incomingFriendRequests.map((request) => {
+                            const preset = resolveAvatarPreset(request.skinId)
+                            const skinSubtitle = resolveAvatarPrimarySubtitle(preset, request.skinColors)
+                            const isBusy = respondingFriendRequestId === request.requestId
+
+                            return (
+                              <li key={request.requestId} className="is-request-entry">
+                                <div className="player-entry-main">
+                                  <MenuAvatarPreview
+                                    skinId={request.skinId}
+                                    skinColors={request.skinColors}
+                                    displayName={request.displayName}
+                                  />
+                                  <div className="player-entry-copy">
+                                    <strong>{request.displayName}</strong>
+                                    <small>{`${preset.label} · ${skinSubtitle}`}</small>
+                                  </div>
+                                </div>
+                                <div className="inline-actions">
+                                  <button
+                                    type="button"
+                                    className="mini-action-button"
+                                    onClick={() => handleRespondToFriendRequest(request.requestId, 'accept')}
+                                    disabled={isBusy}
+                                  >
+                                    {isBusy ? '...' : 'Aceptar'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="mini-action-button is-danger"
+                                    onClick={() => handleRespondToFriendRequest(request.requestId, 'reject')}
+                                    disabled={isBusy}
+                                  >
+                                    Rechazar
+                                  </button>
+                                </div>
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      )}
                     </div>
                   </details>
                   <details className="dropdown-section" open={friends.length > 0}>
@@ -1199,9 +1344,19 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                                     <small>{`${preset.label} · ${skinSubtitle}`}</small>
                                   </div>
                                 </div>
-                                <span className={`friend-status-pill ${friend.isOnline ? 'is-online' : 'is-offline'}`}>
-                                  {friend.isOnline ? 'Conectado' : 'Desconectado'}
-                                </span>
+                                <div className="inline-actions">
+                                  <span className={`friend-status-pill ${friend.isOnline ? 'is-online' : 'is-offline'}`}>
+                                    {friend.isOnline ? 'Conectado' : 'Desconectado'}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="mini-action-button is-danger"
+                                    onClick={() => handleRemoveFriend(friend.userId)}
+                                    disabled={removingFriendUserId === friend.userId}
+                                  >
+                                    {removingFriendUserId === friend.userId ? 'Quitando...' : 'Quitar'}
+                                  </button>
+                                </div>
                               </li>
                             )
                           })}
@@ -1235,6 +1390,44 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                 <article key={message.messageId} className="chat-bubble">
                   <strong>{message.displayName}</strong>
                   <span>{message.content}</span>
+                </article>
+              ))}
+            </section>
+          ) : null}
+
+          {friendRequestPopups.length > 0 ? (
+            <section className="friend-request-popup-stack" aria-label="Solicitudes de amistad en tiempo real">
+              {friendRequestPopups.map((request) => (
+                <article key={request.requestId} className="friend-request-popup">
+                  <div className="friend-request-popup-copy">
+                    <strong>{request.displayName}</strong>
+                    <span>te envio una solicitud de amistad</span>
+                  </div>
+                  <div className="inline-actions">
+                    <button
+                      type="button"
+                      className="mini-action-button"
+                      onClick={() => handleRespondToFriendRequest(request.requestId, 'accept')}
+                      disabled={respondingFriendRequestId === request.requestId}
+                    >
+                      Aceptar
+                    </button>
+                    <button
+                      type="button"
+                      className="mini-action-button is-danger"
+                      onClick={() => handleRespondToFriendRequest(request.requestId, 'reject')}
+                      disabled={respondingFriendRequestId === request.requestId}
+                    >
+                      Rechazar
+                    </button>
+                    <button
+                      type="button"
+                      className="mini-action-button is-ghost"
+                      onClick={() => dismissFriendRequestPopup(request.requestId)}
+                    >
+                      Luego
+                    </button>
+                  </div>
                 </article>
               ))}
             </section>
