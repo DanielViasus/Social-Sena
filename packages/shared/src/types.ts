@@ -60,6 +60,17 @@ export interface ConnectToGamePayload {
   profile: UserProfile
 }
 
+export interface ConnectionAcceptedPayload {
+  sessionId: string
+  profile: UserProfile
+  needsOnboarding: boolean
+}
+
+export interface CompleteOnboardingPayload {
+  skinId: string
+  skinColors?: SkinColorSelections
+}
+
 export interface JoinRoomPayload {
   roomId: string
   templateId: string

@@ -1,11 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
 import { Server } from 'socket.io'
+import { initializeDatabase } from './db/client'
+import { gameRepository } from './db/repositories/gameRepository'
 import {
   DEFAULT_ROOM_CAPACITY,
   PLAYER_REACH_THRESHOLD,
   PLAYER_SPEED,
   clientEvents,
+  completeOnboardingSchema,
   connectToGameSchema,
   getRoomTemplateById,
   joinRoomSchema,
@@ -17,6 +20,7 @@ import {
   sendChatMessageSchema,
   serverEvents,
   type ChatMessage,
+  type ConnectionAcceptedPayload,
   type Direction,
   type Position,
   type Presence,
@@ -148,13 +152,18 @@ function getOrCreateRoom(roomId: string, templateId: string): RoomState | null {
   return room
 }
 
-function buildPresence(profile: UserProfile, sessionId: string, room: RoomState): Presence {
+function buildPresence(
+  profile: UserProfile,
+  sessionId: string,
+  room: RoomState,
+  spawnPosition: Position = room.template.world.spawn,
+): Presence {
   return {
     userId: profile.userId,
     displayName: profile.displayName,
     sessionId,
     roomId: room.roomId,
-    position: { ...room.template.world.spawn },
+    position: { ...spawnPosition },
     direction: 'down',
     moving: false,
     skinId: profile.skinId,
@@ -909,7 +918,7 @@ setInterval(() => {
 }, 1000 / 20)
 
 io.on('connection', (socket) => {
-  socket.on(clientEvents.connectToGame, (rawPayload) => {
+  socket.on(clientEvents.connectToGame, async (rawPayload) => {
     const parsed = connectToGameSchema.safeParse(rawPayload)
 
     if (!parsed.success) {
@@ -920,9 +929,12 @@ io.on('connection', (socket) => {
       return
     }
 
+    const resolvedProfileResult = await gameRepository.resolveUserProfile(parsed.data.profile)
+    const resolvedProfile = resolvedProfileResult.profile
+
     const session: SessionState = {
       sessionId: socket.id,
-      profile: parsed.data.profile,
+      profile: resolvedProfile,
       roomId: null,
       movementInput: {
         up: false,
@@ -935,13 +947,38 @@ io.on('connection', (socket) => {
 
     sessions.set(socket.id, session)
 
-    socket.emit(serverEvents.connectionAccepted, {
+    const connectionAcceptedPayload: ConnectionAcceptedPayload = {
       sessionId: socket.id,
-      profile: parsed.data.profile,
+      profile: resolvedProfile,
+      needsOnboarding: resolvedProfileResult.needsOnboarding,
+    }
+
+    socket.emit(serverEvents.connectionAccepted, connectionAcceptedPayload)
+  })
+
+  socket.on(clientEvents.completeOnboarding, async (rawPayload, callback) => {
+    const parsed = completeOnboardingSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible completar el registro inicial.',
+      })
+      return
+    }
+
+    session.profile.skinId = parsed.data.skinId
+    session.profile.skinColors = { ...(parsed.data.skinColors ?? {}) }
+    await gameRepository.completeOnboarding(session.profile)
+
+    callback?.({
+      ok: true,
+      profile: session.profile,
     })
   })
 
-  socket.on(clientEvents.joinRoom, (rawPayload) => {
+  socket.on(clientEvents.joinRoom, async (rawPayload) => {
     const session = sessions.get(socket.id)
     const parsed = joinRoomSchema.safeParse(rawPayload)
 
@@ -973,8 +1010,19 @@ io.on('connection', (socket) => {
     socket.join(room.roomId)
     session.roomId = room.roomId
 
-    const presence = buildPresence(session.profile, socket.id, room)
+    const persistedState = await gameRepository.getPlayerState(session.profile.userId)
+    const preferredSpawnPosition =
+      persistedState?.roomId === room.roomId && persistedState.position
+        ? clampPositionToRoom(room, persistedState.position)
+        : room.template.world.spawn
+
+    const presence = buildPresence(session.profile, socket.id, room, preferredSpawnPosition)
+    ensureNavigablePlayerPosition(room, presence)
     room.players.push(presence)
+    void gameRepository.savePlayerState(session.profile.userId, {
+      roomId: room.roomId,
+      position: clonePosition(presence.position),
+    })
 
     socket.emit(serverEvents.roomJoined, {
       roomId: room.roomId,
@@ -1081,6 +1129,7 @@ io.on('connection', (socket) => {
     session.profile.skinColors = { ...(parsed.data.skinColors ?? {}) }
     player.skinId = parsed.data.skinId
     player.skinColors = { ...(parsed.data.skinColors ?? {}) }
+    void gameRepository.savePlayerProfile(session.profile)
     io.to(room.roomId).emit(serverEvents.playerMoved, player)
     io.to(room.roomId).emit(serverEvents.roomState, room)
   })
@@ -1139,6 +1188,14 @@ io.on('connection', (socket) => {
     if (session.roomId) {
       const room = rooms.get(session.roomId)
       if (room) {
+        const departingPlayer = room.players.find((presence) => presence.sessionId === socket.id)
+        if (departingPlayer) {
+          void gameRepository.savePlayerState(session.profile.userId, {
+            roomId: room.roomId,
+            position: clonePosition(departingPlayer.position),
+          })
+        }
+
         room.players = room.players.filter((presence) => presence.sessionId !== socket.id)
         io.to(room.roomId).emit(serverEvents.typingStateChanged, {
           roomId: room.roomId,
@@ -1157,6 +1214,8 @@ io.on('connection', (socket) => {
   })
 })
 
-httpServer.listen(port, '0.0.0.0', () => {
-  console.log(`Social Sena game server listening on port ${port}`)
+void initializeDatabase().finally(() => {
+  httpServer.listen(port, '0.0.0.0', () => {
+    console.log(`Social Sena game server listening on port ${port}`)
+  })
 })

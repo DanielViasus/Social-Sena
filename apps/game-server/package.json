@@ -12,6 +12,9 @@
   },
   "dependencies": {
     "@social-sena/shared": "file:../../packages/shared",
+    "@types/pg": "^8.20.0",
+    "dotenv": "^17.4.2",
+    "pg": "^8.21.0",
     "socket.io": "^4.8.1",
     "tsx": "^4.20.6",
     "zod": "^4.1.12"

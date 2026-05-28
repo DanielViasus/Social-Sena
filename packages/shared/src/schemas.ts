@@ -21,6 +21,11 @@ export const connectToGameSchema = z.object({
   profile: userProfileSchema,
 })
 
+export const completeOnboardingSchema = z.object({
+  skinId: z.string().trim().min(1),
+  skinColors: skinColorSelectionsSchema.optional(),
+})
+
 export const joinRoomSchema = z.object({
   roomId: z.string().min(1),
   templateId: z.string().min(1),

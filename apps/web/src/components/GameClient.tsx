@@ -4,6 +4,7 @@ import {
   clientEvents,
   serverEvents,
   type ChatMessage,
+  type ConnectionAcceptedPayload,
   type Position,
   type Presence,
   type RoomNpcTemplate,
@@ -23,6 +24,7 @@ import {
 import ReactWorld from './ReactWorld'
 import DialogueOverlay from './dialogue/DialogueOverlay'
 import MobileNpcInteractButton from './MobileNpcInteractButton'
+import InitialSkinSetupOverlay from './skins/InitialSkinSetupOverlay'
 import SkinEditorOverlay from './skins/SkinEditorOverlay'
 import { availableRoomRoutes, resolveRoomTemplateFromPath } from '../rooms/registry'
 
@@ -60,6 +62,8 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const [mobileInteractionEnabled, setMobileInteractionEnabled] = useState(false)
   const [activeInteractableNpc, setActiveInteractableNpc] = useState<RoomNpcTemplate | null>(null)
   const [skinEditorOpen, setSkinEditorOpen] = useState(false)
+  const [initialSkinSetupOpen, setInitialSkinSetupOpen] = useState(false)
+  const [initialSkinSetupSubmitting, setInitialSkinSetupSubmitting] = useState(false)
   const [selectedSkinId, setSelectedSkinId] = useState(() => resolveAvatarPreset(session.profile.skinId).id)
   const [selectedSkinColorsBySkinId, setSelectedSkinColorsBySkinId] = useState<Record<string, AvatarColorSelections>>(
     () => {
@@ -341,7 +345,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
         return
       }
 
-      if (event.key.toLowerCase() === 'm' && !activeDialogue) {
+      if (event.key.toLowerCase() === 'm' && !activeDialogue && !initialSkinSetupOpen) {
         event.preventDefault()
         setSkinEditorOpen((currentValue) => !currentValue)
       }
@@ -349,7 +353,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [activeDialogue])
+  }, [activeDialogue, initialSkinSetupOpen])
 
   useEffect(() => {
     const hasTypingPlayers = Object.keys(typingByUserId).length > 0
@@ -381,17 +385,50 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       setTypingByUserId({})
       localTypingStateRef.current = false
       nextSocket.emit(clientEvents.connectToGame, { profile: sessionProfileRef.current })
-      nextSocket.emit(clientEvents.joinRoom, {
-        roomId: activeTemplate.id,
-        templateId: activeTemplate.id,
-      })
     })
 
     nextSocket.on('disconnect', () => {
       setConnected(false)
       setTypingByUserId({})
       localTypingStateRef.current = false
+      setInitialSkinSetupSubmitting(false)
     })
+
+    nextSocket.on(
+      serverEvents.connectionAccepted,
+      ({ profile, needsOnboarding }: ConnectionAcceptedPayload) => {
+        sessionProfileRef.current = profile
+
+        const nextSession: AuthSession = {
+          ...session,
+          profile,
+        }
+
+        if (session.provider === 'local') {
+          saveAuthSession(nextSession)
+        }
+        savePreferredSkin(profile.userId, profile.skinId)
+        savePreferredSkinColors(profile.userId, profile.skinId, profile.skinColors)
+        onSessionChange?.(nextSession)
+
+        if (needsOnboarding) {
+          const onboardingPreset = resolveAvatarPreset(profile.skinId)
+          setSelectedSkinId(onboardingPreset.id)
+          setSelectedSkinColorsBySkinId((currentValue) => ({
+            ...currentValue,
+            [onboardingPreset.id]: normalizeAvatarColorSelections(onboardingPreset, profile.skinColors),
+          }))
+          setInitialSkinSetupOpen(true)
+          return
+        }
+
+        setInitialSkinSetupOpen(false)
+        nextSocket.emit(clientEvents.joinRoom, {
+          roomId: activeTemplate.id,
+          templateId: activeTemplate.id,
+        })
+      },
+    )
 
     nextSocket.on(serverEvents.roomState, (nextRoom: RoomState) => {
       setRoom(nextRoom)
@@ -657,7 +694,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
   const handleNavigate = (target: Position) => {
     const socket = socketRef.current
-    if (!socket || !room || !connected || activeDialogue) {
+    if (!socket || !room || !connected || activeDialogue || initialSkinSetupOpen) {
       return
     }
 
@@ -668,7 +705,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   }
 
   const handleNpcInteract = useEffectEvent((npc: RoomNpcTemplate) => {
-    if (activeDialogue || npcInteractionLocked || skinEditorOpen) {
+    if (activeDialogue || npcInteractionLocked || skinEditorOpen || initialSkinSetupOpen) {
       return
     }
 
@@ -699,7 +736,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       return
     }
 
-    if (activeInteractableNpc && !npcInteractionLocked && !skinEditorOpen) {
+    if (activeInteractableNpc && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen) {
       handleNpcInteract(activeInteractableNpc)
     }
   })
@@ -709,7 +746,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   })
 
   const toggleSkinEditor = useEffectEvent(() => {
-    if (activeDialogue) {
+    if (activeDialogue || initialSkinSetupOpen) {
       return
     }
 
@@ -817,6 +854,57 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     setSkinEditorOpen(false)
   })
 
+  const handleApplyInitialSkin = useEffectEvent(() => {
+    const socket = socketRef.current
+    if (!socket) {
+      return
+    }
+
+    const nextSkinPreset = resolveAvatarPreset(selectedSkinId)
+    const nextSkinColors = normalizeAvatarColorSelections(
+      nextSkinPreset,
+      selectedSkinColorsBySkinId[nextSkinPreset.id] ?? getDefaultAvatarColorSelections(nextSkinPreset),
+    )
+
+    setInitialSkinSetupSubmitting(true)
+
+    socket.emit(
+      clientEvents.completeOnboarding,
+      {
+        skinId: nextSkinPreset.id,
+        skinColors: nextSkinColors,
+      },
+      (response: { ok: boolean; profile?: AuthSession['profile']; message?: string }) => {
+        setInitialSkinSetupSubmitting(false)
+
+        if (!response.ok || !response.profile) {
+          return
+        }
+
+        const profile = response.profile
+        sessionProfileRef.current = profile
+
+        const nextSession: AuthSession = {
+          ...session,
+          profile,
+        }
+
+        savePreferredSkin(profile.userId, profile.skinId)
+        savePreferredSkinColors(profile.userId, profile.skinId, profile.skinColors)
+        if (session.provider === 'local') {
+          saveAuthSession(nextSession)
+        }
+        onSessionChange?.(nextSession)
+
+        setInitialSkinSetupOpen(false)
+        socket.emit(clientEvents.joinRoom, {
+          roomId: activeTemplate.id,
+          templateId: activeTemplate.id,
+        })
+      },
+    )
+  })
+
   useEffect(() => {
     if (!skinEditorOpen) {
       return
@@ -876,8 +964,8 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
           typingIndicatorText={typingIndicatorText}
           onNpcInteract={handleNpcInteract}
           onActiveInteractableNpcChange={setActiveInteractableNpc}
-          navigationEnabled={!activeDialogue && !skinEditorOpen}
-          npcInteractionEnabled={!activeDialogue && !npcInteractionLocked && !skinEditorOpen}
+          navigationEnabled={!activeDialogue && !skinEditorOpen && !initialSkinSetupOpen}
+          npcInteractionEnabled={!activeDialogue && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen}
           suppressNpcIconForId={activeDialogue?.npcId ?? null}
           pointerNpcInteractionEnabled={false}
         />
@@ -993,7 +1081,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
             Chat
           </button>
 
-          {mobileInteractionEnabled && activeInteractableNpc && !activeDialogue && !npcInteractionLocked && !skinEditorOpen ? (
+          {mobileInteractionEnabled && activeInteractableNpc && !activeDialogue && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen ? (
             <MobileNpcInteractButton onInteract={() => handleNpcInteract(activeInteractableNpc)} />
           ) : null}
 
@@ -1034,6 +1122,19 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
               onSelectColor={handleSelectSkinColor}
               onApply={handleApplySkin}
               onClose={() => setSkinEditorOpen(false)}
+            />
+          ) : null}
+
+          {initialSkinSetupOpen ? (
+            <InitialSkinSetupOverlay
+              presets={availableSkins}
+              selectedSkinId={selectedSkinId}
+              selectedSkinColors={
+                selectedSkinColorsBySkinId[selectedSkinPreset.id] ?? getDefaultAvatarColorSelections(selectedSkinPreset)
+              }
+              isSubmitting={initialSkinSetupSubmitting}
+              onSelectSkin={handleSelectSkin}
+              onApply={handleApplyInitialSkin}
             />
           ) : null}
 

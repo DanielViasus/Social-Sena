@@ -39,6 +39,19 @@ function LoginScreen({ auth0Ready, auth0Error, onAuth0Login, onLogin }: LoginScr
           <label className="login-label" htmlFor="display-name">
             Nombre del jugador para acceso local
           </label>
+          <input
+            id="display-name"
+            className="login-input"
+            type="text"
+            value={displayName}
+            onChange={(event) => setDisplayName(event.target.value)}
+            placeholder="Escribe tu nombre"
+            maxLength={32}
+            autoComplete="nickname"
+          />
+          <button type="submit" className="login-button">
+            Ingresar localmente
+          </button>
         </form>
         <div className="login-notes">
           <span>Ruta inicial: `/Room_1909`</span>

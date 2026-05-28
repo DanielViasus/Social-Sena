@@ -1,5 +1,6 @@
 export const clientEvents = {
   connectToGame: 'connect_to_game',
+  completeOnboarding: 'complete_onboarding',
   joinRoom: 'join_room',
   navigateTo: 'navigate_to',
   stopNavigation: 'stop_navigation',
