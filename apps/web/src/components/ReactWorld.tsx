@@ -439,7 +439,6 @@ function ReactWorld({
       const nextFacingBySession: Record<string, FacingPose> = { ...previousState.facingBySession }
       const targetPlayers = room?.players ?? []
       const activeSessionIds = new Set(targetPlayers.map((player) => player.sessionId))
-      const playerLerp = 1 - Math.exp(-delta / 120)
 
       Object.keys(nextPlayersBySession).forEach((sessionId) => {
         if (!activeSessionIds.has(sessionId)) {
@@ -450,10 +449,18 @@ function ReactWorld({
 
       targetPlayers.forEach((player) => {
         const previousPosition = nextPlayersBySession[player.sessionId] ?? player.position
-        nextPlayersBySession[player.sessionId] = {
-          x: previousPosition.x + (player.position.x - previousPosition.x) * playerLerp,
-          y: previousPosition.y + (player.position.y - previousPosition.y) * playerLerp,
-        }
+        const isCurrentPlayer = player.userId === currentUserId
+        const isKeyboardDrivenPlayer = isCurrentPlayer && player.destination === null
+        const playerLerpMs = isKeyboardDrivenPlayer ? 36 : isCurrentPlayer ? 78 : 120
+        const playerLerp = 1 - Math.exp(-delta / playerLerpMs)
+
+        nextPlayersBySession[player.sessionId] =
+          isKeyboardDrivenPlayer && !player.moving
+            ? { ...player.position }
+            : {
+                x: previousPosition.x + (player.position.x - previousPosition.x) * playerLerp,
+                y: previousPosition.y + (player.position.y - previousPosition.y) * playerLerp,
+              }
 
         const previousFacing = nextFacingBySession[player.sessionId] ?? 'front-right'
         nextFacingBySession[player.sessionId] = resolveFacingPose(player, previousFacing)
@@ -474,7 +481,11 @@ function ReactWorld({
         const maxCameraY = Math.max(0, template.world.height - viewportSize.height)
         const desiredCameraX = template.camera.clampBorders ? clamp(unclampedCameraX, 0, maxCameraX) : unclampedCameraX
         const desiredCameraY = template.camera.clampBorders ? clamp(unclampedCameraY, 0, maxCameraY) : unclampedCameraY
-        const cameraLerp = 1 - Math.exp(-delta / template.camera.delayMs)
+        const keyboardDrivenCurrentPlayer = currentPlayer.destination === null
+        const effectiveCameraDelayMs = keyboardDrivenCurrentPlayer
+          ? Math.max(42, template.camera.delayMs * 0.35)
+          : template.camera.delayMs
+        const cameraLerp = 1 - Math.exp(-delta / effectiveCameraDelayMs)
 
         nextCameraX = previousState.cameraX + (desiredCameraX - previousState.cameraX) * cameraLerp
         nextCameraY = previousState.cameraY + (desiredCameraY - previousState.cameraY) * cameraLerp

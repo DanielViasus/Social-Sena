@@ -513,7 +513,7 @@ button {
 .shortcut-board-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 10px;
 }
 
@@ -525,23 +525,7 @@ button {
   font-weight: 400;
 }
 
-.shortcut-board-mode {
-  display: inline-grid;
-  place-items: center;
-  min-width: 58px;
-  min-height: 28px;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: rgba(156, 222, 113, 0.18);
-  color: #eaffd4;
-  font-family: 'Press Start 2P', monospace;
-  font-size: 0.42rem;
-  line-height: 1.4;
-  text-transform: lowercase;
-}
-
-.shortcut-board-actions,
-.shortcut-board-movement {
+.shortcut-board-actions {
   overflow: hidden;
   max-height: 0;
   opacity: 0;
@@ -550,9 +534,7 @@ button {
 }
 
 .shortcut-board:hover .shortcut-board-actions,
-.shortcut-board:hover .shortcut-board-movement,
-.shortcut-board:focus-within .shortcut-board-actions,
-.shortcut-board:focus-within .shortcut-board-movement {
+.shortcut-board:focus-within .shortcut-board-actions {
   max-height: 420px;
   opacity: 1;
   transform: translateY(0);
@@ -576,8 +558,7 @@ button {
   text-align: left;
 }
 
-.shortcut-chip.is-disabled,
-.shortcut-move.is-disabled {
+.shortcut-chip.is-disabled {
   opacity: 0.45;
 }
 
@@ -600,41 +581,6 @@ button {
   text-transform: lowercase;
 }
 
-.shortcut-board-movement {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: repeat(2, 56px);
-  gap: 8px;
-}
-
-.shortcut-move {
-  border: none;
-  border-radius: 12px;
-  background: rgba(57, 150, 136, 0.18);
-  color: #effffb;
-  font-family: 'Press Start 2P', monospace;
-  font-size: 0.84rem;
-}
-
-.shortcut-move.up {
-  grid-column: 2;
-  grid-row: 1;
-}
-
-.shortcut-move.left {
-  grid-column: 1;
-  grid-row: 2;
-}
-
-.shortcut-move.down {
-  grid-column: 2;
-  grid-row: 2;
-}
-
-.shortcut-move.right {
-  grid-column: 3;
-  grid-row: 2;
-}
 
 .chat-bubble-stack {
   position: absolute;

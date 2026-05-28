@@ -58,6 +58,8 @@ const PATH_SEARCH_MAX_RADIUS = 6
 const PATH_START_SEARCH_MAX_RADIUS = 4
 const PATH_TARGET_SEARCH_MAX_RADIUS = 10
 const PATH_COLLIDER_MARGIN = 2
+const SIMULATION_TICK_MS = 1000 / 60
+const MAX_SIMULATION_DELTA_SECONDS = 0.03
 
 function matchesOriginPattern(origin: string, pattern: string) {
   if (pattern === '*') {
@@ -903,10 +905,10 @@ function simulateMovement(deltaSeconds: number) {
 
 setInterval(() => {
   const now = Date.now()
-  const deltaSeconds = Math.min((now - lastSimulationTick) / 1000, 0.05)
+  const deltaSeconds = Math.min((now - lastSimulationTick) / 1000, MAX_SIMULATION_DELTA_SECONDS)
   lastSimulationTick = now
   simulateMovement(deltaSeconds)
-}, 1000 / 20)
+}, SIMULATION_TICK_MS)
 
 io.on('connection', (socket) => {
   socket.on(clientEvents.connectToGame, (rawPayload) => {
