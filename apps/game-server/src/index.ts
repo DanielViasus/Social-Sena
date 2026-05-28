@@ -22,6 +22,7 @@ import {
   type ChatMessage,
   type ConnectionAcceptedPayload,
   type Direction,
+  type PlayerProgress,
   type Position,
   type Presence,
   type RoomState,
@@ -31,6 +32,7 @@ import {
 interface SessionState {
   sessionId: string
   profile: UserProfile
+  progress: PlayerProgress
   roomId: string | null
   movementInput: {
     up: boolean
@@ -935,6 +937,7 @@ io.on('connection', (socket) => {
     const session: SessionState = {
       sessionId: socket.id,
       profile: resolvedProfile,
+      progress: resolvedProfileResult.progress,
       roomId: null,
       movementInput: {
         up: false,
@@ -951,6 +954,7 @@ io.on('connection', (socket) => {
       sessionId: socket.id,
       profile: resolvedProfile,
       needsOnboarding: resolvedProfileResult.needsOnboarding,
+      progress: resolvedProfileResult.progress,
     }
 
     socket.emit(serverEvents.connectionAccepted, connectionAcceptedPayload)
@@ -971,10 +975,12 @@ io.on('connection', (socket) => {
     session.profile.skinId = parsed.data.skinId
     session.profile.skinColors = { ...(parsed.data.skinColors ?? {}) }
     await gameRepository.completeOnboarding(session.profile)
+    session.progress = await gameRepository.getPlayerProgress(session.profile.userId)
 
     callback?.({
       ok: true,
       profile: session.profile,
+      progress: session.progress,
     })
   })
 

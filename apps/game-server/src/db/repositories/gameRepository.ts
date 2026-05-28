@@ -1,4 +1,4 @@
-import type { Position, SkinColorSelections, UserProfile } from '@social-sena/shared'
+import type { PlayerProgress, Position, SkinColorSelections, UserProfile } from '@social-sena/shared'
 import { getDbPool } from '../client'
 
 interface PersistedPlayerState {
@@ -9,6 +9,7 @@ interface PersistedPlayerState {
 interface ResolvedUserProfileResult {
   profile: UserProfile
   needsOnboarding: boolean
+  progress: PlayerProgress
 }
 
 function normalizeSkinColors(value: unknown): SkinColorSelections {
@@ -34,6 +35,10 @@ class GameRepository {
       return {
         profile: incomingProfile,
         needsOnboarding: false,
+        progress: {
+          level: 1,
+          experience: 0,
+        },
       }
     }
 
@@ -53,6 +58,15 @@ class GameRepository {
         [incomingProfile.userId, incomingProfile.username, incomingProfile.displayName],
       )
 
+      await client.query(
+        `
+          insert into player_progress (user_id)
+          values ($1)
+          on conflict (user_id) do nothing
+        `,
+        [incomingProfile.userId],
+      )
+
       const profileResult = await client.query<{
         skin_id: string
         skin_colors: unknown
@@ -68,6 +82,18 @@ class GameRepository {
       )
 
       if (profileResult.rowCount && profileResult.rows[0]) {
+        const progressResult = await client.query<{
+          level: number
+          experience: number
+        }>(
+          `
+            select level, experience
+            from player_progress
+            where user_id = $1
+            limit 1
+          `,
+          [incomingProfile.userId],
+        )
         await client.query('COMMIT')
 
         return {
@@ -77,6 +103,10 @@ class GameRepository {
             skinColors: normalizeSkinColors(profileResult.rows[0].skin_colors),
           },
           needsOnboarding: !profileResult.rows[0].onboarding_completed,
+          progress: {
+            level: progressResult.rows[0]?.level ?? 1,
+            experience: progressResult.rows[0]?.experience ?? 0,
+          },
         }
       }
 
@@ -92,6 +122,10 @@ class GameRepository {
       return {
         profile: incomingProfile,
         needsOnboarding: true,
+        progress: {
+          level: 1,
+          experience: 0,
+        },
       }
     } catch (error) {
       await client.query('ROLLBACK')
@@ -99,6 +133,10 @@ class GameRepository {
       return {
         profile: incomingProfile,
         needsOnboarding: false,
+        progress: {
+          level: 1,
+          experience: 0,
+        },
       }
     } finally {
       client.release()
@@ -176,6 +214,45 @@ class GameRepository {
     }
 
     return profile
+  }
+
+  async getPlayerProgress(userId: string): Promise<PlayerProgress> {
+    const pool = getDbPool()
+    if (!pool) {
+      return { level: 1, experience: 0 }
+    }
+
+    try {
+      await pool.query(
+        `
+          insert into player_progress (user_id)
+          values ($1)
+          on conflict (user_id) do nothing
+        `,
+        [userId],
+      )
+
+      const result = await pool.query<{
+        level: number
+        experience: number
+      }>(
+        `
+          select level, experience
+          from player_progress
+          where user_id = $1
+          limit 1
+        `,
+        [userId],
+      )
+
+      return {
+        level: result.rows[0]?.level ?? 1,
+        experience: result.rows[0]?.experience ?? 0,
+      }
+    } catch (error) {
+      console.error('[db] No fue posible leer el progreso del jugador.', error)
+      return { level: 1, experience: 0 }
+    }
   }
 
   async getPlayerState(userId: string): Promise<PersistedPlayerState | null> {

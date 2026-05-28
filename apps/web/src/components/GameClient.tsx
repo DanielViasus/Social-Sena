@@ -396,11 +396,13 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
     nextSocket.on(
       serverEvents.connectionAccepted,
-      ({ profile, needsOnboarding }: ConnectionAcceptedPayload) => {
+      ({ profile, needsOnboarding, progress }: ConnectionAcceptedPayload) => {
         sessionProfileRef.current = profile
 
         const nextSession: AuthSession = {
           ...session,
+          level: progress.level,
+          experience: progress.experience,
           profile,
         }
 
@@ -874,7 +876,14 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
         skinId: nextSkinPreset.id,
         skinColors: nextSkinColors,
       },
-      (response: { ok: boolean; profile?: AuthSession['profile']; message?: string }) => {
+      (
+        response: {
+          ok: boolean
+          profile?: AuthSession['profile']
+          progress?: { level: number; experience: number }
+          message?: string
+        },
+      ) => {
         setInitialSkinSetupSubmitting(false)
 
         if (!response.ok || !response.profile) {
@@ -886,6 +895,8 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
         const nextSession: AuthSession = {
           ...session,
+          level: response.progress?.level ?? session.level,
+          experience: response.progress?.experience ?? session.experience,
           profile,
         }
 

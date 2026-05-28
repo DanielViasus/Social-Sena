@@ -122,6 +122,22 @@ button {
   background: #9cde71;
   color: #102033;
   font-weight: 700;
+  cursor: pointer;
+  transition:
+    transform 120ms ease,
+    background-color 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease;
+}
+
+.auth0-button:hover {
+  transform: translateY(-1px);
+}
+
+.auth0-button-secondary {
+  border: 1px solid rgba(159, 178, 203, 0.35);
+  background: rgba(16, 32, 51, 0.42);
+  color: #dbe5f3;
 }
 
 .auth0-box p {

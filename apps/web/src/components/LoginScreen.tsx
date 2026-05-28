@@ -4,10 +4,11 @@ interface LoginScreenProps {
   auth0Ready: boolean
   auth0Error?: string
   onAuth0Login?: () => void
+  onAuth0ChooseAccount?: () => void
   onLogin: (displayName: string) => void
 }
 
-function LoginScreen({ auth0Ready, auth0Error, onAuth0Login, onLogin }: LoginScreenProps) {
+function LoginScreen({ auth0Ready, auth0Error, onAuth0Login, onAuth0ChooseAccount, onLogin }: LoginScreenProps) {
   const [displayName, setDisplayName] = useState('')
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -30,6 +31,9 @@ function LoginScreen({ auth0Ready, auth0Error, onAuth0Login, onLogin }: LoginScr
           <div className="auth0-box">
             <button type="button" className="auth0-button" onClick={onAuth0Login}>
               Ingresar con Auth0
+            </button>
+            <button type="button" className="auth0-button auth0-button-secondary" onClick={onAuth0ChooseAccount}>
+              Usar otra cuenta
             </button>
             <p>Usa tu cuenta real de Auth0 y vuelve directamente a la sala activa.</p>
             {auth0Error ? <span className="auth0-error">{auth0Error}</span> : null}

@@ -13,6 +13,7 @@ type StoredSkinPreferences = Record<string, string | StoredSkinPreferenceEntry>
 export interface AuthSession {
   provider: 'local' | 'auth0'
   level: number
+  experience: number
   pictureUrl: string | null
   profile: UserProfile
 }
@@ -100,6 +101,7 @@ export function readStoredAuthSession(): AuthSession | null {
     const parsedSession = JSON.parse(storedValue) as AuthSession
     return {
       ...parsedSession,
+      experience: typeof parsedSession.experience === 'number' ? parsedSession.experience : 0,
       profile: {
         ...parsedSession.profile,
         skinColors: normalizeSkinColors(parsedSession.profile.skinColors),
@@ -165,6 +167,7 @@ export function createLocalAuthSession(displayName: string): AuthSession {
   return {
     provider: 'local',
     level: 1,
+    experience: 0,
     pictureUrl: null,
     profile: {
       userId: `player_${suffix}`,
@@ -189,6 +192,7 @@ export function createAuth0Session(options: {
   return {
     provider: 'auth0',
     level: 1,
+    experience: 0,
     pictureUrl: options.pictureUrl ?? null,
     profile: {
       userId: options.userId,

@@ -14,6 +14,23 @@ function Auth0App() {
   const sameSkinColors = (left: AuthSession | null, right: AuthSession) =>
     JSON.stringify(left?.profile.skinColors ?? {}) === JSON.stringify(right.profile.skinColors ?? {})
 
+  const handleAuth0Login = () =>
+    void loginWithRedirect({
+      appState: {
+        returnTo: resolvePostLoginRoute(window.location.pathname),
+      },
+    })
+
+  const handleAuth0ChooseAccount = () =>
+    void loginWithRedirect({
+      appState: {
+        returnTo: resolvePostLoginRoute(window.location.pathname),
+      },
+      authorizationParams: {
+        prompt: 'select_account',
+      },
+    })
+
   useEffect(() => {
     if (!isAuthenticated || !user || !auth0UserId) {
       setSession(null)
@@ -57,13 +74,8 @@ function Auth0App() {
       <LoginScreen
         auth0Ready
         auth0Error={error.message}
-        onAuth0Login={() =>
-          void loginWithRedirect({
-            appState: {
-              returnTo: resolvePostLoginRoute(window.location.pathname),
-            },
-          })
-        }
+        onAuth0Login={handleAuth0Login}
+        onAuth0ChooseAccount={handleAuth0ChooseAccount}
         onLogin={() => {}}
       />
     )
@@ -73,13 +85,8 @@ function Auth0App() {
     return (
       <LoginScreen
         auth0Ready
-        onAuth0Login={() =>
-          void loginWithRedirect({
-            appState: {
-              returnTo: resolvePostLoginRoute(window.location.pathname),
-            },
-          })
-        }
+        onAuth0Login={handleAuth0Login}
+        onAuth0ChooseAccount={handleAuth0ChooseAccount}
         onLogin={() => {}}
       />
     )

@@ -11,6 +11,11 @@ export interface UserProfile {
   skinColors: SkinColorSelections
 }
 
+export interface PlayerProgress {
+  level: number
+  experience: number
+}
+
 export interface Position {
   x: number
   y: number
@@ -64,6 +69,7 @@ export interface ConnectionAcceptedPayload {
   sessionId: string
   profile: UserProfile
   needsOnboarding: boolean
+  progress: PlayerProgress
 }
 
 export interface CompleteOnboardingPayload {

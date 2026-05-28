@@ -23,6 +23,13 @@ create table if not exists player_state (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists player_progress (
+  user_id text primary key references users(user_id) on delete cascade,
+  level integer not null default 1,
+  experience integer not null default 0,
+  updated_at timestamptz not null default now()
+);
+
 alter table if exists player_profiles
 add column if not exists onboarding_completed boolean not null default true;
 
