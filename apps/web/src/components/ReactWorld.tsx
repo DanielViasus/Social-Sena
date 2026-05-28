@@ -215,7 +215,7 @@ function getAvatarFrame(player: Presence, now: number, facingPose: FacingPose) {
     : useBack && preset.idleBackFrames?.length
       ? preset.idleBackFrames
       : preset.idleFrames
-  const frameDuration = 160
+  const frameDuration = 192
   const frameIndex = Math.floor(now / frameDuration) % frames.length
 
   return {

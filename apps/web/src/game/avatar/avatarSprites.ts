@@ -139,6 +139,14 @@ const crockPreset: AvatarPreset = {
           furPrimary: '#A98BEB',
           furShadow: '#6D57A9',
         }),
+        createPaletteOption('jade', 'Jade', '#61C18A', {
+          furPrimary: '#61C18A',
+          furShadow: '#3B8C62',
+        }),
+        createPaletteOption('coral', 'Coral', '#F28F74', {
+          furPrimary: '#F28F74',
+          furShadow: '#B45E4A',
+        }),
       ],
     },
     {
@@ -158,6 +166,12 @@ const crockPreset: AvatarPreset = {
         createPaletteOption('rosa', 'Rosa', '#FFD9E8', {
           detailSecondary: '#FFD9E8',
         }),
+        createPaletteOption('lavanda', 'Lavanda', '#E8DEFF', {
+          detailSecondary: '#E8DEFF',
+        }),
+        createPaletteOption('melocoton', 'Melocoton', '#FFE2C2', {
+          detailSecondary: '#FFE2C2',
+        }),
       ],
     },
     {
@@ -176,6 +190,9 @@ const crockPreset: AvatarPreset = {
         }),
         createPaletteOption('piel-clara', 'Piel clara', '#F1CBB2', {
           face: '#F1CBB2',
+        }),
+        createPaletteOption('piel-oliva', 'Piel oliva', '#C4A07A', {
+          face: '#C4A07A',
         }),
       ],
     },
@@ -207,22 +224,51 @@ const foxyPreset: AvatarPreset = {
         createPaletteOption('naranja-base', 'Naranja base', '#F5995B', {
           furPrimary: '#F5995B',
           furShadow: '#DD8D57',
+          furSecondary: '#D99A74',
+          outerEar: '#563E1A',
+          innerEar: '#7C4444',
         }),
         createPaletteOption('ambar', 'Ambar', '#E3B45F', {
           furPrimary: '#E3B45F',
-          furShadow: '#B78535',
+          furShadow: '#C79A4B',
+          furSecondary: '#DAB483',
+          outerEar: '#6B5122',
+          innerEar: '#92714A',
         }),
         createPaletteOption('rubi', 'Rubi', '#E07C6D', {
           furPrimary: '#E07C6D',
-          furShadow: '#B65A57',
+          furShadow: '#C96E69',
+          furSecondary: '#E2A29C',
+          outerEar: '#6E2D2D',
+          innerEar: '#9E5757',
         }),
         createPaletteOption('ciruela', 'Ciruela', '#BF95E0', {
           furPrimary: '#BF95E0',
-          furShadow: '#8C63B2',
+          furShadow: '#A27BC4',
+          furSecondary: '#C2AFDA',
+          outerEar: '#4C355F',
+          innerEar: '#7A5D92',
         }),
         createPaletteOption('menta', 'Menta', '#7FD4B4', {
           furPrimary: '#7FD4B4',
-          furShadow: '#4C9C7E',
+          furShadow: '#65B596',
+          furSecondary: '#A6D4C2',
+          outerEar: '#2E5D50',
+          innerEar: '#4C7F74',
+        }),
+        createPaletteOption('cobre', 'Cobre', '#D78654', {
+          furPrimary: '#D78654',
+          furShadow: '#BA7149',
+          furSecondary: '#D8AD93',
+          outerEar: '#5C311D',
+          innerEar: '#8D5740',
+        }),
+        createPaletteOption('noche', 'Noche', '#6D7FB8', {
+          furPrimary: '#6D7FB8',
+          furShadow: '#5A6B9D',
+          furSecondary: '#9AA8D2',
+          outerEar: '#2A3458',
+          innerEar: '#4A5F89',
         }),
       ],
     },
@@ -247,6 +293,14 @@ const foxyPreset: AvatarPreset = {
           furWhitePrimary: '#FFE1F1',
           furWhiteShadow: '#D7AFC2',
         }),
+        createPaletteOption('vainilla', 'Vainilla', '#FFF7D9', {
+          furWhitePrimary: '#FFF7D9',
+          furWhiteShadow: '#D4CBA4',
+        }),
+        createPaletteOption('perla', 'Perla', '#ECECF6', {
+          furWhitePrimary: '#ECECF6',
+          furWhiteShadow: '#B9B9C8',
+        }),
       ],
     },
     {
@@ -255,20 +309,19 @@ const foxyPreset: AvatarPreset = {
       defaultOptionId: 'piel-suave',
       options: [
         createPaletteOption('piel-suave', 'Piel suave', '#B47B54', {
-          face: '#B47B54',
           muzzleBright: '#DFB292',
         }),
         createPaletteOption('piel-calida', 'Piel calida', '#C58A62', {
-          face: '#C58A62',
           muzzleBright: '#F0C09E',
         }),
         createPaletteOption('piel-canela', 'Piel canela', '#9A653D', {
-          face: '#9A653D',
           muzzleBright: '#C88B61',
         }),
         createPaletteOption('piel-clara', 'Piel clara', '#C9A083', {
-          face: '#C9A083',
           muzzleBright: '#F4D6C4',
+        }),
+        createPaletteOption('piel-miel', 'Piel miel', '#AD7B59', {
+          muzzleBright: '#E6B896',
         }),
       ],
     },
