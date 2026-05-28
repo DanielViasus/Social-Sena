@@ -57,6 +57,12 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const [selectedSkinId, setSelectedSkinId] = useState(session.profile.skinId)
   const socketRef = useRef<Socket | null>(null)
   const sessionProfileRef = useRef(session.profile)
+  const movementInputRef = useRef({
+    up: false,
+    down: false,
+    left: false,
+    right: false,
+  })
   const optionsMenuRef = useRef<HTMLDivElement | null>(null)
   const chatOpenRef = useRef(false)
   const floatingTimeoutsRef = useRef<Map<string, number>>(new Map())
@@ -188,6 +194,41 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     emitLocalTypingState(false)
   })
 
+  const emitMovementInput = useEffectEvent((nextInput: typeof movementInputRef.current) => {
+    movementInputRef.current = nextInput
+
+    const socket = socketRef.current
+    if (!socket || !connected || !room) {
+      return
+    }
+
+    socket.emit(clientEvents.setMovementInput, {
+      roomId: room.roomId,
+      ...nextInput,
+    })
+  })
+
+  const clearMovementInput = useEffectEvent(() => {
+    const nextInput = {
+      up: false,
+      down: false,
+      left: false,
+      right: false,
+    }
+
+    const currentInput = movementInputRef.current
+    if (
+      currentInput.up === nextInput.up &&
+      currentInput.down === nextInput.down &&
+      currentInput.left === nextInput.left &&
+      currentInput.right === nextInput.right
+    ) {
+      return
+    }
+
+    emitMovementInput(nextInput)
+  })
+
   const enqueueFloatingMessage = useEffectEvent((message: ChatMessage) => {
     setFloatingMessages((currentMessages) => {
       const nextMessages = [message, ...currentMessages].slice(0, 3)
@@ -270,8 +311,9 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       if (typingIdleTimeoutRef.current) {
         window.clearTimeout(typingIdleTimeoutRef.current)
       }
+      clearMovementInput()
     }
-  }, [])
+  }, [clearMovementInput])
 
   useEffect(() => {
     const mobileMedia = window.matchMedia('(max-width: 820px)')
@@ -336,6 +378,90 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [activeDialogue])
+
+  useEffect(() => {
+    const resolveMovementKey = (key: string) => {
+      switch (key.toLowerCase()) {
+        case 'w':
+          return 'up' as const
+        case 'a':
+          return 'left' as const
+        case 's':
+          return 'down' as const
+        case 'd':
+          return 'right' as const
+        default:
+          return null
+      }
+    }
+
+    const handleMovementKeyDown = (event: KeyboardEvent) => {
+      const movementKey = resolveMovementKey(event.key)
+      if (!movementKey) {
+        return
+      }
+
+      const target = event.target as HTMLElement | null
+      const tagName = target?.tagName?.toLowerCase()
+      const isTyping =
+        tagName === 'input' ||
+        tagName === 'textarea' ||
+        target?.isContentEditable === true
+
+      if (isTyping || activeDialogue || skinEditorOpen) {
+        return
+      }
+
+      const currentInput = movementInputRef.current
+      if (currentInput[movementKey]) {
+        return
+      }
+
+      event.preventDefault()
+      emitMovementInput({
+        ...currentInput,
+        [movementKey]: true,
+      })
+    }
+
+    const handleMovementKeyUp = (event: KeyboardEvent) => {
+      const movementKey = resolveMovementKey(event.key)
+      if (!movementKey) {
+        return
+      }
+
+      const currentInput = movementInputRef.current
+      if (!currentInput[movementKey]) {
+        return
+      }
+
+      event.preventDefault()
+      emitMovementInput({
+        ...currentInput,
+        [movementKey]: false,
+      })
+    }
+
+    const handleWindowBlur = () => {
+      clearMovementInput()
+    }
+
+    window.addEventListener('keydown', handleMovementKeyDown)
+    window.addEventListener('keyup', handleMovementKeyUp)
+    window.addEventListener('blur', handleWindowBlur)
+
+    return () => {
+      window.removeEventListener('keydown', handleMovementKeyDown)
+      window.removeEventListener('keyup', handleMovementKeyUp)
+      window.removeEventListener('blur', handleWindowBlur)
+    }
+  }, [activeDialogue, clearMovementInput, emitMovementInput, skinEditorOpen])
+
+  useEffect(() => {
+    if (activeDialogue || skinEditorOpen) {
+      clearMovementInput()
+    }
+  }, [activeDialogue, clearMovementInput, skinEditorOpen])
 
   useEffect(() => {
     const hasTypingPlayers = Object.keys(typingByUserId).length > 0
