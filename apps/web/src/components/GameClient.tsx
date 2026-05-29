@@ -784,26 +784,37 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
   const ensureDialogueAudioUnlocked = useEffectEvent(async () => {
     if (typeof window === 'undefined' || typeof window.AudioContext === 'undefined') {
-      return
+      dialogueAudioUnlockedRef.current = false
+      return false
     }
 
-    if (!dialogueAudioContextRef.current) {
-      dialogueAudioContextRef.current = new window.AudioContext()
-    }
-
-    if (dialogueAudioContextRef.current.state === 'suspended') {
-      try {
-        await dialogueAudioContextRef.current.resume()
-      } catch {
-        return
+    try {
+      if (!dialogueAudioContextRef.current) {
+        dialogueAudioContextRef.current = new window.AudioContext()
       }
-    }
 
-    dialogueAudioUnlockedRef.current = dialogueAudioContextRef.current.state === 'running'
+      if (dialogueAudioContextRef.current.state === 'suspended') {
+        try {
+          await dialogueAudioContextRef.current.resume()
+        } catch {
+          dialogueAudioUnlockedRef.current = false
+          return false
+        }
+      }
+
+      dialogueAudioUnlockedRef.current = dialogueAudioContextRef.current.state === 'running'
+      return dialogueAudioUnlockedRef.current
+    } catch {
+      dialogueAudioUnlockedRef.current = false
+      return false
+    }
   })
 
   const playFriendRequestNotification = useEffectEvent(async () => {
-    await ensureDialogueAudioUnlocked()
+    const audioUnlocked = await ensureDialogueAudioUnlocked()
+    if (!audioUnlocked) {
+      return
+    }
 
     const audioContext = dialogueAudioContextRef.current
     if (!audioContext || audioContext.state !== 'running') {
@@ -835,7 +846,10 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   })
 
   const playFriendRequestActionTone = useEffectEvent(async (action: 'accept' | 'reject') => {
-    await ensureDialogueAudioUnlocked()
+    const audioUnlocked = await ensureDialogueAudioUnlocked()
+    if (!audioUnlocked) {
+      return
+    }
 
     const audioContext = dialogueAudioContextRef.current
     if (!audioContext || audioContext.state !== 'running') {
