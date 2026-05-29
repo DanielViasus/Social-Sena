@@ -32,6 +32,7 @@ import MobileNpcInteractButton from './MobileNpcInteractButton'
 import InitialSkinSetupOverlay from './skins/InitialSkinSetupOverlay'
 import SkinEditorOverlay from './skins/SkinEditorOverlay'
 import { availableRoomRoutes, resolveRoomTemplateFromPath } from '../rooms/registry'
+import { createUiSoundController, type UiSoundName } from '../audio/chiptuneSounds'
 
 const SERVER_URL = import.meta.env.VITE_GAME_SERVER_URL ?? 'http://localhost:3001'
 
@@ -148,12 +149,14 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const localTypingStateRef = useRef(false)
   const dismissedFriendRequestIdsRef = useRef<Set<string>>(new Set())
   const dialogueCooldownTimeoutRef = useRef<number | null>(null)
-  const dialogueAudioContextRef = useRef<AudioContext | null>(null)
-  const dialogueAudioUnlockedRef = useRef(false)
+  const uiSoundControllerRef = useRef<ReturnType<typeof createUiSoundController> | null>(null)
   const lastDialogueAudioProgressRef = useRef<{ lineKey: string; visibleChars: number }>({
     lineKey: '',
     visibleChars: 0,
   })
+  if (!uiSoundControllerRef.current) {
+    uiSoundControllerRef.current = createUiSoundController()
+  }
   const activeTemplate = resolveRoomTemplateFromPath(pathname)
   const playerInitial = session.profile.displayName.slice(0, 1).toUpperCase()
   const typingIndicatorText = ['.', '..', '...'][typingIndicatorFrame] ?? '...'
@@ -403,9 +406,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       if (dialogueCooldownTimeoutRef.current) {
         window.clearTimeout(dialogueCooldownTimeoutRef.current)
       }
-      if (dialogueAudioContextRef.current && dialogueAudioContextRef.current.state !== 'closed') {
-        void dialogueAudioContextRef.current.close()
-      }
+      void uiSoundControllerRef.current?.close()
     }
   }, [])
 
@@ -552,7 +553,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
 
     nextSocket.on(serverEvents.friendRequestReceived, (request: FriendRequestSummary) => {
-      void playFriendRequestNotification()
+      void playUiSound('friend-request')
       setIncomingFriendRequests((currentValue) =>
         currentValue.some((currentRequest) => currentRequest.requestId === request.requestId)
           ? currentValue
@@ -608,6 +609,9 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       setMessages((currentMessages) => [...currentMessages, message])
       showPlayerSpeech(message)
       if (!chatOpenRef.current) {
+        if (message.userId !== session.profile.userId) {
+          void playUiSound('chat-bubble')
+        }
         enqueueFloatingMessage(message)
       }
     })
@@ -655,11 +659,23 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   }, [optionsOpen])
 
   const handleOpenChat = () => {
+    void playUiSound('panel-open')
     floatingTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId))
     floatingTimeoutsRef.current.clear()
     setFloatingMessages([])
     setChatOpen(true)
   }
+
+  const handleCloseChat = useEffectEvent(() => {
+    stopLocalTyping()
+    void playUiSound('panel-close')
+    setChatOpen(false)
+  })
+
+  const toggleOptionsMenu = useEffectEvent(() => {
+    void playUiSound(optionsOpen ? 'menu-close' : 'menu-open')
+    setOptionsOpen((isOpen) => !isOpen)
+  })
 
   const requestStopMovement = useEffectEvent(() => {
     const socket = socketRef.current
@@ -737,6 +753,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       return
     }
 
+    void playUiSound('send')
     setAddingFriendUserId(friendUserId)
     socket.emit(
       clientEvents.addFriend,
@@ -756,6 +773,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       return
     }
 
+    void playUiSound(action === 'accept' ? 'confirm' : 'cancel')
     setRespondingFriendRequestId(requestId)
     socket.emit(
       clientEvents.respondFriendRequest,
@@ -763,7 +781,6 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       (response: { ok: boolean }) => {
         setRespondingFriendRequestId(null)
         if (response.ok) {
-          void playFriendRequestActionTone(action)
           dismissedFriendRequestIdsRef.current.delete(requestId)
           setIncomingFriendRequests((currentValue) =>
             currentValue.filter((currentRequest) => currentRequest.requestId !== requestId),
@@ -781,6 +798,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       return
     }
 
+    void playUiSound('cancel')
     setRemovingFriendUserId(friendUserId)
     socket.emit(clientEvents.removeFriend, { friendUserId }, (response: { ok: boolean }) => {
       setRemovingFriendUserId(null)
@@ -790,124 +808,17 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
   })
 
+  const handleDismissFriendRequestPopup = useEffectEvent((requestId: string) => {
+    void playUiSound('panel-close')
+    dismissFriendRequestPopup(requestId)
+  })
+
   const ensureDialogueAudioUnlocked = useEffectEvent(async () => {
-    if (typeof window === 'undefined' || typeof window.AudioContext === 'undefined') {
-      dialogueAudioUnlockedRef.current = false
-      return false
-    }
-
-    try {
-      if (!dialogueAudioContextRef.current) {
-        dialogueAudioContextRef.current = new window.AudioContext()
-      }
-
-      if (dialogueAudioContextRef.current.state === 'suspended') {
-        try {
-          await dialogueAudioContextRef.current.resume()
-        } catch {
-          dialogueAudioUnlockedRef.current = false
-          return false
-        }
-      }
-
-      dialogueAudioUnlockedRef.current = dialogueAudioContextRef.current.state === 'running'
-      return dialogueAudioUnlockedRef.current
-    } catch {
-      dialogueAudioUnlockedRef.current = false
-      return false
-    }
+    return (await uiSoundControllerRef.current?.unlock()) ?? false
   })
 
-  const playFriendRequestNotification = useEffectEvent(() => {
-    const audioContext = dialogueAudioContextRef.current
-    if (!dialogueAudioUnlockedRef.current || !audioContext || audioContext.state !== 'running') {
-      return
-    }
-
-    const startTime = audioContext.currentTime + 0.01
-    const notes = [523.25, 659.25, 783.99, 1046.5]
-    const layers = [
-      { type: 'square' as const, gain: 0.024, octaveOffset: 0 },
-      { type: 'triangle' as const, gain: 0.01, octaveOffset: -1 },
-    ]
-
-    notes.forEach((frequency, index) => {
-      const toneStart = startTime + index * 0.075
-      const toneEnd = toneStart + (index === notes.length - 1 ? 0.18 : 0.11)
-
-      layers.forEach(({ type, gain, octaveOffset }) => {
-        const oscillator = audioContext.createOscillator()
-        const gainNode = audioContext.createGain()
-        const targetFrequency = frequency * 2 ** octaveOffset
-
-        oscillator.type = type
-        oscillator.frequency.setValueAtTime(targetFrequency, toneStart)
-        oscillator.frequency.linearRampToValueAtTime(targetFrequency * 0.995, toneEnd)
-
-        gainNode.gain.setValueAtTime(0.0001, toneStart)
-        gainNode.gain.linearRampToValueAtTime(gain, toneStart + 0.005)
-        gainNode.gain.exponentialRampToValueAtTime(0.0001, toneEnd)
-
-        oscillator.connect(gainNode)
-        gainNode.connect(audioContext.destination)
-        oscillator.start(toneStart)
-        oscillator.stop(toneEnd)
-      })
-    })
-  })
-
-  const playFriendRequestActionTone = useEffectEvent(async (action: 'accept' | 'reject') => {
-    const audioUnlocked = await ensureDialogueAudioUnlocked()
-    if (!audioUnlocked) {
-      return
-    }
-
-    const audioContext = dialogueAudioContextRef.current
-    if (!audioContext || audioContext.state !== 'running') {
-      return
-    }
-
-    const toneConfig =
-      action === 'accept'
-        ? {
-            type: 'sine' as const,
-            notes: [622, 784, 988],
-            duration: 0.1,
-            gain: 0.024,
-            glideFactor: 1.04,
-          }
-        : {
-            type: 'triangle' as const,
-            notes: [523, 392],
-            duration: 0.14,
-            gain: 0.02,
-            glideFactor: 0.84,
-          }
-
-    const startTime = audioContext.currentTime + 0.01
-
-    toneConfig.notes.forEach((frequency, index) => {
-      const oscillator = audioContext.createOscillator()
-      const gainNode = audioContext.createGain()
-      const toneStart = startTime + index * 0.085
-      const toneEnd = toneStart + toneConfig.duration
-
-      oscillator.type = toneConfig.type
-      oscillator.frequency.setValueAtTime(frequency, toneStart)
-      oscillator.frequency.exponentialRampToValueAtTime(
-        Math.max(180, frequency * toneConfig.glideFactor),
-        toneEnd,
-      )
-
-      gainNode.gain.setValueAtTime(0.0001, toneStart)
-      gainNode.gain.exponentialRampToValueAtTime(toneConfig.gain, toneStart + 0.012)
-      gainNode.gain.exponentialRampToValueAtTime(0.0001, toneEnd)
-
-      oscillator.connect(gainNode)
-      gainNode.connect(audioContext.destination)
-      oscillator.start(toneStart)
-      oscillator.stop(toneEnd)
-    })
+  const playUiSound = useEffectEvent(async (soundName: UiSoundName) => {
+    await uiSoundControllerRef.current?.play(soundName)
   })
 
   useEffect(() => {
@@ -925,26 +836,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   }, [ensureDialogueAudioUnlocked])
 
   const playDialogueBlip = useEffectEvent(() => {
-    const audioContext = dialogueAudioContextRef.current
-    if (!audioContext || !dialogueAudioUnlockedRef.current) {
-      return
-    }
-
-    const oscillator = audioContext.createOscillator()
-    const gainNode = audioContext.createGain()
-
-    oscillator.type = 'square'
-    oscillator.frequency.setValueAtTime(880, audioContext.currentTime)
-    oscillator.frequency.exponentialRampToValueAtTime(660, audioContext.currentTime + 0.035)
-
-    gainNode.gain.setValueAtTime(0.0001, audioContext.currentTime)
-    gainNode.gain.exponentialRampToValueAtTime(0.018, audioContext.currentTime + 0.005)
-    gainNode.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + 0.045)
-
-    oscillator.connect(gainNode)
-    gainNode.connect(audioContext.destination)
-    oscillator.start(audioContext.currentTime)
-    oscillator.stop(audioContext.currentTime + 0.05)
+    void playUiSound('dialogue-blip')
   })
 
   const startNpcInteractionCooldown = useEffectEvent((cooldownMs: number) => {
@@ -1122,6 +1014,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   })
 
   const toggleDebug = useEffectEvent(() => {
+    void playUiSound('select')
     setDebugEnabled((currentValue) => !currentValue)
   })
 
@@ -1130,12 +1023,30 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       return
     }
 
+    void playUiSound(skinEditorOpen ? 'panel-close' : 'panel-open')
     setSkinEditorOpen((currentValue) => !currentValue)
+  })
+
+  const handleCloseSkinEditor = useEffectEvent(() => {
+    if (!skinEditorOpen) {
+      return
+    }
+
+    void playUiSound('panel-close')
+    setSkinEditorOpen(false)
+  })
+
+  const handleSkinEditorTabChange = useEffectEvent(() => {
+    void playUiSound('select')
   })
 
   const handleSelectSkin = useEffectEvent((nextSkinId: string) => {
     const nextPreset = resolveAvatarPreset(nextSkinId)
+    if (nextPreset.id === selectedSkinId) {
+      return
+    }
 
+    void playUiSound('select')
     setSelectedSkinId(nextPreset.id)
     setSelectedSkinColorsBySkinId((currentValue) => {
       if (currentValue[nextPreset.id]) {
@@ -1155,6 +1066,11 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   })
 
   const handleSelectSkinColor = useEffectEvent((slotId: string, optionId: string) => {
+    if (selectedSkinColors[slotId] === optionId) {
+      return
+    }
+
+    void playUiSound('color')
     setSelectedSkinColorsBySkinId((currentValue) => ({
       ...currentValue,
       [selectedSkinPreset.id]: normalizeAvatarColorSelections(selectedSkinPreset, {
@@ -1174,6 +1090,8 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     if (!nextSkinId) {
       return
     }
+
+    void playUiSound('confirm')
 
     const nextSkinPreset = resolveAvatarPreset(nextSkinId)
     const nextSkinColors = normalizeAvatarColorSelections(
@@ -1246,6 +1164,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       selectedSkinColorsBySkinId[nextSkinPreset.id] ?? getDefaultAvatarColorSelections(nextSkinPreset),
     )
 
+    void playUiSound('confirm')
     setInitialSkinSetupSubmitting(true)
 
     socket.emit(
@@ -1313,6 +1232,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     const socket = socketRef.current
     if (!socket || !chatInput.trim() || !room) return
 
+    void playUiSound('send')
     stopLocalTyping()
     socket.emit(clientEvents.sendChatMessage, {
       roomId: room.roomId,
@@ -1380,7 +1300,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
             <button
               type="button"
               className="hud-square-button options-button"
-              onClick={() => setOptionsOpen((isOpen) => !isOpen)}
+              onClick={toggleOptionsMenu}
               aria-expanded={optionsOpen}
               aria-label={
                 pendingFriendRequestCount > 0
@@ -1619,7 +1539,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                     <button
                       type="button"
                       className="mini-action-button is-ghost"
-                      onClick={() => dismissFriendRequestPopup(request.requestId)}
+                      onClick={() => handleDismissFriendRequestPopup(request.requestId)}
                     >
                       Luego
                     </button>
@@ -1678,7 +1598,8 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
               onSelectSkin={handleSelectSkin}
               onSelectColor={handleSelectSkinColor}
               onApply={handleApplySkin}
-              onClose={() => setSkinEditorOpen(false)}
+              onClose={handleCloseSkinEditor}
+              onTabChange={handleSkinEditorTabChange}
             />
           ) : null}
 
@@ -1705,10 +1626,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                 <button
                   type="button"
                   className="chat-close-button"
-                  onClick={() => {
-                    stopLocalTyping()
-                    setChatOpen(false)
-                  }}
+                  onClick={handleCloseChat}
                 >
                   Cerrar
                 </button>

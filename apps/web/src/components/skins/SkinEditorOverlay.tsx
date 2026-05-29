@@ -11,6 +11,7 @@ interface SkinEditorOverlayProps {
   selectedSkinId: string
   appliedSkinId: string
   selectedSkinColors: AvatarColorSelections
+  onTabChange?: (tab: 'skins' | 'colors') => void
   onSelectSkin: (skinId: string) => void
   onSelectColor: (slotId: string, optionId: string) => void
   onApply: () => void
@@ -59,6 +60,7 @@ export default function SkinEditorOverlay({
   selectedSkinId,
   appliedSkinId,
   selectedSkinColors,
+  onTabChange,
   onSelectSkin,
   onSelectColor,
   onApply,
@@ -103,6 +105,15 @@ export default function SkinEditorOverlay({
     [selectedPreset, selectedSkinColors],
   )
 
+  const handleTabChange = (nextTab: 'skins' | 'colors') => {
+    if (nextTab === activeTab) {
+      return
+    }
+
+    onTabChange?.(nextTab)
+    setActiveTab(nextTab)
+  }
+
   return (
     <div className="skin-editor-overlay" role="dialog" aria-modal="true" aria-label="Editor de skins">
       <div className="skin-editor-backdrop" onClick={onClose} />
@@ -118,7 +129,7 @@ export default function SkinEditorOverlay({
               <button
                 type="button"
                 className={`skin-editor-tab ${activeTab === 'skins' ? 'is-active' : ''}`}
-                onClick={() => setActiveTab('skins')}
+                onClick={() => handleTabChange('skins')}
                 role="tab"
                 aria-selected={activeTab === 'skins'}
               >
@@ -127,7 +138,7 @@ export default function SkinEditorOverlay({
               <button
                 type="button"
                 className={`skin-editor-tab ${activeTab === 'colors' ? 'is-active' : ''}`}
-                onClick={() => setActiveTab('colors')}
+                onClick={() => handleTabChange('colors')}
                 role="tab"
                 aria-selected={activeTab === 'colors'}
               >
