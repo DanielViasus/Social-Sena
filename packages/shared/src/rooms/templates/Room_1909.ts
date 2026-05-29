@@ -164,6 +164,27 @@ export const room1909Template: RoomTemplate = {
       zIndexRef: { offsetX: 0, offsetY: 0, width: 220, thickness: 2 },
     },
 
+        {
+      id: 'castel-Wall',
+      kind: 'wall',
+      x: 1350,
+      y: 220,
+      width: 2700,
+      height: 440,
+      opacity: 0,
+      spriteAssetId: 'plaza',
+      colliders: [
+    {
+      offsetX: 0,
+      offsetY: 0,
+      width: 2700,
+      height: 440,
+    },
+    
+  ],
+      zIndexRef: { offsetX: 0, offsetY: 0, width: 220, thickness: 2 },
+    },
+
     
     
   ],
