@@ -8,6 +8,7 @@ import type {
   SkinColorSelections,
   UserProfile,
 } from '@social-sena/shared'
+import { normalizeAudioSettings } from '@social-sena/shared'
 import { getDbPool } from '../client'
 
 interface PersistedPlayerState {
@@ -177,10 +178,11 @@ class GameRepository {
       const profileResult = await client.query<{
         skin_id: string
         skin_colors: unknown
+        audio_settings: unknown
         onboarding_completed: boolean
       }>(
         `
-          select skin_id, skin_colors, onboarding_completed
+          select skin_id, skin_colors, audio_settings, onboarding_completed
           from player_profiles
           where user_id = $1
           limit 1
@@ -280,6 +282,7 @@ class GameRepository {
             ...incomingProfile,
             skinId: profileResult.rows[0].skin_id,
             skinColors: normalizeSkinColors(profileResult.rows[0].skin_colors),
+            audioSettings: normalizeAudioSettings(profileResult.rows[0].audio_settings),
           },
           needsOnboarding: !profileResult.rows[0].onboarding_completed,
           progress: {
@@ -295,10 +298,15 @@ class GameRepository {
 
       await client.query(
         `
-          insert into player_profiles (user_id, skin_id, skin_colors)
-          values ($1, $2, $3::jsonb)
+          insert into player_profiles (user_id, skin_id, skin_colors, audio_settings)
+          values ($1, $2, $3::jsonb, $4::jsonb)
         `,
-        [incomingProfile.userId, incomingProfile.skinId, JSON.stringify(incomingProfile.skinColors ?? {})],
+        [
+          incomingProfile.userId,
+          incomingProfile.skinId,
+          JSON.stringify(incomingProfile.skinColors ?? {}),
+          JSON.stringify(incomingProfile.audioSettings),
+        ],
       )
 
       await client.query('COMMIT')
@@ -355,14 +363,20 @@ class GameRepository {
 
       await pool.query(
         `
-          insert into player_profiles (user_id, skin_id, skin_colors)
-          values ($1, $2, $3::jsonb)
+          insert into player_profiles (user_id, skin_id, skin_colors, audio_settings)
+          values ($1, $2, $3::jsonb, $4::jsonb)
           on conflict (user_id) do update set
             skin_id = excluded.skin_id,
             skin_colors = excluded.skin_colors,
+            audio_settings = excluded.audio_settings,
             updated_at = now()
         `,
-        [profile.userId, profile.skinId, JSON.stringify(profile.skinColors ?? {})],
+        [
+          profile.userId,
+          profile.skinId,
+          JSON.stringify(profile.skinColors ?? {}),
+          JSON.stringify(profile.audioSettings),
+        ],
       )
     } catch (error) {
       console.error('[db] No fue posible guardar el perfil del jugador.', error)
@@ -390,15 +404,21 @@ class GameRepository {
 
       await pool.query(
         `
-          insert into player_profiles (user_id, skin_id, skin_colors, onboarding_completed)
-          values ($1, $2, $3::jsonb, true)
+          insert into player_profiles (user_id, skin_id, skin_colors, audio_settings, onboarding_completed)
+          values ($1, $2, $3::jsonb, $4::jsonb, true)
           on conflict (user_id) do update set
             skin_id = excluded.skin_id,
             skin_colors = excluded.skin_colors,
+            audio_settings = excluded.audio_settings,
             onboarding_completed = true,
             updated_at = now()
         `,
-        [profile.userId, profile.skinId, JSON.stringify(profile.skinColors ?? {})],
+        [
+          profile.userId,
+          profile.skinId,
+          JSON.stringify(profile.skinColors ?? {}),
+          JSON.stringify(profile.audioSettings),
+        ],
       )
     } catch (error) {
       console.error('[db] No fue posible completar el onboarding inicial del jugador.', error)

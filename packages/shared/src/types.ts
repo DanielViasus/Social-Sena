@@ -3,12 +3,56 @@ import type { RoomTemplate } from './rooms/types'
 export type Direction = 'up' | 'down' | 'left' | 'right'
 export type SkinColorSelections = Record<string, string>
 
+export interface AudioSettings {
+  musicEnabled: boolean
+  musicVolume: number
+  sfxEnabled: boolean
+  sfxVolume: number
+}
+
+export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
+  musicEnabled: true,
+  musicVolume: 0.42,
+  sfxEnabled: true,
+  sfxVolume: 0.8,
+}
+
+function clampAudioVolume(value: unknown, fallback: number) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return fallback
+  }
+
+  return Math.min(1, Math.max(0, Number(value.toFixed(2))))
+}
+
+export function normalizeAudioSettings(value: unknown): AudioSettings {
+  if (!value || typeof value !== 'object') {
+    return { ...DEFAULT_AUDIO_SETTINGS }
+  }
+
+  const candidate = value as Partial<AudioSettings>
+
+  return {
+    musicEnabled:
+      typeof candidate.musicEnabled === 'boolean'
+        ? candidate.musicEnabled
+        : DEFAULT_AUDIO_SETTINGS.musicEnabled,
+    musicVolume: clampAudioVolume(candidate.musicVolume, DEFAULT_AUDIO_SETTINGS.musicVolume),
+    sfxEnabled:
+      typeof candidate.sfxEnabled === 'boolean'
+        ? candidate.sfxEnabled
+        : DEFAULT_AUDIO_SETTINGS.sfxEnabled,
+    sfxVolume: clampAudioVolume(candidate.sfxVolume, DEFAULT_AUDIO_SETTINGS.sfxVolume),
+  }
+}
+
 export interface UserProfile {
   userId: string
   username: string
   displayName: string
   skinId: string
   skinColors: SkinColorSelections
+  audioSettings: AudioSettings
 }
 
 export interface PlayerProgress {
@@ -133,6 +177,10 @@ export interface UpdateSkinPayload {
   roomId: string
   skinId: string
   skinColors?: SkinColorSelections
+}
+
+export interface UpdateAudioSettingsPayload {
+  audioSettings: AudioSettings
 }
 
 export interface UpdateInventoryPayload {

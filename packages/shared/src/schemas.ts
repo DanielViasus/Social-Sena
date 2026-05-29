@@ -1,8 +1,15 @@
 import { z } from 'zod'
 import { WORLD_HEIGHT, WORLD_WIDTH } from './constants'
+import { DEFAULT_AUDIO_SETTINGS } from './types'
 
 export const directionSchema = z.enum(['up', 'down', 'left', 'right'])
 export const skinColorSelectionsSchema = z.record(z.string().trim().min(1), z.string().trim().min(1))
+export const audioSettingsSchema = z.object({
+  musicEnabled: z.boolean(),
+  musicVolume: z.number().min(0).max(1),
+  sfxEnabled: z.boolean(),
+  sfxVolume: z.number().min(0).max(1),
+})
 export const inventoryMetadataValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()])
 export const inventoryItemMetadataSchema = z.record(z.string().trim().min(1), inventoryMetadataValueSchema)
 export const inventoryItemStateSchema = z.object({
@@ -21,6 +28,7 @@ export const userProfileSchema = z.object({
   displayName: z.string().min(1),
   skinId: z.string().min(1),
   skinColors: skinColorSelectionsSchema.default({}),
+  audioSettings: audioSettingsSchema.default(DEFAULT_AUDIO_SETTINGS),
 })
 
 export const connectToGameSchema = z.object({
@@ -59,6 +67,10 @@ export const updateSkinSchema = z.object({
   roomId: z.string().min(1),
   skinId: z.string().trim().min(1),
   skinColors: skinColorSelectionsSchema.optional(),
+})
+
+export const updateAudioSettingsSchema = z.object({
+  audioSettings: audioSettingsSchema,
 })
 
 export const updateInventorySchema = z.object({

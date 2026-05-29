@@ -6,6 +6,7 @@ export const clientEvents = {
   stopNavigation: 'stop_navigation',
   setMovementInput: 'set_movement_input',
   updateSkin: 'update_skin',
+  updateAudioSettings: 'update_audio_settings',
   updateInventory: 'update_inventory',
   addFriend: 'add_friend',
   respondFriendRequest: 'respond_friend_request',

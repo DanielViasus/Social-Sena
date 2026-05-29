@@ -17,6 +17,7 @@ import {
   navigateToSchema,
   removeFriendSchema,
   respondFriendRequestSchema,
+  updateAudioSettingsSchema,
   updateSkinSchema,
   updateInventorySchema,
   setTypingStateSchema,
@@ -1201,6 +1202,27 @@ io.on('connection', (socket) => {
     void gameRepository.savePlayerProfile(session.profile)
     io.to(room.roomId).emit(serverEvents.playerMoved, player)
     io.to(room.roomId).emit(serverEvents.roomState, room)
+  })
+
+  socket.on(clientEvents.updateAudioSettings, (rawPayload, callback) => {
+    const parsed = updateAudioSettingsSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible actualizar tus ajustes de audio.',
+      })
+      return
+    }
+
+    session.profile.audioSettings = { ...parsed.data.audioSettings }
+    void gameRepository.savePlayerProfile(session.profile)
+
+    callback?.({
+      ok: true,
+      profile: session.profile,
+    })
   })
 
   socket.on(clientEvents.updateInventory, (rawPayload, callback) => {

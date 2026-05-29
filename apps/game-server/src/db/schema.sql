@@ -10,6 +10,7 @@ create table if not exists player_profiles (
   user_id text primary key references users(user_id) on delete cascade,
   skin_id text not null,
   skin_colors jsonb not null default '{}'::jsonb,
+  audio_settings jsonb not null default '{"musicEnabled":true,"musicVolume":0.42,"sfxEnabled":true,"sfxVolume":0.8}'::jsonb,
   onboarding_completed boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -63,3 +64,6 @@ add column if not exists onboarding_completed boolean not null default true;
 
 alter table if exists player_profiles
 alter column onboarding_completed set default false;
+
+alter table if exists player_profiles
+add column if not exists audio_settings jsonb not null default '{"musicEnabled":true,"musicVolume":0.42,"sfxEnabled":true,"sfxVolume":0.8}'::jsonb;

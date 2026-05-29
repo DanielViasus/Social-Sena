@@ -695,6 +695,119 @@ button {
   color: #8ca3c3;
 }
 
+.audio-settings-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.audio-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.audio-toggle-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.audio-toggle-copy strong {
+  font-size: 0.86rem;
+  color: #f2f7ff;
+}
+
+.audio-toggle-copy span {
+  font-size: 0.75rem;
+  color: #9cb0cb;
+  line-height: 1.45;
+}
+
+.audio-toggle-button {
+  flex: 0 0 auto;
+  min-width: 92px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #dce6f6;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.58rem;
+  line-height: 1.2;
+}
+
+.audio-toggle-button.is-active {
+  border-color: rgba(156, 222, 113, 0.4);
+  background: rgba(156, 222, 113, 0.16);
+  color: #eeffd8;
+}
+
+.audio-slider-row {
+  display: grid;
+  gap: 8px;
+}
+
+.audio-slider-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.audio-slider-header span {
+  font-size: 0.78rem;
+  color: #c8d7eb;
+}
+
+.audio-slider-header strong {
+  font-size: 0.78rem;
+  color: #f9fcff;
+}
+
+.audio-slider {
+  width: 100%;
+  height: 10px;
+  margin: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(156, 222, 113, 0.55), rgba(57, 150, 136, 0.65));
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.audio-slider::-webkit-slider-runnable-track {
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.audio-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  margin-top: -4px;
+  border: 2px solid rgba(10, 18, 32, 0.76);
+  border-radius: 50%;
+  background: #f4ffde;
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.24);
+}
+
+.audio-slider::-moz-range-track {
+  height: 10px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.audio-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(10, 18, 32, 0.76);
+  border-radius: 50%;
+  background: #f4ffde;
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.24);
+}
+
 .dropdown-actions {
   display: grid;
   gap: 10px;
@@ -1089,6 +1202,15 @@ button {
 
   .chat-form {
     flex-direction: column;
+  }
+
+  .audio-toggle-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .audio-toggle-button {
+    width: 100%;
   }
 
   .shortcut-board {

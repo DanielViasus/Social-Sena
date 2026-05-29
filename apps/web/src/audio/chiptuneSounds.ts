@@ -1,3 +1,5 @@
+import { DEFAULT_AUDIO_SETTINGS, type AudioSettings } from '@social-sena/shared'
+
 export type UiSoundName =
   | 'friend-request'
   | 'chat-bubble'
@@ -38,6 +40,7 @@ export interface UiSoundController {
   isUnlocked: () => boolean
   play: (soundName: UiSoundName) => Promise<void>
   unlock: () => Promise<boolean>
+  updateSettings: (settings: Pick<AudioSettings, 'sfxEnabled' | 'sfxVolume'>) => void
 }
 
 const UI_SOUND_PATTERNS: Record<UiSoundName, ChiptunePattern> = {
@@ -187,6 +190,8 @@ const UI_SOUND_PATTERNS: Record<UiSoundName, ChiptunePattern> = {
 export function createUiSoundController(): UiSoundController {
   let audioContext: AudioContext | null = null
   let unlocked = false
+  let sfxEnabled = DEFAULT_AUDIO_SETTINGS.sfxEnabled
+  let sfxVolume = DEFAULT_AUDIO_SETTINGS.sfxVolume
 
   const getAudioContext = () => {
     if (typeof window === 'undefined' || typeof window.AudioContext === 'undefined') {
@@ -221,6 +226,10 @@ export function createUiSoundController(): UiSoundController {
   }
 
   const play = async (soundName: UiSoundName) => {
+    if (!sfxEnabled || sfxVolume <= 0.001) {
+      return
+    }
+
     const pattern = UI_SOUND_PATTERNS[soundName]
 
     if (pattern.unlockMode === 'gesture') {
@@ -255,7 +264,10 @@ export function createUiSoundController(): UiSoundController {
         )
 
         gainNode.gain.setValueAtTime(0.0001, toneStart)
-        gainNode.gain.linearRampToValueAtTime(layer.gain, toneStart + Math.min(0.012, note.duration * 0.3))
+        gainNode.gain.linearRampToValueAtTime(
+          layer.gain * sfxVolume,
+          toneStart + Math.min(0.012, note.duration * 0.3),
+        )
         gainNode.gain.exponentialRampToValueAtTime(0.0001, toneEnd)
 
         oscillator.connect(gainNode)
@@ -280,5 +292,9 @@ export function createUiSoundController(): UiSoundController {
     isUnlocked: () => unlocked,
     play,
     unlock,
+    updateSettings: (settings) => {
+      sfxEnabled = settings.sfxEnabled
+      sfxVolume = settings.sfxVolume
+    },
   }
 }

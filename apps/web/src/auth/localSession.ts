@@ -1,4 +1,10 @@
-import type { PlayerInventory, SkinColorSelections, UserProfile } from '@social-sena/shared'
+import {
+  DEFAULT_AUDIO_SETTINGS,
+  normalizeAudioSettings,
+  type PlayerInventory,
+  type SkinColorSelections,
+  type UserProfile,
+} from '@social-sena/shared'
 
 const STORAGE_KEY = 'social-sena-auth-session'
 const SKIN_PREFERENCES_KEY = 'social-sena-skin-preferences'
@@ -141,6 +147,7 @@ export function readStoredAuthSession(): AuthSession | null {
       profile: {
         ...parsedSession.profile,
         skinColors: normalizeSkinColors(parsedSession.profile.skinColors),
+        audioSettings: normalizeAudioSettings(parsedSession.profile.audioSettings),
       },
     }
   } catch {
@@ -212,6 +219,7 @@ export function createLocalAuthSession(displayName: string): AuthSession {
       displayName: displayName.trim(),
       skinId: 'default-student',
       skinColors: {},
+      audioSettings: { ...DEFAULT_AUDIO_SETTINGS },
     },
   }
 }
@@ -238,6 +246,7 @@ export function createAuth0Session(options: {
       displayName: options.displayName.trim(),
       skinId: preferredSkinId,
       skinColors: preferredSkinColors,
+      audioSettings: { ...DEFAULT_AUDIO_SETTINGS },
     },
   }
 }

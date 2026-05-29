@@ -3,6 +3,9 @@ import { io, type Socket } from 'socket.io-client'
 import {
   clientEvents,
   serverEvents,
+  DEFAULT_AUDIO_SETTINGS,
+  normalizeAudioSettings,
+  type AudioSettings,
   type ChatMessage,
   type ConnectionAcceptedPayload,
   type FriendRequestSummary,
@@ -33,6 +36,7 @@ import InitialSkinSetupOverlay from './skins/InitialSkinSetupOverlay'
 import SkinEditorOverlay from './skins/SkinEditorOverlay'
 import { availableRoomRoutes, resolveRoomTemplateFromPath } from '../rooms/registry'
 import { createUiSoundController, type UiSoundName } from '../audio/chiptuneSounds'
+import { createAmbientMusicController } from '../audio/chiptuneMusic'
 
 const SERVER_URL = import.meta.env.VITE_GAME_SERVER_URL ?? 'http://localhost:3001'
 
@@ -127,6 +131,9 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const [skinEditorOpen, setSkinEditorOpen] = useState(false)
   const [initialSkinSetupOpen, setInitialSkinSetupOpen] = useState(false)
   const [initialSkinSetupSubmitting, setInitialSkinSetupSubmitting] = useState(false)
+  const [audioSettings, setAudioSettings] = useState<AudioSettings>(() =>
+    normalizeAudioSettings(session.profile.audioSettings ?? DEFAULT_AUDIO_SETTINGS),
+  )
   const [selectedSkinId, setSelectedSkinId] = useState(() => resolveAvatarPreset(session.profile.skinId).id)
   const [selectedSkinColorsBySkinId, setSelectedSkinColorsBySkinId] = useState<Record<string, AvatarColorSelections>>(
     () => {
@@ -138,6 +145,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   )
   const socketRef = useRef<Socket | null>(null)
   const roomRef = useRef<RoomState | null>(null)
+  const sessionRef = useRef(session)
   const sessionProfileRef = useRef(session.profile)
   const optionsMenuRef = useRef<HTMLDivElement | null>(null)
   const chatOpenRef = useRef(false)
@@ -150,12 +158,18 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const dismissedFriendRequestIdsRef = useRef<Set<string>>(new Set())
   const dialogueCooldownTimeoutRef = useRef<number | null>(null)
   const uiSoundControllerRef = useRef<ReturnType<typeof createUiSoundController> | null>(null)
+  const ambientMusicControllerRef = useRef<ReturnType<typeof createAmbientMusicController> | null>(null)
+  const persistAudioSettingsTimeoutRef = useRef<number | null>(null)
+  const pendingAudioSettingsSyncRef = useRef<AudioSettings | null>(null)
   const lastDialogueAudioProgressRef = useRef<{ lineKey: string; visibleChars: number }>({
     lineKey: '',
     visibleChars: 0,
   })
   if (!uiSoundControllerRef.current) {
     uiSoundControllerRef.current = createUiSoundController()
+  }
+  if (!ambientMusicControllerRef.current) {
+    ambientMusicControllerRef.current = createAmbientMusicController()
   }
   const activeTemplate = resolveRoomTemplateFromPath(pathname)
   const playerInitial = session.profile.displayName.slice(0, 1).toUpperCase()
@@ -309,8 +323,24 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   }, [room])
 
   useEffect(() => {
+    sessionRef.current = session
     sessionProfileRef.current = session.profile
-  }, [session.profile])
+  }, [session])
+
+  useEffect(() => {
+    setAudioSettings(normalizeAudioSettings(session.profile.audioSettings ?? DEFAULT_AUDIO_SETTINGS))
+  }, [session.profile.audioSettings])
+
+  useEffect(() => {
+    uiSoundControllerRef.current?.updateSettings({
+      sfxEnabled: audioSettings.sfxEnabled,
+      sfxVolume: audioSettings.sfxVolume,
+    })
+    ambientMusicControllerRef.current?.updateSettings({
+      musicEnabled: audioSettings.musicEnabled,
+      musicVolume: audioSettings.musicVolume,
+    })
+  }, [audioSettings])
 
   useEffect(() => {
     friendRequestPopupsRef.current = friendRequestPopups
@@ -406,7 +436,11 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       if (dialogueCooldownTimeoutRef.current) {
         window.clearTimeout(dialogueCooldownTimeoutRef.current)
       }
+      if (persistAudioSettingsTimeoutRef.current) {
+        window.clearTimeout(persistAudioSettingsTimeoutRef.current)
+      }
       void uiSoundControllerRef.current?.close()
+      void ambientMusicControllerRef.current?.close()
     }
   }, [])
 
@@ -508,6 +542,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
         outgoingFriendRequestUserIds,
       }: ConnectionAcceptedPayload) => {
         sessionProfileRef.current = profile
+        setAudioSettings(normalizeAudioSettings(profile.audioSettings))
         setFriends(friends)
         setIncomingFriendRequests(incomingFriendRequests)
         setOutgoingFriendRequestUserIds(outgoingFriendRequestUserIds)
@@ -520,12 +555,20 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
           profile,
         }
 
+        sessionRef.current = nextSession
         if (session.provider === 'local') {
           saveAuthSession(nextSession)
         }
         savePreferredSkin(profile.userId, profile.skinId)
         savePreferredSkinColors(profile.userId, profile.skinId, profile.skinColors)
         onSessionChange?.(nextSession)
+
+        if (pendingAudioSettingsSyncRef.current) {
+          const queuedAudioSettings = pendingAudioSettingsSyncRef.current
+          pendingAudioSettingsSyncRef.current = null
+          setAudioSettings(queuedAudioSettings)
+          persistAudioSettings(queuedAudioSettings, true)
+        }
 
         if (needsOnboarding) {
           const onboardingPreset = resolveAvatarPreset(profile.skinId)
@@ -640,6 +683,8 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const selectedSkinColors =
     selectedSkinColorsBySkinId[selectedSkinPreset.id] ??
     getDefaultAvatarColorSelections(selectedSkinPreset)
+  const musicVolumePercent = Math.round(audioSettings.musicVolume * 100)
+  const sfxVolumePercent = Math.round(audioSettings.sfxVolume * 100)
   const activePlayers = room?.players ?? []
   const friendUserIds = new Set(friends.map((friend) => friend.userId))
   const incomingFriendRequestUserIds = new Set(incomingFriendRequests.map((request) => request.fromUserId))
@@ -813,8 +858,142 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     dismissFriendRequestPopup(requestId)
   })
 
-  const ensureDialogueAudioUnlocked = useEffectEvent(async () => {
-    return (await uiSoundControllerRef.current?.unlock()) ?? false
+  const commitAudioSettingsSession = useEffectEvent((nextSettings: AudioSettings) => {
+    const currentSession = sessionRef.current
+    const nextProfile = {
+      ...currentSession.profile,
+      audioSettings: nextSettings,
+    }
+    const nextSession: AuthSession = {
+      ...currentSession,
+      profile: nextProfile,
+    }
+
+    sessionRef.current = nextSession
+    sessionProfileRef.current = nextProfile
+    if (currentSession.provider === 'local') {
+      saveAuthSession(nextSession)
+    }
+    onSessionChange?.(nextSession)
+  })
+
+  const persistAudioSettings = useEffectEvent((nextSettings: AudioSettings, immediate = false) => {
+    commitAudioSettingsSession(nextSettings)
+
+    if (persistAudioSettingsTimeoutRef.current) {
+      window.clearTimeout(persistAudioSettingsTimeoutRef.current)
+      persistAudioSettingsTimeoutRef.current = null
+    }
+
+    const socket = socketRef.current
+    if (!socket || !connected) {
+      pendingAudioSettingsSyncRef.current = nextSettings
+      return
+    }
+
+    const emitUpdate = () => {
+      socket.emit(
+        clientEvents.updateAudioSettings,
+        { audioSettings: nextSettings },
+        (response: { ok: boolean; profile?: AuthSession['profile'] }) => {
+          if (!response.ok || !response.profile) {
+            return
+          }
+
+          const currentSession = sessionRef.current
+          const nextSession: AuthSession = {
+            ...currentSession,
+            profile: response.profile,
+          }
+
+          sessionRef.current = nextSession
+          sessionProfileRef.current = response.profile
+          if (currentSession.provider === 'local') {
+            saveAuthSession(nextSession)
+          }
+          onSessionChange?.(nextSession)
+        },
+      )
+    }
+
+    if (immediate) {
+      emitUpdate()
+      return
+    }
+
+    persistAudioSettingsTimeoutRef.current = window.setTimeout(() => {
+      persistAudioSettingsTimeoutRef.current = null
+      emitUpdate()
+    }, 260)
+  })
+
+  const handleToggleMusic = useEffectEvent(() => {
+    void ensureAudioUnlocked()
+    void playUiSound('select')
+
+    const nextEnabled = !audioSettings.musicEnabled
+    const nextSettings = {
+      ...audioSettings,
+      musicEnabled: nextEnabled,
+      musicVolume:
+        nextEnabled && audioSettings.musicVolume <= 0
+          ? DEFAULT_AUDIO_SETTINGS.musicVolume
+          : audioSettings.musicVolume,
+    }
+
+    setAudioSettings(nextSettings)
+    persistAudioSettings(nextSettings, true)
+  })
+
+  const handleToggleSfx = useEffectEvent(() => {
+    void ensureAudioUnlocked()
+    if (!audioSettings.sfxEnabled) {
+      void playUiSound('select')
+    }
+
+    const nextEnabled = !audioSettings.sfxEnabled
+    const nextSettings = {
+      ...audioSettings,
+      sfxEnabled: nextEnabled,
+      sfxVolume:
+        nextEnabled && audioSettings.sfxVolume <= 0
+          ? DEFAULT_AUDIO_SETTINGS.sfxVolume
+          : audioSettings.sfxVolume,
+    }
+
+    setAudioSettings(nextSettings)
+    persistAudioSettings(nextSettings, true)
+  })
+
+  const handleMusicVolumeChange = useEffectEvent((value: number) => {
+    const nextSettings = {
+      ...audioSettings,
+      musicVolume: value,
+      musicEnabled: value <= 0 ? false : audioSettings.musicEnabled || value > 0,
+    }
+
+    setAudioSettings(nextSettings)
+    persistAudioSettings(nextSettings)
+  })
+
+  const handleSfxVolumeChange = useEffectEvent((value: number) => {
+    const nextSettings = {
+      ...audioSettings,
+      sfxVolume: value,
+      sfxEnabled: value <= 0 ? false : audioSettings.sfxEnabled || value > 0,
+    }
+
+    setAudioSettings(nextSettings)
+    persistAudioSettings(nextSettings)
+  })
+
+  const ensureAudioUnlocked = useEffectEvent(async () => {
+    const [uiUnlocked, musicUnlocked] = await Promise.all([
+      uiSoundControllerRef.current?.unlock(),
+      ambientMusicControllerRef.current?.unlock(),
+    ])
+
+    return Boolean(uiUnlocked || musicUnlocked)
   })
 
   const playUiSound = useEffectEvent(async (soundName: UiSoundName) => {
@@ -823,7 +1002,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
   useEffect(() => {
     const handleAudioUnlock = () => {
-      void ensureDialogueAudioUnlocked()
+      void ensureAudioUnlocked()
     }
 
     window.addEventListener('pointerdown', handleAudioUnlock, { passive: true })
@@ -833,7 +1012,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       window.removeEventListener('pointerdown', handleAudioUnlock)
       window.removeEventListener('keydown', handleAudioUnlock)
     }
-  }, [ensureDialogueAudioUnlocked])
+  }, [ensureAudioUnlocked])
 
   const playDialogueBlip = useEffectEvent(() => {
     void playUiSound('dialogue-blip')
@@ -864,7 +1043,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       return
     }
 
-    void ensureDialogueAudioUnlocked()
+    void ensureAudioUnlocked()
 
     if (!isDialogueLineComplete) {
       setDialogueVisibleChars(currentDialogueLine.length)
@@ -981,7 +1160,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       return
     }
 
-    void ensureDialogueAudioUnlocked()
+    void ensureAudioUnlocked()
     requestStopMovement()
 
     const dialogue = getDialogueById(npc.dialogueId)
@@ -1123,6 +1302,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       },
     }
 
+    sessionRef.current = nextSession
     savePreferredSkin(session.profile.userId, nextSkinId)
     savePreferredSkinColors(session.profile.userId, nextSkinId, nextSkinColors)
     if (session.provider === 'local') {
@@ -1199,6 +1379,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
           profile,
         }
 
+        sessionRef.current = nextSession
         savePreferredSkin(profile.userId, profile.skinId)
         savePreferredSkinColors(profile.userId, profile.skinId, profile.skinColors)
         if (session.provider === 'local') {
@@ -1333,6 +1514,76 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                       <strong>{activePlayers.length}</strong>
                     </article>
                   </div>
+                  <details className="dropdown-section" open>
+                    <summary>Ambiente sonoro</summary>
+                    <div className="dropdown-section-body">
+                      <div className="audio-settings-panel">
+                        <div className="audio-toggle-row">
+                          <div className="audio-toggle-copy">
+                            <strong>Tema mitico</strong>
+                            <span>Melodia 8-bit de aventura, pensada para ser pegadiza.</span>
+                          </div>
+                          <button
+                            type="button"
+                            className={`audio-toggle-button ${audioSettings.musicEnabled ? 'is-active' : ''}`}
+                            onClick={handleToggleMusic}
+                            aria-pressed={audioSettings.musicEnabled}
+                          >
+                            {audioSettings.musicEnabled ? 'Activo' : 'Silencio'}
+                          </button>
+                        </div>
+                        <label className="audio-slider-row">
+                          <div className="audio-slider-header">
+                            <span>Volumen del ambiente</span>
+                            <strong>{musicVolumePercent}%</strong>
+                          </div>
+                          <input
+                            className="audio-slider"
+                            type="range"
+                            min="0"
+                            max="100"
+                            step="1"
+                            value={musicVolumePercent}
+                            onChange={(event) => handleMusicVolumeChange(Number(event.target.value) / 100)}
+                            aria-label="Volumen de la musica ambiental"
+                          />
+                        </label>
+                        <div className="audio-toggle-row">
+                          <div className="audio-toggle-copy">
+                            <strong>Efectos pixel</strong>
+                            <span>Notificaciones, menu, chat y editor con respuesta retro.</span>
+                          </div>
+                          <button
+                            type="button"
+                            className={`audio-toggle-button ${audioSettings.sfxEnabled ? 'is-active' : ''}`}
+                            onClick={handleToggleSfx}
+                            aria-pressed={audioSettings.sfxEnabled}
+                          >
+                            {audioSettings.sfxEnabled ? 'Activos' : 'Mute'}
+                          </button>
+                        </div>
+                        <label className="audio-slider-row">
+                          <div className="audio-slider-header">
+                            <span>Volumen de efectos</span>
+                            <strong>{sfxVolumePercent}%</strong>
+                          </div>
+                          <input
+                            className="audio-slider"
+                            type="range"
+                            min="0"
+                            max="100"
+                            step="1"
+                            value={sfxVolumePercent}
+                            onChange={(event) => handleSfxVolumeChange(Number(event.target.value) / 100)}
+                            aria-label="Volumen de efectos de interfaz"
+                          />
+                        </label>
+                        <p className="dropdown-subtext">
+                          Puedes bajar el volumen, silenciar por completo y dejar guardada tu mezcla para futuras sesiones.
+                        </p>
+                      </div>
+                    </div>
+                  </details>
                   <details className="dropdown-section" open>
                     <summary>Personajes en la sala</summary>
                     <div className="dropdown-section-body">
