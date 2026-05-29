@@ -825,26 +825,34 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     }
 
     const startTime = audioContext.currentTime + 0.01
-    const frequencies = [740, 932, 1174]
+    const notes = [523.25, 659.25, 783.99, 1046.5]
+    const layers = [
+      { type: 'square' as const, gain: 0.024, octaveOffset: 0 },
+      { type: 'triangle' as const, gain: 0.01, octaveOffset: -1 },
+    ]
 
-    frequencies.forEach((frequency, index) => {
-      const oscillator = audioContext.createOscillator()
-      const gainNode = audioContext.createGain()
-      const toneStart = startTime + index * 0.09
-      const toneEnd = toneStart + 0.12
+    notes.forEach((frequency, index) => {
+      const toneStart = startTime + index * 0.075
+      const toneEnd = toneStart + (index === notes.length - 1 ? 0.18 : 0.11)
 
-      oscillator.type = 'triangle'
-      oscillator.frequency.setValueAtTime(frequency, toneStart)
-      oscillator.frequency.exponentialRampToValueAtTime(Math.max(220, frequency * 0.92), toneEnd)
+      layers.forEach(({ type, gain, octaveOffset }) => {
+        const oscillator = audioContext.createOscillator()
+        const gainNode = audioContext.createGain()
+        const targetFrequency = frequency * 2 ** octaveOffset
 
-      gainNode.gain.setValueAtTime(0.0001, toneStart)
-      gainNode.gain.exponentialRampToValueAtTime(0.03, toneStart + 0.015)
-      gainNode.gain.exponentialRampToValueAtTime(0.0001, toneEnd)
+        oscillator.type = type
+        oscillator.frequency.setValueAtTime(targetFrequency, toneStart)
+        oscillator.frequency.linearRampToValueAtTime(targetFrequency * 0.995, toneEnd)
 
-      oscillator.connect(gainNode)
-      gainNode.connect(audioContext.destination)
-      oscillator.start(toneStart)
-      oscillator.stop(toneEnd)
+        gainNode.gain.setValueAtTime(0.0001, toneStart)
+        gainNode.gain.linearRampToValueAtTime(gain, toneStart + 0.005)
+        gainNode.gain.exponentialRampToValueAtTime(0.0001, toneEnd)
+
+        oscillator.connect(gainNode)
+        gainNode.connect(audioContext.destination)
+        oscillator.start(toneStart)
+        oscillator.stop(toneEnd)
+      })
     })
   })
 
