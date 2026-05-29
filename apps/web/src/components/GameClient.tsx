@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useEffectEvent, useRef, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { io, type Socket } from 'socket.io-client'
 import {
   clientEvents,
@@ -136,11 +136,13 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     },
   )
   const socketRef = useRef<Socket | null>(null)
+  const roomRef = useRef<RoomState | null>(null)
   const sessionProfileRef = useRef(session.profile)
   const optionsMenuRef = useRef<HTMLDivElement | null>(null)
   const chatOpenRef = useRef(false)
   const floatingTimeoutsRef = useRef<Map<string, number>>(new Map())
   const friendRequestPopupTimeoutsRef = useRef<Map<string, number>>(new Map())
+  const friendRequestPopupsRef = useRef<FriendRequestPopupState[]>([])
   const speechTimeoutsRef = useRef<Map<string, number>>(new Map())
   const typingIdleTimeoutRef = useRef<number | null>(null)
   const localTypingStateRef = useRef(false)
@@ -300,8 +302,16 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   })
 
   useEffect(() => {
+    roomRef.current = room
+  }, [room])
+
+  useEffect(() => {
     sessionProfileRef.current = session.profile
   }, [session.profile])
+
+  useEffect(() => {
+    friendRequestPopupsRef.current = friendRequestPopups
+  }, [friendRequestPopups])
 
   useEffect(() => {
     const handlePopState = () => {
@@ -315,6 +325,11 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   useEffect(() => {
     chatOpenRef.current = chatOpen
   }, [chatOpen])
+
+  const clearAllFriendRequestPopupTimeouts = useCallback(() => {
+    friendRequestPopupTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId))
+    friendRequestPopupTimeoutsRef.current.clear()
+  }, [])
 
   useEffect(() => {
     if (!optionsOpen) {
@@ -449,6 +464,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     socketRef.current = nextSocket
 
     nextSocket.on('connect', () => {
+      clearAllFriendRequestPopupTimeouts()
       setConnected(true)
       setRoom(null)
       setMessages([])
@@ -458,6 +474,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       setFriends([])
       setIncomingFriendRequests([])
       setOutgoingFriendRequestUserIds([])
+      friendRequestPopupsRef.current = []
       setFriendRequestPopups([])
       dismissedFriendRequestIdsRef.current.clear()
       localTypingStateRef.current = false
@@ -465,11 +482,13 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
 
     nextSocket.on('disconnect', () => {
+      clearAllFriendRequestPopupTimeouts()
       setConnected(false)
       setTypingByUserId({})
       setFriends([])
       setIncomingFriendRequests([])
       setOutgoingFriendRequestUserIds([])
+      friendRequestPopupsRef.current = []
       setFriendRequestPopups([])
       dismissedFriendRequestIdsRef.current.clear()
       localTypingStateRef.current = false
@@ -533,32 +552,12 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
 
     nextSocket.on(serverEvents.friendRequestReceived, (request: FriendRequestSummary) => {
+      void playFriendRequestNotification()
       setIncomingFriendRequests((currentValue) =>
         currentValue.some((currentRequest) => currentRequest.requestId === request.requestId)
           ? currentValue
           : [request, ...currentValue],
       )
-      setFriendRequestPopups((currentValue) => {
-        if (dismissedFriendRequestIdsRef.current.has(request.requestId)) {
-          return currentValue
-        }
-
-        const expiresAt = Date.now() + FRIEND_REQUEST_POPUP_DURATION_MS
-        const nextValue = currentValue.some((currentRequest) => currentRequest.requestId === request.requestId)
-          ? currentValue.map((currentRequest) =>
-              currentRequest.requestId === request.requestId ? { ...currentRequest, ...request, expiresAt } : currentRequest,
-            )
-          : [{ ...request, expiresAt }, ...currentValue]
-
-        clearFriendRequestPopupTimeout(request.requestId)
-        const timeoutId = window.setTimeout(() => {
-          dismissFriendRequestPopup(request.requestId)
-        }, FRIEND_REQUEST_POPUP_DURATION_MS)
-        friendRequestPopupTimeoutsRef.current.set(request.requestId, timeoutId)
-        void playFriendRequestNotification()
-
-        return nextValue
-      })
     })
 
     nextSocket.on(serverEvents.roomState, (nextRoom: RoomState) => {
@@ -585,13 +584,14 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
 
     nextSocket.on(serverEvents.playerLeft, ({ sessionId }: { sessionId: string }) => {
+      const departedPlayer = roomRef.current?.players.find((player) => player.sessionId === sessionId)
+      if (departedPlayer) {
+        clearPlayerSpeech(departedPlayer.userId)
+        clearPlayerTyping(departedPlayer.userId)
+      }
+
       setRoom((currentRoom) => {
         if (!currentRoom) return currentRoom
-        const departedPlayer = currentRoom.players.find((player) => player.sessionId === sessionId)
-        if (departedPlayer) {
-          clearPlayerSpeech(departedPlayer.userId)
-          clearPlayerTyping(departedPlayer.userId)
-        }
         return {
           ...currentRoom,
           players: currentRoom.players.filter((player) => player.sessionId !== sessionId),
@@ -613,10 +613,15 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
 
     return () => {
+      clearAllFriendRequestPopupTimeouts()
       socketRef.current = null
       nextSocket.disconnect()
     }
-  }, [activeTemplate.id, session.profile.userId])
+  }, [
+    activeTemplate.id,
+    clearAllFriendRequestPopupTimeouts,
+    session.profile.userId,
+  ])
 
   const currentPlayer =
     room?.players.find((player) => player.userId === session.profile.userId) ?? null
@@ -692,35 +697,38 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
 
     const now = Date.now()
+    const currentPopups = friendRequestPopupsRef.current
+    const incomingRequestsById = new Map(
+      incomingFriendRequests.map((request) => [request.requestId, request] as const),
+    )
+    const nextPopups = currentPopups.flatMap((popup) => {
+      const latestRequest = incomingRequestsById.get(popup.requestId)
+      if (!latestRequest) {
+        clearFriendRequestPopupTimeout(popup.requestId)
+        return []
+      }
 
-    setFriendRequestPopups((currentValue) => {
-      const activePopups = currentValue.filter((popup) => {
-        const isStillAvailable = availableRequestIds.has(popup.requestId)
-        if (!isStillAvailable) {
-          clearFriendRequestPopupTimeout(popup.requestId)
-        }
-        return isStillAvailable
-      })
-      const existingIds = new Set(activePopups.map((popup) => popup.requestId))
-      const nextPopups = [...activePopups]
-
-      incomingFriendRequests.forEach((request) => {
-        if (existingIds.has(request.requestId) || dismissedFriendRequestIdsRef.current.has(request.requestId)) {
-          return
-        }
-
-        const expiresAt = now + FRIEND_REQUEST_POPUP_DURATION_MS
-        nextPopups.push({ ...request, expiresAt })
-        existingIds.add(request.requestId)
-        clearFriendRequestPopupTimeout(request.requestId)
-        const timeoutId = window.setTimeout(() => {
-          dismissFriendRequestPopup(request.requestId)
-        }, FRIEND_REQUEST_POPUP_DURATION_MS)
-        friendRequestPopupTimeoutsRef.current.set(request.requestId, timeoutId)
-      })
-
-      return nextPopups
+      return [{ ...popup, ...latestRequest }]
     })
+    const existingIds = new Set(nextPopups.map((popup) => popup.requestId))
+
+    incomingFriendRequests.forEach((request) => {
+      if (existingIds.has(request.requestId) || dismissedFriendRequestIdsRef.current.has(request.requestId)) {
+        return
+      }
+
+      const expiresAt = now + FRIEND_REQUEST_POPUP_DURATION_MS
+      nextPopups.push({ ...request, expiresAt })
+      existingIds.add(request.requestId)
+      clearFriendRequestPopupTimeout(request.requestId)
+      const timeoutId = window.setTimeout(() => {
+        dismissFriendRequestPopup(request.requestId)
+      }, FRIEND_REQUEST_POPUP_DURATION_MS)
+      friendRequestPopupTimeoutsRef.current.set(request.requestId, timeoutId)
+    })
+
+    friendRequestPopupsRef.current = nextPopups
+    setFriendRequestPopups(nextPopups)
   }, [FRIEND_REQUEST_POPUP_DURATION_MS, clearFriendRequestPopupTimeout, dismissFriendRequestPopup, incomingFriendRequests])
 
   const handleAddFriend = useEffectEvent((friendUserId: string) => {
@@ -810,14 +818,9 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     }
   })
 
-  const playFriendRequestNotification = useEffectEvent(async () => {
-    const audioUnlocked = await ensureDialogueAudioUnlocked()
-    if (!audioUnlocked) {
-      return
-    }
-
+  const playFriendRequestNotification = useEffectEvent(() => {
     const audioContext = dialogueAudioContextRef.current
-    if (!audioContext || audioContext.state !== 'running') {
+    if (!dialogueAudioUnlockedRef.current || !audioContext || audioContext.state !== 'running') {
       return
     }
 
