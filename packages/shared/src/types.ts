@@ -10,11 +10,18 @@ export interface AudioSettings {
   sfxVolume: number
 }
 
-export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
+const LEGACY_AUDIO_SETTINGS_DEFAULTS: AudioSettings = {
   musicEnabled: true,
   musicVolume: 0.42,
   sfxEnabled: true,
   sfxVolume: 0.8,
+}
+
+export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
+  musicEnabled: true,
+  musicVolume: 0.15,
+  sfxEnabled: true,
+  sfxVolume: 1,
 }
 
 function clampAudioVolume(value: unknown, fallback: number) {
@@ -32,7 +39,7 @@ export function normalizeAudioSettings(value: unknown): AudioSettings {
 
   const candidate = value as Partial<AudioSettings>
 
-  return {
+  const normalizedSettings = {
     musicEnabled:
       typeof candidate.musicEnabled === 'boolean'
         ? candidate.musicEnabled
@@ -44,6 +51,14 @@ export function normalizeAudioSettings(value: unknown): AudioSettings {
         : DEFAULT_AUDIO_SETTINGS.sfxEnabled,
     sfxVolume: clampAudioVolume(candidate.sfxVolume, DEFAULT_AUDIO_SETTINGS.sfxVolume),
   }
+
+  const usesLegacyDefaults =
+    normalizedSettings.musicEnabled === LEGACY_AUDIO_SETTINGS_DEFAULTS.musicEnabled &&
+    normalizedSettings.musicVolume === LEGACY_AUDIO_SETTINGS_DEFAULTS.musicVolume &&
+    normalizedSettings.sfxEnabled === LEGACY_AUDIO_SETTINGS_DEFAULTS.sfxEnabled &&
+    normalizedSettings.sfxVolume === LEGACY_AUDIO_SETTINGS_DEFAULTS.sfxVolume
+
+  return usesLegacyDefaults ? { ...DEFAULT_AUDIO_SETTINGS } : normalizedSettings
 }
 
 export interface UserProfile {

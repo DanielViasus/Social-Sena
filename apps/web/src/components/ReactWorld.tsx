@@ -13,6 +13,9 @@ import plazaSeparator1 from '../assets/Decoration/Plaza/Separador_Plaza_1.svg'
 import plazaSeparator2 from '../assets/Decoration/Plaza/Separador_Plaza_2.svg'
 import plazaSeparator3 from '../assets/Decoration/Plaza/Separador_Plaza_3.svg'
 import plazaSeparator4 from '../assets/Decoration/Plaza/Separador_Plaza_4.svg'
+import plazaSeparator5 from '../assets/Decoration/Plaza/Separador_Plaza_5.svg'
+import plazaSeparator6 from '../assets/Decoration/Plaza/Separador_Plaza_6.svg'
+
 import mageSheet from '../assets/npc/mago/Mage.svg'
 import npcAlert0 from '../assets/npc/icons/alert/ALERT_0.svg'
 import npcAlert1 from '../assets/npc/icons/alert/ALERT_1.svg'
@@ -102,6 +105,8 @@ const ROOM_OBJECT_SPRITES: Record<string, string> = {
   'plaza-separator-2': plazaSeparator2,
   'plaza-separator-3': plazaSeparator3,
   'plaza-separator-4': plazaSeparator4,
+  'plaza-separator-5': plazaSeparator5,
+  'plaza-separator-6': plazaSeparator6,
 }
 
 const NPC_SPRITES: Record<string, string> = {}

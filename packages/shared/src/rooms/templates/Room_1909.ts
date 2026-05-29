@@ -6,8 +6,8 @@ export const room1909Template: RoomTemplate = {
   name: 'Lobby Garden 1909',
   chatMode: 'scene',
   world: {
-    width: 2000,
-    height: 2000,
+    width: 2300,
+    height: 2700,
     spawn: { x: 1000, y: 1600 },
     backgroundColor: 0xdfe8d2,
     gridColor: 0xffffff,
@@ -24,8 +24,8 @@ export const room1909Template: RoomTemplate = {
     {
       id: 'plaza-separator-nw',
       kind: 'landmark',
-      x: 690,
-      y: 700,
+      x: 750,
+      y: 1200,
       width: 476,
       height: 508,
       opacity: 1,
@@ -49,8 +49,8 @@ export const room1909Template: RoomTemplate = {
     {
       id: 'plaza-separator-ne',
       kind: 'landmark',
-      x: 1310,
-      y: 700,
+      x: 1600,
+      y: 1200,
       width: 476,
       height: 508,
       opacity: 1,
@@ -74,8 +74,8 @@ export const room1909Template: RoomTemplate = {
     {
       id: 'plaza-separator-sw',
       kind: 'landmark',
-      x: 690,
-      y: 1250,
+      x: 750,
+      y: 2050,
       width: 476,
       height: 544,
       opacity: 1,
@@ -99,8 +99,8 @@ export const room1909Template: RoomTemplate = {
     {
       id: 'plaza-separator-se',
       kind: 'landmark',
-      x: 1310,
-      y: 1250,
+      x: 1600,
+      y: 2050,
       width: 476,
       height: 544,
       opacity: 1,
@@ -121,27 +121,58 @@ export const room1909Template: RoomTemplate = {
   ],
       zIndexRef: { offsetX: 0, offsetY: 0, width: 220, thickness: 2 },
     },
+
     {
-      id: 'spawn-ring',
-      kind: 'zone',
-      x: 1000,
+      id: 'plaza-separator-e',
+      kind: 'landmark',
+      x: 80,
       y: 1600,
-      width: 420,
-      height: 180,
-      label: 'Ingreso',
-      fillColor: 0xf6d37f,
-      strokeColor: 0xfff7d2,
-      opacity: 0.2,
-      collider: { offsetX: 0, offsetY: 0, width: 0, height: 0 },
-      zIndexRef: { offsetX: 0, offsetY: 20, width: 100, thickness: 2 },
+      width: 160,
+      height: 1438,
+      opacity: 1,
+      spriteAssetId: 'plaza-separator-5',
+      colliders: [
+    {
+      offsetX: 0,
+      offsetY: 50,
+      width: 160,
+      height: 1300,
     },
+    
+  ],
+      zIndexRef: { offsetX: 0, offsetY: 0, width: 220, thickness: 2 },
+    },
+
+    {
+      id: 'plaza-separator-o',
+      kind: 'landmark',
+      x: 2220,
+      y: 1600,
+      width: 160,
+      height: 1438,
+      opacity: 1,
+      spriteAssetId: 'plaza-separator-6',
+      colliders: [
+    {
+      offsetX: 0,
+      offsetY: 50,
+      width: 160,
+      height: 1300,
+    },
+    
+  ],
+      zIndexRef: { offsetX: 0, offsetY: 0, width: 220, thickness: 2 },
+    },
+
+    
+    
   ],
   npcs: [
     {
       id: 'lobby-guide',
       label: '',
       x: 1000,
-      y: 1000,
+      y: 455,
       width: 128,
       height: 128,
       opacity: 1,

@@ -56,6 +56,15 @@ interface FriendRequestPopupState extends FriendRequestSummary {
   expiresAt: number
 }
 
+function areAudioSettingsEqual(left: AudioSettings, right: AudioSettings) {
+  return (
+    left.musicEnabled === right.musicEnabled &&
+    left.musicVolume === right.musicVolume &&
+    left.sfxEnabled === right.sfxEnabled &&
+    left.sfxVolume === right.sfxVolume
+  )
+}
+
 function resolveLevelSubtitle(level: number | null | undefined) {
   return `Nivel ${Math.max(1, Math.floor(level ?? 1))}`
 }
@@ -161,6 +170,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const ambientMusicControllerRef = useRef<ReturnType<typeof createAmbientMusicController> | null>(null)
   const persistAudioSettingsTimeoutRef = useRef<number | null>(null)
   const pendingAudioSettingsSyncRef = useRef<AudioSettings | null>(null)
+  const chatTypingToneStepRef = useRef(0)
   const lastDialogueAudioProgressRef = useRef<{ lineKey: string; visibleChars: number }>({
     lineKey: '',
     visibleChars: 0,
@@ -328,7 +338,10 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   }, [session])
 
   useEffect(() => {
-    setAudioSettings(normalizeAudioSettings(session.profile.audioSettings ?? DEFAULT_AUDIO_SETTINGS))
+    const normalizedSettings = normalizeAudioSettings(session.profile.audioSettings ?? DEFAULT_AUDIO_SETTINGS)
+    setAudioSettings((currentValue) =>
+      areAudioSettingsEqual(currentValue, normalizedSettings) ? currentValue : normalizedSettings,
+    )
   }, [session.profile.audioSettings])
 
   useEffect(() => {
@@ -1000,6 +1013,14 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     await uiSoundControllerRef.current?.play(soundName)
   })
 
+  const playChatTypingTone = useEffectEvent(async (character: string) => {
+    chatTypingToneStepRef.current = (chatTypingToneStepRef.current + 1) % 64
+    await uiSoundControllerRef.current?.playTypingKey({
+      character,
+      step: chatTypingToneStepRef.current,
+    })
+  })
+
   useEffect(() => {
     const handleAudioUnlock = () => {
       void ensureAudioUnlocked()
@@ -1423,7 +1444,27 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   }
 
   const handleChatInputChange = (nextValue: string) => {
+    const previousValue = chatInput
     setChatInput(nextValue)
+
+    if (nextValue.length > previousValue.length) {
+      let typedCharacter = ''
+
+      for (let index = 0; index < nextValue.length; index += 1) {
+        if (nextValue[index] !== previousValue[index]) {
+          typedCharacter = nextValue[index] ?? ''
+          break
+        }
+      }
+
+      if (!typedCharacter) {
+        typedCharacter = nextValue.at(-1) ?? ''
+      }
+
+      if (typedCharacter.trim().length > 0) {
+        void playChatTypingTone(typedCharacter)
+      }
+    }
 
     if (!nextValue.trim()) {
       stopLocalTyping()

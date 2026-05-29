@@ -35,13 +35,22 @@ interface ChiptunePattern {
   startDelay?: number
 }
 
+interface TypingKeySoundOptions {
+  character?: string
+  step?: number
+}
+
 export interface UiSoundController {
   close: () => Promise<void>
   isUnlocked: () => boolean
   play: (soundName: UiSoundName) => Promise<void>
+  playTypingKey: (options?: TypingKeySoundOptions) => Promise<void>
   unlock: () => Promise<boolean>
   updateSettings: (settings: Pick<AudioSettings, 'sfxEnabled' | 'sfxVolume'>) => void
 }
+
+const CHAT_TYPING_SCALE = [523.25, 587.33, 659.25, 698.46, 783.99, 880, 987.77] as const
+const CHAT_TYPING_GLIDES = [0.986, 0.992, 1.004, 1.008] as const
 
 const UI_SOUND_PATTERNS: Record<UiSoundName, ChiptunePattern> = {
   'friend-request': {
@@ -225,12 +234,10 @@ export function createUiSoundController(): UiSoundController {
     }
   }
 
-  const play = async (soundName: UiSoundName) => {
+  const playPattern = async (pattern: ChiptunePattern) => {
     if (!sfxEnabled || sfxVolume <= 0.001) {
       return
     }
-
-    const pattern = UI_SOUND_PATTERNS[soundName]
 
     if (pattern.unlockMode === 'gesture') {
       const audioUnlocked = await unlock()
@@ -278,6 +285,41 @@ export function createUiSoundController(): UiSoundController {
     })
   }
 
+  const play = async (soundName: UiSoundName) => {
+    await playPattern(UI_SOUND_PATTERNS[soundName])
+  }
+
+  const playTypingKey = async (options: TypingKeySoundOptions = {}) => {
+    const nextCharacter = options.character ?? ''
+    if (!nextCharacter || nextCharacter.trim().length === 0) {
+      return
+    }
+
+    const characterCode = nextCharacter.codePointAt(0) ?? 0
+    const stepSeed = options.step ?? 0
+    const scaleIndex = Math.abs(characterCode + stepSeed) % CHAT_TYPING_SCALE.length
+    const octaveOffset = (characterCode + stepSeed) % 9 === 0 ? 1 : 0
+    const glideFactor = CHAT_TYPING_GLIDES[Math.abs(characterCode + stepSeed) % CHAT_TYPING_GLIDES.length]
+    const accentGain = 1 + ((characterCode + stepSeed) % 3) * 0.05
+
+    await playPattern({
+      unlockMode: 'gesture',
+      startDelay: 0,
+      layers: [
+        { type: 'square', gain: 0.011 * accentGain },
+        { type: 'triangle', gain: 0.0045, octaveOffset: -1 },
+      ],
+      notes: [
+        {
+          frequency: CHAT_TYPING_SCALE[scaleIndex] * 2 ** octaveOffset,
+          offset: 0,
+          duration: 0.032,
+          glideFactor,
+        },
+      ],
+    })
+  }
+
   const close = async () => {
     if (audioContext && audioContext.state !== 'closed') {
       await audioContext.close()
@@ -291,6 +333,7 @@ export function createUiSoundController(): UiSoundController {
     close,
     isUnlocked: () => unlocked,
     play,
+    playTypingKey,
     unlock,
     updateSettings: (settings) => {
       sfxEnabled = settings.sfxEnabled
