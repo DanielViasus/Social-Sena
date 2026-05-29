@@ -218,6 +218,8 @@ button {
 .options-anchor,
 .chat-panel-floating,
 .chat-bubble-stack,
+.friend-request-popup-stack,
+.friend-request-popup,
 .hud-square-button,
 .skin-editor-overlay {
   pointer-events: auto;
