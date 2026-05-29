@@ -47,6 +47,10 @@ interface ActiveDialogueState {
   lineIndex: number
 }
 
+interface FriendRequestPopupState extends FriendRequestSummary {
+  expiresAt: number
+}
+
 function resolveLevelSubtitle(level: number | null | undefined) {
   return `Nivel ${Math.max(1, Math.floor(level ?? 1))}`
 }
@@ -94,6 +98,7 @@ function MenuAvatarPreview({
 
 function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const MAX_HEADLINE_SPEECH_CHARS = 30
+  const FRIEND_REQUEST_POPUP_DURATION_MS = 8000
   const [pathname, setPathname] = useState(() => window.location.pathname)
   const [room, setRoom] = useState<RoomState | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -109,7 +114,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const [friends, setFriends] = useState<FriendSummary[]>([])
   const [incomingFriendRequests, setIncomingFriendRequests] = useState<FriendRequestSummary[]>([])
   const [outgoingFriendRequestUserIds, setOutgoingFriendRequestUserIds] = useState<string[]>([])
-  const [friendRequestPopups, setFriendRequestPopups] = useState<FriendRequestSummary[]>([])
+  const [friendRequestPopups, setFriendRequestPopups] = useState<FriendRequestPopupState[]>([])
   const [addingFriendUserId, setAddingFriendUserId] = useState<string | null>(null)
   const [respondingFriendRequestId, setRespondingFriendRequestId] = useState<string | null>(null)
   const [removingFriendUserId, setRemovingFriendUserId] = useState<string | null>(null)
@@ -135,6 +140,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const optionsMenuRef = useRef<HTMLDivElement | null>(null)
   const chatOpenRef = useRef(false)
   const floatingTimeoutsRef = useRef<Map<string, number>>(new Map())
+  const friendRequestPopupTimeoutsRef = useRef<Map<string, number>>(new Map())
   const speechTimeoutsRef = useRef<Map<string, number>>(new Map())
   const typingIdleTimeoutRef = useRef<number | null>(null)
   const localTypingStateRef = useRef(false)
@@ -334,6 +340,14 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   }, [])
 
   useEffect(() => {
+    const popupTimeouts = friendRequestPopupTimeoutsRef.current
+    return () => {
+      popupTimeouts.forEach((timeoutId) => window.clearTimeout(timeoutId))
+      popupTimeouts.clear()
+    }
+  }, [])
+
+  useEffect(() => {
     const speechTimeouts = speechTimeoutsRef.current
     return () => {
       speechTimeouts.forEach((timeoutId) => window.clearTimeout(timeoutId))
@@ -529,9 +543,21 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
           return currentValue
         }
 
-        return currentValue.some((currentRequest) => currentRequest.requestId === request.requestId)
-          ? currentValue
-          : [request, ...currentValue]
+        const expiresAt = Date.now() + FRIEND_REQUEST_POPUP_DURATION_MS
+        const nextValue = currentValue.some((currentRequest) => currentRequest.requestId === request.requestId)
+          ? currentValue.map((currentRequest) =>
+              currentRequest.requestId === request.requestId ? { ...currentRequest, ...request, expiresAt } : currentRequest,
+            )
+          : [{ ...request, expiresAt }, ...currentValue]
+
+        clearFriendRequestPopupTimeout(request.requestId)
+        const timeoutId = window.setTimeout(() => {
+          dismissFriendRequestPopup(request.requestId)
+        }, FRIEND_REQUEST_POPUP_DURATION_MS)
+        friendRequestPopupTimeoutsRef.current.set(request.requestId, timeoutId)
+        void playFriendRequestNotification()
+
+        return nextValue
       })
     })
 
@@ -609,36 +635,11 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const friendUserIds = new Set(friends.map((friend) => friend.userId))
   const incomingFriendRequestUserIds = new Set(incomingFriendRequests.map((request) => request.fromUserId))
   const outgoingFriendRequestUserIdSet = new Set(outgoingFriendRequestUserIds)
+  const pendingFriendRequestCount = incomingFriendRequests.length
   const currentDialogueLine = activeDialogue
     ? activeDialogue.dialogue.lines[activeDialogue.lineIndex] ?? ''
     : ''
   const isDialogueLineComplete = dialogueVisibleChars >= currentDialogueLine.length
-
-  useEffect(() => {
-    const availableRequestIds = new Set(incomingFriendRequests.map((request) => request.requestId))
-    dismissedFriendRequestIdsRef.current.forEach((requestId) => {
-      if (!availableRequestIds.has(requestId)) {
-        dismissedFriendRequestIdsRef.current.delete(requestId)
-      }
-    })
-
-    setFriendRequestPopups((currentValue) => {
-      const activePopups = currentValue.filter((popup) => availableRequestIds.has(popup.requestId))
-      const existingIds = new Set(activePopups.map((popup) => popup.requestId))
-      const nextPopups = [...activePopups]
-
-      incomingFriendRequests.forEach((request) => {
-        if (existingIds.has(request.requestId) || dismissedFriendRequestIdsRef.current.has(request.requestId)) {
-          return
-        }
-
-        nextPopups.push(request)
-        existingIds.add(request.requestId)
-      })
-
-      return nextPopups
-    })
-  }, [incomingFriendRequests])
 
   useEffect(() => {
     if (!optionsOpen) {
@@ -666,12 +667,61 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
   })
 
+  const clearFriendRequestPopupTimeout = useEffectEvent((requestId: string) => {
+    const timeoutId = friendRequestPopupTimeoutsRef.current.get(requestId)
+    if (timeoutId) {
+      window.clearTimeout(timeoutId)
+      friendRequestPopupTimeoutsRef.current.delete(requestId)
+    }
+  })
+
   const dismissFriendRequestPopup = useEffectEvent((requestId: string) => {
     dismissedFriendRequestIdsRef.current.add(requestId)
+    clearFriendRequestPopupTimeout(requestId)
     setFriendRequestPopups((currentValue) =>
       currentValue.filter((currentRequest) => currentRequest.requestId !== requestId),
     )
   })
+
+  useEffect(() => {
+    const availableRequestIds = new Set(incomingFriendRequests.map((request) => request.requestId))
+    dismissedFriendRequestIdsRef.current.forEach((requestId) => {
+      if (!availableRequestIds.has(requestId)) {
+        dismissedFriendRequestIdsRef.current.delete(requestId)
+      }
+    })
+
+    const now = Date.now()
+
+    setFriendRequestPopups((currentValue) => {
+      const activePopups = currentValue.filter((popup) => {
+        const isStillAvailable = availableRequestIds.has(popup.requestId)
+        if (!isStillAvailable) {
+          clearFriendRequestPopupTimeout(popup.requestId)
+        }
+        return isStillAvailable
+      })
+      const existingIds = new Set(activePopups.map((popup) => popup.requestId))
+      const nextPopups = [...activePopups]
+
+      incomingFriendRequests.forEach((request) => {
+        if (existingIds.has(request.requestId) || dismissedFriendRequestIdsRef.current.has(request.requestId)) {
+          return
+        }
+
+        const expiresAt = now + FRIEND_REQUEST_POPUP_DURATION_MS
+        nextPopups.push({ ...request, expiresAt })
+        existingIds.add(request.requestId)
+        clearFriendRequestPopupTimeout(request.requestId)
+        const timeoutId = window.setTimeout(() => {
+          dismissFriendRequestPopup(request.requestId)
+        }, FRIEND_REQUEST_POPUP_DURATION_MS)
+        friendRequestPopupTimeoutsRef.current.set(request.requestId, timeoutId)
+      })
+
+      return nextPopups
+    })
+  }, [FRIEND_REQUEST_POPUP_DURATION_MS, clearFriendRequestPopupTimeout, dismissFriendRequestPopup, incomingFriendRequests])
 
   const handleAddFriend = useEffectEvent((friendUserId: string) => {
     const socket = socketRef.current
@@ -705,6 +755,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       (response: { ok: boolean }) => {
         setRespondingFriendRequestId(null)
         if (response.ok) {
+          void playFriendRequestActionTone(action)
           dismissedFriendRequestIdsRef.current.delete(requestId)
           setIncomingFriendRequests((currentValue) =>
             currentValue.filter((currentRequest) => currentRequest.requestId !== requestId),
@@ -750,6 +801,103 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
     dialogueAudioUnlockedRef.current = dialogueAudioContextRef.current.state === 'running'
   })
+
+  const playFriendRequestNotification = useEffectEvent(async () => {
+    await ensureDialogueAudioUnlocked()
+
+    const audioContext = dialogueAudioContextRef.current
+    if (!audioContext || audioContext.state !== 'running') {
+      return
+    }
+
+    const startTime = audioContext.currentTime + 0.01
+    const frequencies = [740, 932, 1174]
+
+    frequencies.forEach((frequency, index) => {
+      const oscillator = audioContext.createOscillator()
+      const gainNode = audioContext.createGain()
+      const toneStart = startTime + index * 0.09
+      const toneEnd = toneStart + 0.12
+
+      oscillator.type = 'triangle'
+      oscillator.frequency.setValueAtTime(frequency, toneStart)
+      oscillator.frequency.exponentialRampToValueAtTime(Math.max(220, frequency * 0.92), toneEnd)
+
+      gainNode.gain.setValueAtTime(0.0001, toneStart)
+      gainNode.gain.exponentialRampToValueAtTime(0.03, toneStart + 0.015)
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, toneEnd)
+
+      oscillator.connect(gainNode)
+      gainNode.connect(audioContext.destination)
+      oscillator.start(toneStart)
+      oscillator.stop(toneEnd)
+    })
+  })
+
+  const playFriendRequestActionTone = useEffectEvent(async (action: 'accept' | 'reject') => {
+    await ensureDialogueAudioUnlocked()
+
+    const audioContext = dialogueAudioContextRef.current
+    if (!audioContext || audioContext.state !== 'running') {
+      return
+    }
+
+    const toneConfig =
+      action === 'accept'
+        ? {
+            type: 'sine' as const,
+            notes: [622, 784, 988],
+            duration: 0.1,
+            gain: 0.024,
+            glideFactor: 1.04,
+          }
+        : {
+            type: 'triangle' as const,
+            notes: [523, 392],
+            duration: 0.14,
+            gain: 0.02,
+            glideFactor: 0.84,
+          }
+
+    const startTime = audioContext.currentTime + 0.01
+
+    toneConfig.notes.forEach((frequency, index) => {
+      const oscillator = audioContext.createOscillator()
+      const gainNode = audioContext.createGain()
+      const toneStart = startTime + index * 0.085
+      const toneEnd = toneStart + toneConfig.duration
+
+      oscillator.type = toneConfig.type
+      oscillator.frequency.setValueAtTime(frequency, toneStart)
+      oscillator.frequency.exponentialRampToValueAtTime(
+        Math.max(180, frequency * toneConfig.glideFactor),
+        toneEnd,
+      )
+
+      gainNode.gain.setValueAtTime(0.0001, toneStart)
+      gainNode.gain.exponentialRampToValueAtTime(toneConfig.gain, toneStart + 0.012)
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, toneEnd)
+
+      oscillator.connect(gainNode)
+      gainNode.connect(audioContext.destination)
+      oscillator.start(toneStart)
+      oscillator.stop(toneEnd)
+    })
+  })
+
+  useEffect(() => {
+    const handleAudioUnlock = () => {
+      void ensureDialogueAudioUnlocked()
+    }
+
+    window.addEventListener('pointerdown', handleAudioUnlock, { passive: true })
+    window.addEventListener('keydown', handleAudioUnlock)
+
+    return () => {
+      window.removeEventListener('pointerdown', handleAudioUnlock)
+      window.removeEventListener('keydown', handleAudioUnlock)
+    }
+  }, [ensureDialogueAudioUnlocked])
 
   const playDialogueBlip = useEffectEvent(() => {
     const audioContext = dialogueAudioContextRef.current
@@ -1209,9 +1357,18 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
               className="hud-square-button options-button"
               onClick={() => setOptionsOpen((isOpen) => !isOpen)}
               aria-expanded={optionsOpen}
-              aria-label="Abrir opciones de estado"
+              aria-label={
+                pendingFriendRequestCount > 0
+                  ? `Abrir opciones de estado. Tienes ${pendingFriendRequestCount} solicitudes pendientes`
+                  : 'Abrir opciones de estado'
+              }
             >
               MENU
+              {pendingFriendRequestCount > 0 ? (
+                <span className="options-button-badge" aria-hidden="true">
+                  {pendingFriendRequestCount}
+                </span>
+              ) : null}
             </button>
 
             {optionsOpen ? (
@@ -1407,6 +1564,12 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
             <section className="friend-request-popup-stack" aria-label="Solicitudes de amistad en tiempo real">
               {friendRequestPopups.map((request) => (
                 <article key={request.requestId} className="friend-request-popup">
+                  <div className="friend-request-popup-progress" aria-hidden="true">
+                    <span
+                      key={request.expiresAt}
+                      style={{ animationDuration: `${Math.max(250, request.expiresAt - Date.now())}ms` }}
+                    />
+                  </div>
                   <div className="friend-request-popup-copy">
                     <strong>{request.displayName}</strong>
                     <span>te envio una solicitud de amistad</span>
