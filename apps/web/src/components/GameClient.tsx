@@ -1555,76 +1555,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                       <strong>{activePlayers.length}</strong>
                     </article>
                   </div>
-                  <details className="dropdown-section" open>
-                    <summary>Ambiente sonoro</summary>
-                    <div className="dropdown-section-body">
-                      <div className="audio-settings-panel">
-                        <div className="audio-toggle-row">
-                          <div className="audio-toggle-copy">
-                            <strong>Tema mitico</strong>
-                            <span>Melodia 8-bit de aventura, pensada para ser pegadiza.</span>
-                          </div>
-                          <button
-                            type="button"
-                            className={`audio-toggle-button ${audioSettings.musicEnabled ? 'is-active' : ''}`}
-                            onClick={handleToggleMusic}
-                            aria-pressed={audioSettings.musicEnabled}
-                          >
-                            {audioSettings.musicEnabled ? 'Activo' : 'Silencio'}
-                          </button>
-                        </div>
-                        <label className="audio-slider-row">
-                          <div className="audio-slider-header">
-                            <span>Volumen del ambiente</span>
-                            <strong>{musicVolumePercent}%</strong>
-                          </div>
-                          <input
-                            className="audio-slider"
-                            type="range"
-                            min="0"
-                            max="100"
-                            step="1"
-                            value={musicVolumePercent}
-                            onChange={(event) => handleMusicVolumeChange(Number(event.target.value) / 100)}
-                            aria-label="Volumen de la musica ambiental"
-                          />
-                        </label>
-                        <div className="audio-toggle-row">
-                          <div className="audio-toggle-copy">
-                            <strong>Efectos pixel</strong>
-                            <span>Notificaciones, menu, chat y editor con respuesta retro.</span>
-                          </div>
-                          <button
-                            type="button"
-                            className={`audio-toggle-button ${audioSettings.sfxEnabled ? 'is-active' : ''}`}
-                            onClick={handleToggleSfx}
-                            aria-pressed={audioSettings.sfxEnabled}
-                          >
-                            {audioSettings.sfxEnabled ? 'Activos' : 'Mute'}
-                          </button>
-                        </div>
-                        <label className="audio-slider-row">
-                          <div className="audio-slider-header">
-                            <span>Volumen de efectos</span>
-                            <strong>{sfxVolumePercent}%</strong>
-                          </div>
-                          <input
-                            className="audio-slider"
-                            type="range"
-                            min="0"
-                            max="100"
-                            step="1"
-                            value={sfxVolumePercent}
-                            onChange={(event) => handleSfxVolumeChange(Number(event.target.value) / 100)}
-                            aria-label="Volumen de efectos de interfaz"
-                          />
-                        </label>
-                        <p className="dropdown-subtext">
-                          Puedes bajar el volumen, silenciar por completo y dejar guardada tu mezcla para futuras sesiones.
-                        </p>
-                      </div>
-                    </div>
-                  </details>
+                  
                   <details className="dropdown-section" open>
                     <summary>Personajes en la sala</summary>
                     <div className="dropdown-section-body">
@@ -1764,6 +1695,77 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                           })}
                         </ul>
                       )}
+                    </div>
+                  </details>
+
+                  <details className="dropdown-section" open>
+                    <summary>Ambiente sonoro</summary>
+                    <div className="dropdown-section-body">
+                      <div className="audio-settings-panel">
+                        <div className="audio-toggle-row">
+                          <div className="audio-toggle-copy">
+                            <strong>Tema mitico</strong>
+                            <span>Melodia 8-bit de aventura.</span>
+                          </div>
+                          <button
+                            type="button"
+                            className={`audio-toggle-button ${audioSettings.musicEnabled ? 'is-active' : ''}`}
+                            onClick={handleToggleMusic}
+                            aria-pressed={audioSettings.musicEnabled}
+                          >
+                            {audioSettings.musicEnabled ? 'Activo' : 'Silencio'}
+                          </button>
+                        </div>
+                        <label className="audio-slider-row">
+                          <div className="audio-slider-header">
+                            <span>Volumen del ambiente</span>
+                            <strong>{musicVolumePercent}%</strong>
+                          </div>
+                          <input
+                            className="audio-slider"
+                            type="range"
+                            min="0"
+                            max="100"
+                            step="1"
+                            value={musicVolumePercent}
+                            onChange={(event) => handleMusicVolumeChange(Number(event.target.value) / 100)}
+                            aria-label="Volumen de la musica ambiental"
+                          />
+                        </label>
+                        <div className="audio-toggle-row">
+                          <div className="audio-toggle-copy">
+                            <strong>Efectos pixel</strong>
+                            <span>Notificaciones, menu, chat y editor.</span>
+                          </div>
+                          <button
+                            type="button"
+                            className={`audio-toggle-button ${audioSettings.sfxEnabled ? 'is-active' : ''}`}
+                            onClick={handleToggleSfx}
+                            aria-pressed={audioSettings.sfxEnabled}
+                          >
+                            {audioSettings.sfxEnabled ? 'Activos' : 'Mute'}
+                          </button>
+                        </div>
+                        <label className="audio-slider-row">
+                          <div className="audio-slider-header">
+                            <span>Volumen de efectos</span>
+                            <strong>{sfxVolumePercent}%</strong>
+                          </div>
+                          <input
+                            className="audio-slider"
+                            type="range"
+                            min="0"
+                            max="100"
+                            step="1"
+                            value={sfxVolumePercent}
+                            onChange={(event) => handleSfxVolumeChange(Number(event.target.value) / 100)}
+                            aria-label="Volumen de efectos de interfaz"
+                          />
+                        </label>
+                        <p className="dropdown-subtext">
+                          Puedes bajar el volumen, silenciar por completo y dejar guardada tu mezcla para futuras sesiones.
+                        </p>
+                      </div>
                     </div>
                   </details>
                   <div className="dropdown-actions">

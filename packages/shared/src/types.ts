@@ -19,7 +19,7 @@ const LEGACY_AUDIO_SETTINGS_DEFAULTS: AudioSettings = {
 
 export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
   musicEnabled: true,
-  musicVolume: 0.15,
+  musicVolume: 0.1,
   sfxEnabled: true,
   sfxVolume: 1,
 }
