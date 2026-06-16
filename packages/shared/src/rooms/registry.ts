@@ -1,7 +1,8 @@
+import { centerRoomTemplate } from './templates/CenterRoom'
 import { room1909Template } from './templates/Room_1909'
 import type { RoomTemplate } from './types'
 
-export const roomTemplates: RoomTemplate[] = [room1909Template]
+export const roomTemplates: RoomTemplate[] = [room1909Template, centerRoomTemplate]
 
 const roomTemplateMap = new Map(roomTemplates.map((template) => [template.id, template]))
 

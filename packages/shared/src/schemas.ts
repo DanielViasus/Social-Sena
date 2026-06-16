@@ -44,6 +44,7 @@ export const completeOnboardingSchema = z.object({
 export const joinRoomSchema = z.object({
   roomId: z.string().min(1),
   templateId: z.string().min(1),
+  spawnPosition: positionSchema.optional(),
 })
 
 export const navigateToSchema = z.object({

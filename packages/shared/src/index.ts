@@ -1,6 +1,7 @@
 export * from './constants'
 export * from './events'
 export * from './rooms/registry'
+export * from './rooms/templates/CenterRoom'
 export * from './rooms/templates/Room_1909'
 export * from './rooms/types'
 export * from './schemas'

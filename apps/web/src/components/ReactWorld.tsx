@@ -383,6 +383,14 @@ function getPerspectiveAwareRenderItems(
   })
 }
 
+function getNpcInteractionAnchor(npcTemplate: RoomNpcTemplate) {
+  const interactionArea = getNpcInteractionArea(npcTemplate)
+  return {
+    x: npcTemplate.x + interactionArea.offsetX,
+    y: npcTemplate.y + interactionArea.offsetY,
+  }
+}
+
 function ReactWorld({
   room,
   currentUserId,
@@ -589,13 +597,15 @@ function ReactWorld({
     return npcViews
       .filter((npcView) => npcView.state === 'interaction')
       .sort((left, right) => {
+        const leftAnchor = getNpcInteractionAnchor(left.npcTemplate)
+        const rightAnchor = getNpcInteractionAnchor(right.npcTemplate)
         const leftDistance = Math.hypot(
-          currentPlayerView.animatedPosition.x - left.npcTemplate.x,
-          currentPlayerView.animatedPosition.y - left.npcTemplate.y,
+          currentPlayerView.animatedPosition.x - leftAnchor.x,
+          currentPlayerView.animatedPosition.y - leftAnchor.y,
         )
         const rightDistance = Math.hypot(
-          currentPlayerView.animatedPosition.x - right.npcTemplate.x,
-          currentPlayerView.animatedPosition.y - right.npcTemplate.y,
+          currentPlayerView.animatedPosition.x - rightAnchor.x,
+          currentPlayerView.animatedPosition.y - rightAnchor.y,
         )
         return leftDistance - rightDistance
       })[0] ?? null
@@ -668,10 +678,10 @@ function ReactWorld({
           width: `${template.world.width}px`,
           height: `${template.world.height}px`,
           backgroundColor: colorToCss(template.world.backgroundColor, '#dfe8d2'),
-          backgroundImage: template.id === 'Room_1909' ? `url(${bkGarden})` : undefined,
-          backgroundSize: template.id === 'Room_1909' ? '100% 100%' : undefined,
-          backgroundRepeat: template.id === 'Room_1909' ? 'no-repeat' : undefined,
-          backgroundPosition: template.id === 'Room_1909' ? 'center center' : undefined,
+          backgroundImage: template.id === 'Room_1909' || template.id === 'CenterRoom' ? `url(${bkGarden})` : undefined,
+          backgroundSize: template.id === 'Room_1909' || template.id === 'CenterRoom' ? '100% 100%' : undefined,
+          backgroundRepeat: template.id === 'Room_1909' || template.id === 'CenterRoom' ? 'no-repeat' : undefined,
+          backgroundPosition: template.id === 'Room_1909' || template.id === 'CenterRoom' ? 'center center' : undefined,
           transform: `translate3d(${-runtime.cameraX}px, ${-runtime.cameraY}px, 0)`,
         }}
       >

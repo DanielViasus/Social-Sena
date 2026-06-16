@@ -1,9 +1,10 @@
-import { FormEvent, useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useEffectEvent, useRef, useState, type CSSProperties } from 'react'
 import { io, type Socket } from 'socket.io-client'
 import {
   clientEvents,
   serverEvents,
   DEFAULT_AUDIO_SETTINGS,
+  getRoomTemplateById,
   normalizeAudioSettings,
   type AudioSettings,
   type ChatMessage,
@@ -30,9 +31,11 @@ import {
   getDefaultAvatarColorSelections,
   normalizeAvatarColorSelections,
   resolveAvatarPreset,
+  resolveAvatarPrimaryColor,
   resolveAvatarSheetUrl,
   type AvatarColorSelections,
 } from '../game/avatar/avatarSprites'
+import { createAvatarBubblePalette } from '../game/avatar/avatarUiColors'
 import ReactWorld from './ReactWorld'
 import DialogueOverlay from './dialogue/DialogueOverlay'
 import MobileNpcInteractButton from './MobileNpcInteractButton'
@@ -66,6 +69,11 @@ interface ActivityNoticeState {
   id: string
   title: string
   message: string
+}
+
+interface FloatingChatMessage extends ChatMessage {
+  primaryColor: string
+  isOwnMessage: boolean
 }
 
 function areAudioSettingsEqual(left: AudioSettings, right: AudioSettings) {
@@ -125,10 +133,12 @@ function MenuAvatarPreview({
 function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const MAX_HEADLINE_SPEECH_CHARS = 30
   const FRIEND_REQUEST_POPUP_DURATION_MS = 8000
+  const MAX_FLOATING_MESSAGES_MOBILE = 3
+  const MAX_FLOATING_MESSAGES_DESKTOP = 6
   const [pathname, setPathname] = useState(() => window.location.pathname)
   const [room, setRoom] = useState<RoomState | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [floatingMessages, setFloatingMessages] = useState<ChatMessage[]>([])
+  const [floatingMessages, setFloatingMessages] = useState<FloatingChatMessage[]>([])
   const [chatInput, setChatInput] = useState('')
   const [activeSpeechByUserId, setActiveSpeechByUserId] = useState<Record<string, string>>({})
   const [typingByUserId, setTypingByUserId] = useState<Record<string, boolean>>({})
@@ -332,8 +342,27 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   })
 
   const enqueueFloatingMessage = useEffectEvent((message: ChatMessage) => {
+    const sessionProfile = sessionProfileRef.current
+    const senderPresence = roomRef.current?.players.find((player) => player.userId === message.userId)
+    const primaryColorSource =
+      senderPresence ?? (message.userId === sessionProfile.userId ? sessionProfile : null)
+    const primaryColor = primaryColorSource
+      ? resolveAvatarPrimaryColor(
+          resolveAvatarPreset(primaryColorSource.skinId),
+          primaryColorSource.skinColors,
+        )
+      : '#8A50C0'
+    const floatingMessage: FloatingChatMessage = {
+      ...message,
+      primaryColor,
+      isOwnMessage: message.userId === sessionProfile.userId,
+    }
+
     setFloatingMessages((currentMessages) => {
-      const nextMessages = [message, ...currentMessages].slice(0, 3)
+      const maxFloatingMessages = mobileInteractionEnabled
+        ? MAX_FLOATING_MESSAGES_MOBILE
+        : MAX_FLOATING_MESSAGES_DESKTOP
+      const nextMessages = [floatingMessage, ...currentMessages].slice(0, maxFloatingMessages)
       const keptMessageIds = new Set(nextMessages.map((currentMessage) => currentMessage.messageId))
 
       currentMessages.forEach((currentMessage) => {
@@ -816,9 +845,10 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
         }
 
         setInitialSkinSetupOpen(false)
+        const routeTemplate = resolveRoomTemplateFromPath(window.location.pathname)
         nextSocket.emit(clientEvents.joinRoom, {
-          roomId: activeTemplate.id,
-          templateId: activeTemplate.id,
+          roomId: routeTemplate.id,
+          templateId: routeTemplate.id,
         })
       },
     )
@@ -864,6 +894,16 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     nextSocket.on(serverEvents.playerJoined, (player: Presence) => {
       setRoom((currentRoom) => {
         if (!currentRoom) return currentRoom
+
+        const existingIndex = currentRoom.players.findIndex(
+          (currentPlayer) => currentPlayer.sessionId === player.sessionId,
+        )
+        if (existingIndex >= 0) {
+          const nextPlayers = currentRoom.players.slice()
+          nextPlayers[existingIndex] = player
+          return { ...currentRoom, players: nextPlayers }
+        }
+
         return { ...currentRoom, players: [...currentRoom.players, player] }
       })
     })
@@ -920,7 +960,6 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       nextSocket.disconnect()
     }
   }, [
-    activeTemplate.id,
     clearAllActivityNoticeTimeouts,
     clearAllFriendRequestPopupTimeouts,
     clearAllPartyInvitePopupTimeouts,
@@ -956,6 +995,14 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     ? activeDialogue.dialogue.lines[activeDialogue.lineIndex] ?? ''
     : ''
   const isDialogueLineComplete = dialogueVisibleChars >= currentDialogueLine.length
+  const quickChatShortcutDisabled = chatOpen || Boolean(activeDialogue) || initialSkinSetupOpen || skinEditorOpen
+  const quickChatShortcutLabel = chatOpen
+    ? 'chat abierto'
+    : quickChatOpen
+      ? chatInput.trim()
+        ? 'enviar chat'
+        : 'cerrar chat'
+      : 'chat rapido'
 
   useEffect(() => {
     if (!optionsOpen) {
@@ -1606,12 +1653,45 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
   }
 
+  const transitionToRoom = useEffectEvent((templateId: string, spawnPosition?: Position) => {
+    const socket = socketRef.current
+    const targetTemplate = getRoomTemplateById(templateId)
+    if (!socket || !connected || !targetTemplate) {
+      return
+    }
+
+    requestStopMovement()
+    stopLocalTyping()
+    setQuickChatOpen(false)
+    setFloatingMessages([])
+    setActiveSpeechByUserId({})
+    setTypingByUserId({})
+
+    const nextPath = `/${targetTemplate.routeSegment}`
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, '', nextPath)
+      setPathname(nextPath)
+    }
+
+    socket.emit(clientEvents.joinRoom, {
+      roomId: targetTemplate.id,
+      templateId: targetTemplate.id,
+      spawnPosition,
+    })
+  })
+
   const handleNpcInteract = useEffectEvent((npc: RoomNpcTemplate) => {
     if (activeDialogue || npcInteractionLocked || skinEditorOpen || initialSkinSetupOpen) {
       return
     }
 
     void ensureAudioUnlocked()
+
+    if (npc.teleportTarget) {
+      transitionToRoom(npc.teleportTarget.templateId, npc.teleportTarget.position)
+      return
+    }
+
     requestStopMovement()
 
     const dialogue = getDialogueById(npc.dialogueId)
@@ -1839,9 +1919,10 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
         onSessionChange?.(nextSession)
 
         setInitialSkinSetupOpen(false)
+        const routeTemplate = resolveRoomTemplateFromPath(window.location.pathname)
         socket.emit(clientEvents.joinRoom, {
-          roomId: activeTemplate.id,
-          templateId: activeTemplate.id,
+          roomId: routeTemplate.id,
+          templateId: routeTemplate.id,
         })
       },
     )
@@ -1901,6 +1982,24 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
     submitChatMessage(true)
   }
+
+  const triggerQuickChatShortcut = useEffectEvent(() => {
+    if (chatOpen || activeDialogue || initialSkinSetupOpen || skinEditorOpen) {
+      return
+    }
+
+    if (!quickChatOpen) {
+      setQuickChatOpen(true)
+      return
+    }
+
+    if (!chatInput.trim()) {
+      closeQuickChat(true)
+      return
+    }
+
+    submitChatMessage(true)
+  })
 
   const handleChatInputChange = (nextValue: string) => {
     const previousValue = chatInput
@@ -1982,23 +2081,12 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       }
 
       event.preventDefault()
-
-      if (!quickChatOpen) {
-        setQuickChatOpen(true)
-        return
-      }
-
-      if (!chatInput.trim()) {
-        closeQuickChat(true)
-        return
-      }
-
-      submitChatMessage(true)
+      triggerQuickChatShortcut()
     }
 
     window.addEventListener('keydown', handleQuickChatShortcut)
     return () => window.removeEventListener('keydown', handleQuickChatShortcut)
-  }, [activeDialogue, chatInput, chatOpen, initialSkinSetupOpen, quickChatOpen, skinEditorOpen])
+  }, [activeDialogue, chatOpen, initialSkinSetupOpen, skinEditorOpen])
 
   return (
     <main className="hud-layout">
@@ -2501,13 +2589,32 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
           </div>
 
           {!chatOpen && floatingMessages.length > 0 ? (
-            <section className="chat-bubble-stack" aria-label="Mensajes emergentes">
-              {floatingMessages.map((message) => (
-                <article key={message.messageId} className="chat-bubble">
+            <section
+              className={`chat-bubble-stack ${quickChatOpen ? 'is-offset-for-quick-chat' : ''}`}
+              aria-label="Mensajes emergentes"
+            >
+              {floatingMessages.map((message) => {
+                const bubblePalette = createAvatarBubblePalette(message.primaryColor)
+                const bubbleStyle = {
+                  '--chat-bubble-fill': bubblePalette.fill,
+                  '--chat-bubble-border': bubblePalette.border,
+                  '--chat-bubble-outline': bubblePalette.outline,
+                  '--chat-bubble-shadow': bubblePalette.shadow,
+                  '--chat-bubble-title': bubblePalette.title,
+                  '--chat-bubble-text': bubblePalette.ink,
+                } as CSSProperties
+
+                return (
+                <article
+                  key={message.messageId}
+                  className={`chat-bubble ${message.isOwnMessage ? 'is-self' : 'is-other'}`}
+                  style={bubbleStyle}
+                >
                   <strong>{message.displayName}</strong>
                   <span>{message.content}</span>
                 </article>
-              ))}
+                )
+              })}
             </section>
           ) : null}
 
@@ -2642,11 +2749,20 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
               <div className="shortcut-board-actions">
                 <button type="button" className="shortcut-chip" onClick={toggleDebug}>
                   <span className="shortcut-key">P</span>
-                  <span className="shortcut-label">coliders</span>
+                  <span className="shortcut-label">colision</span>
                 </button>
                 <button type="button" className="shortcut-chip" onClick={toggleSkinEditor}>
                   <span className="shortcut-key">M</span>
                   <span className="shortcut-label">skins</span>
+                </button>
+                <button
+                  type="button"
+                  className={`shortcut-chip ${quickChatShortcutDisabled ? 'is-disabled' : ''}`}
+                  onClick={triggerQuickChatShortcut}
+                  disabled={quickChatShortcutDisabled}
+                >
+                  <span className="shortcut-key">ENT</span>
+                  <span className="shortcut-label">{quickChatShortcutLabel}</span>
                 </button>
                 <button
                   type="button"

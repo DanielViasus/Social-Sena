@@ -1,14 +1,14 @@
 import type { RoomTemplate } from '../types'
 
-export const room1909Template: RoomTemplate = {
-  id: 'Room_1909',
-  routeSegment: 'Room_1909',
-  name: 'Lobby Garden 1909',
+export const centerRoomTemplate: RoomTemplate = {
+  id: 'CenterRoom',
+  routeSegment: 'CenterRoom',
+  name: 'Center Room',
   chatMode: 'scene',
   world: {
     width: 2300,
     height: 2700,
-    spawn: { x: 1000, y: 1600 },
+    spawn: { x: 1138, y: 1661 },
     backgroundColor: 0xdfe8d2,
     gridColor: 0xffffff,
   },
@@ -252,49 +252,6 @@ export const room1909Template: RoomTemplate = {
       },
       interactionId: 'lobby-guide',
       dialogueId: 'lobby-guide-intro',
-    },
-    {
-      id: 'center-room-teleport',
-      label: '',
-      x: 1097,
-      y: 366,
-      width: 1,
-      height: 1,
-      opacity: 0,
-      iconFrameDurationMs: 400,
-      iconWarningAssetIds: [
-        'npc-alert-0',
-        'npc-alert-1',
-        'npc-alert-2',
-        'npc-alert-3',
-      ],
-      iconInteractionAssetIds: [
-        'npc-interaction-e-0',
-        'npc-interaction-e-1',
-      ],
-      iconOffsetX: 0,
-      iconOffsetY: -72,
-      iconWidth: 96,
-      iconHeight: 96,
-      iconWarningFillColor: 0xe85050,
-      iconInteractionFillColor: 0x6354ff,
-      warningArea: {
-        offsetX: 0,
-        offsetY: 120,
-        width: 320,
-        height: 240,
-      },
-      interactionArea: {
-        offsetX: 0,
-        offsetY: 120,
-        width: 240,
-        height: 176,
-      },
-      interactionId: 'tp-center-room',
-      teleportTarget: {
-        templateId: 'CenterRoom',
-        position: { x: 1138, y: 1661 },
-      },
     },
   ],
 }

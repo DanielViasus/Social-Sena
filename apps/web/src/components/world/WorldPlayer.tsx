@@ -1,10 +1,12 @@
 import type { Presence } from '@social-sena/shared'
+import type { CSSProperties } from 'react'
 import {
   resolveAvatarPreset,
   resolveAvatarPrimaryColor,
   type AvatarPreset,
   type AvatarTextureDefinition,
 } from '../../game/avatar/avatarSprites'
+import { createAvatarBubblePalette } from '../../game/avatar/avatarUiColors'
 
 interface WorldPlayerProps {
   player: Presence
@@ -52,6 +54,20 @@ export function WorldPlayer({
           player.partyLeaderSkinColors,
         )
       : '#D9D9D9'
+  const playerPrimaryColor = resolveAvatarPrimaryColor(
+    resolveAvatarPreset(player.skinId),
+    player.skinColors,
+  )
+  const speechBubblePalette = createAvatarBubblePalette(playerPrimaryColor)
+  const labelStyle: CSSProperties = isSpeechActive
+    ? {
+        backgroundColor: speechBubblePalette.fill,
+        borderColor: speechBubblePalette.border,
+        boxShadow: `0 0 0 4px ${speechBubblePalette.outline}, 0 10px 24px ${speechBubblePalette.shadow}`,
+      }
+    : {
+        borderColor: partyBorderColor,
+      }
 
   return (
     <div
@@ -85,9 +101,7 @@ export function WorldPlayer({
       </div>
       <div
         className={`react-world-avatar-label ${isSelf ? 'is-self' : ''} ${isSpeechActive ? 'is-speech' : ''} ${isTyping ? 'is-typing' : ''}`}
-        style={{
-          borderColor: partyBorderColor,
-        }}
+        style={labelStyle}
       >
         {labelText}
       </div>

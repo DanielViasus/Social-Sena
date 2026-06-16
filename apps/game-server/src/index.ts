@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
-import { Server } from 'socket.io'
+import { Server, type Socket } from 'socket.io'
 import { initializeDatabase } from './db/client'
 import { gameRepository } from './db/repositories/gameRepository'
 import {
@@ -394,6 +394,84 @@ function clampPositionToRoom(room: RoomState, position: Position): Position {
     x: Math.min(Math.max(position.x, PLAYER_COLLIDER_WIDTH / 2), room.template.world.width - PLAYER_COLLIDER_WIDTH / 2),
     y: Math.min(Math.max(position.y, PLAYER_COLLIDER_HEIGHT), room.template.world.height - 20),
   }
+}
+
+async function removeSessionPresenceFromCurrentRoom(socket: Socket, session: SessionState) {
+  if (!session.roomId) {
+    return null
+  }
+
+  const room = rooms.get(session.roomId)
+  if (!room) {
+    session.roomId = null
+    return null
+  }
+
+  const departingPlayer = room.players.find((presence) => presence.sessionId === socket.id) ?? null
+  if (departingPlayer) {
+    await gameRepository.savePlayerState(session.profile.userId, {
+      roomId: room.roomId,
+      position: clonePosition(departingPlayer.position),
+    })
+  }
+
+  room.players = room.players.filter((presence) => presence.sessionId !== socket.id)
+  socket.leave(room.roomId)
+  io.to(room.roomId).emit(serverEvents.typingStateChanged, {
+    roomId: room.roomId,
+    userId: session.profile.userId,
+    isTyping: false,
+  })
+  io.to(room.roomId).emit(serverEvents.playerLeft, {
+    sessionId: socket.id,
+    userId: session.profile.userId,
+  })
+
+  if (room.players.length === 0) {
+    rooms.delete(room.roomId)
+  }
+
+  session.roomId = null
+  return departingPlayer
+}
+
+async function joinSessionToRoom(
+  socket: Socket,
+  session: SessionState,
+  room: RoomState,
+  entryPosition?: Position,
+) {
+  socket.join(room.roomId)
+  session.roomId = room.roomId
+
+  const persistedState = await gameRepository.getPlayerState(session.profile.userId)
+  const preferredSpawnPosition = entryPosition
+    ? clampPositionToRoom(room, entryPosition)
+    : persistedState?.roomId === room.roomId && persistedState.position
+      ? clampPositionToRoom(room, persistedState.position)
+      : room.template.world.spawn
+
+  const presence = buildPresence(session.profile, session.progress, socket.id, room, preferredSpawnPosition)
+  const partyMarker = await buildPartyPresenceMarkerForUser(session.profile.userId)
+  presence.partyId = partyMarker.partyId
+  presence.partyLeaderUserId = partyMarker.partyLeaderUserId
+  presence.partyLeaderSkinId = partyMarker.partyLeaderSkinId
+  presence.partyLeaderSkinColors = partyMarker.partyLeaderSkinColors
+  ensureNavigablePlayerPosition(room, presence)
+  room.players.push(presence)
+  void gameRepository.savePlayerState(session.profile.userId, {
+    roomId: room.roomId,
+    position: clonePosition(presence.position),
+  })
+
+  socket.emit(serverEvents.roomJoined, {
+    roomId: room.roomId,
+    player: presence,
+  })
+  socket.emit(serverEvents.roomState, room)
+  socket.to(room.roomId).emit(serverEvents.playerJoined, presence)
+
+  return presence
 }
 
 function getPlayerColliderBounds(position: Position): RectBounds {
@@ -1247,34 +1325,8 @@ io.on('connection', (socket) => {
       return
     }
 
-    socket.join(room.roomId)
-    session.roomId = room.roomId
-
-    const persistedState = await gameRepository.getPlayerState(session.profile.userId)
-    const preferredSpawnPosition =
-      persistedState?.roomId === room.roomId && persistedState.position
-        ? clampPositionToRoom(room, persistedState.position)
-        : room.template.world.spawn
-
-    const presence = buildPresence(session.profile, session.progress, socket.id, room, preferredSpawnPosition)
-    const partyMarker = await buildPartyPresenceMarkerForUser(session.profile.userId)
-    presence.partyId = partyMarker.partyId
-    presence.partyLeaderUserId = partyMarker.partyLeaderUserId
-    presence.partyLeaderSkinId = partyMarker.partyLeaderSkinId
-    presence.partyLeaderSkinColors = partyMarker.partyLeaderSkinColors
-    ensureNavigablePlayerPosition(room, presence)
-    room.players.push(presence)
-    void gameRepository.savePlayerState(session.profile.userId, {
-      roomId: room.roomId,
-      position: clonePosition(presence.position),
-    })
-
-    socket.emit(serverEvents.roomJoined, {
-      roomId: room.roomId,
-      player: presence,
-    })
-    socket.emit(serverEvents.roomState, room)
-    socket.to(room.roomId).emit(serverEvents.playerJoined, presence)
+    await removeSessionPresenceFromCurrentRoom(socket, session)
+    await joinSessionToRoom(socket, session, room, parsed.data.spawnPosition)
   })
 
   socket.on(clientEvents.navigateTo, (rawPayload) => {
@@ -1719,30 +1771,7 @@ io.on('connection', (socket) => {
       return
     }
 
-    if (session.roomId) {
-      const room = rooms.get(session.roomId)
-      if (room) {
-        const departingPlayer = room.players.find((presence) => presence.sessionId === socket.id)
-        if (departingPlayer) {
-          void gameRepository.savePlayerState(session.profile.userId, {
-            roomId: room.roomId,
-            position: clonePosition(departingPlayer.position),
-          })
-        }
-
-        room.players = room.players.filter((presence) => presence.sessionId !== socket.id)
-        io.to(room.roomId).emit(serverEvents.typingStateChanged, {
-          roomId: room.roomId,
-          userId: session.profile.userId,
-          isTyping: false,
-        })
-        socket.to(room.roomId).emit(serverEvents.playerLeft, { sessionId: socket.id, userId: session.profile.userId })
-
-        if (room.players.length === 0) {
-          rooms.delete(room.roomId)
-        }
-      }
-    }
+    await removeSessionPresenceFromCurrentRoom(socket, session)
 
     sessions.delete(socket.id)
 

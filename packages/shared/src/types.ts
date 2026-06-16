@@ -215,6 +215,7 @@ export interface CompleteOnboardingPayload {
 export interface JoinRoomPayload {
   roomId: string
   templateId: string
+  spawnPosition?: Position
 }
 
 export interface NavigateToPayload {

@@ -23,6 +23,11 @@ export interface RoomInteractionAreaTemplate {
   height: number
 }
 
+export interface RoomTeleportTargetTemplate {
+  templateId: string
+  position?: Position
+}
+
 export interface RoomSpriteFrameTemplate {
   key: string
   row: number
@@ -78,6 +83,7 @@ export interface RoomNpcTemplate {
   interactionArea?: RoomInteractionAreaTemplate
   interactionId?: string
   dialogueId?: string
+  teleportTarget?: RoomTeleportTargetTemplate
 }
 
 export interface RoomCameraTemplate {
