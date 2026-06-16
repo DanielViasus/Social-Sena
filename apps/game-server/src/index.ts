@@ -25,6 +25,7 @@ import {
   updateSkinSchema,
   updateInventorySchema,
   type PartyInviteSummary,
+  type PartyOutgoingInviteSummary,
   type PartyStatePayload,
   type PartySummary,
   setTypingStateSchema,
@@ -196,8 +197,8 @@ async function buildIncomingPartyInvitesForUser(userId: string): Promise<PartyIn
   return gameRepository.getIncomingPartyInvites(userId)
 }
 
-async function buildOutgoingPartyInviteUserIdsForUser(userId: string): Promise<string[]> {
-  return gameRepository.getOutgoingPartyInviteUserIds(userId)
+async function buildOutgoingPartyInvitesForUser(userId: string): Promise<PartyOutgoingInviteSummary[]> {
+  return gameRepository.getOutgoingPartyInvites(userId)
 }
 
 async function emitPartyStateToSocket(socketId: string) {
@@ -206,16 +207,16 @@ async function emitPartyStateToSocket(socketId: string) {
     return
   }
 
-  const [party, incomingPartyInvites, outgoingPartyInviteUserIds] = await Promise.all([
+  const [party, incomingPartyInvites, outgoingPartyInvites] = await Promise.all([
     buildPartyForUser(session.profile.userId),
     buildIncomingPartyInvitesForUser(session.profile.userId),
-    buildOutgoingPartyInviteUserIdsForUser(session.profile.userId),
+    buildOutgoingPartyInvitesForUser(session.profile.userId),
   ])
 
   const payload: PartyStatePayload = {
     party,
     incomingPartyInvites,
-    outgoingPartyInviteUserIds,
+    outgoingPartyInvites,
   }
 
   io.to(socketId).emit(serverEvents.partyState, payload)
@@ -1094,7 +1095,7 @@ io.on('connection', (socket) => {
           }
         : null,
       incomingPartyInvites: resolvedProfileResult.incomingPartyInvites,
-      outgoingPartyInviteUserIds: resolvedProfileResult.outgoingPartyInviteUserIds,
+      outgoingPartyInvites: resolvedProfileResult.outgoingPartyInvites,
     }
 
     socket.emit(serverEvents.connectionAccepted, connectionAcceptedPayload)

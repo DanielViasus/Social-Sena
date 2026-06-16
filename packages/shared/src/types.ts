@@ -104,6 +104,8 @@ export interface FriendRequestSummary {
   createdAt: string
 }
 
+export const PARTY_INVITE_TTL_MS = 60_000
+
 export interface PartyMemberSummary {
   userId: string
   displayName: string
@@ -128,6 +130,13 @@ export interface PartyInviteSummary {
   skinColors: SkinColorSelections
   level: number
   createdAt: string
+  expiresAt: string
+}
+
+export interface PartyOutgoingInviteSummary {
+  inviteId: string
+  toUserId: string
+  expiresAt: string
 }
 
 export interface Position {
@@ -191,7 +200,7 @@ export interface ConnectionAcceptedPayload {
   outgoingFriendRequestUserIds: string[]
   party: PartySummary | null
   incomingPartyInvites: PartyInviteSummary[]
-  outgoingPartyInviteUserIds: string[]
+  outgoingPartyInvites: PartyOutgoingInviteSummary[]
 }
 
 export interface CompleteOnboardingPayload {
@@ -268,7 +277,7 @@ export interface PromotePartyLeaderPayload {
 export interface PartyStatePayload {
   party: PartySummary | null
   incomingPartyInvites: PartyInviteSummary[]
-  outgoingPartyInviteUserIds: string[]
+  outgoingPartyInvites: PartyOutgoingInviteSummary[]
 }
 
 export interface SendChatMessagePayload {

@@ -4,6 +4,7 @@ import type {
   FriendSummary,
   PartyInviteSummary,
   PartyMemberSummary,
+  PartyOutgoingInviteSummary,
   PartySummary,
   PlayerInventory,
   PlayerProgress,
@@ -11,7 +12,7 @@ import type {
   SkinColorSelections,
   UserProfile,
 } from '@social-sena/shared'
-import { normalizeAudioSettings } from '@social-sena/shared'
+import { normalizeAudioSettings, PARTY_INVITE_TTL_MS } from '@social-sena/shared'
 import { getDbPool } from '../client'
 
 interface PersistedPlayerState {
@@ -29,7 +30,7 @@ interface ResolvedUserProfileResult {
   outgoingFriendRequestUserIds: string[]
   party: PartySummary | null
   incomingPartyInvites: PartyInviteSummary[]
-  outgoingPartyInviteUserIds: string[]
+  outgoingPartyInvites: PartyOutgoingInviteSummary[]
 }
 
 function normalizeSkinColors(value: unknown): SkinColorSelections {
@@ -129,6 +130,14 @@ function normalizeFriendRequestRows(
   }))
 }
 
+function normalizeTimestamp(value: string | Date) {
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
+}
+
+function resolvePartyInviteExpiration(createdAt: string | Date) {
+  return new Date(new Date(createdAt).getTime() + PARTY_INVITE_TTL_MS).toISOString()
+}
+
 function normalizePartyMemberRows(
   rows: Array<{
     user_id: string
@@ -168,9 +177,35 @@ function normalizePartyInviteRows(
     skinId: row.skin_id?.trim() || 'crock',
     skinColors: normalizeSkinColors(row.skin_colors),
     level: row.level ?? 1,
-    createdAt:
-      row.created_at instanceof Date ? row.created_at.toISOString() : new Date(row.created_at).toISOString(),
+    createdAt: normalizeTimestamp(row.created_at),
+    expiresAt: resolvePartyInviteExpiration(row.created_at),
   }))
+}
+
+function normalizeOutgoingPartyInviteRows(
+  rows: Array<{
+    invite_id: string
+    to_user_id: string
+    created_at: string | Date
+  }>,
+): PartyOutgoingInviteSummary[] {
+  return rows.map((row) => ({
+    inviteId: row.invite_id,
+    toUserId: row.to_user_id,
+    expiresAt: resolvePartyInviteExpiration(row.created_at),
+  }))
+}
+
+async function purgeExpiredPartyInvites(
+  client: { query: <TRow>(queryText: string, values?: unknown[]) => Promise<{ rows: TRow[]; rowCount: number | null }> },
+) {
+  await client.query(
+    `
+      delete from party_invites
+      where created_at <= now() - ($1 * interval '1 millisecond')
+    `,
+    [PARTY_INVITE_TTL_MS],
+  )
 }
 
 async function queryPartySummary(
@@ -247,30 +282,39 @@ async function queryIncomingPartyInvites(
       left join player_profiles on player_profiles.user_id = party_invites.from_user_id
       left join player_progress on player_progress.user_id = party_invites.from_user_id
       where party_invites.to_user_id = $1
+        and party_invites.created_at > now() - ($2 * interval '1 millisecond')
       order by party_invites.created_at desc
     `,
-    [userId],
+    [userId, PARTY_INVITE_TTL_MS],
   )
 
   return normalizePartyInviteRows(result.rows)
 }
 
-async function queryOutgoingPartyInviteUserIds(
+async function queryOutgoingPartyInvites(
   client: { query: <TRow>(queryText: string, values?: unknown[]) => Promise<{ rows: TRow[]; rowCount: number | null }> },
   userId: string,
-): Promise<string[]> {
-  const result = await client.query<{ to_user_id: string }>(
+): Promise<PartyOutgoingInviteSummary[]> {
+  const result = await client.query<{
+    invite_id: string
+    to_user_id: string
+    created_at: string | Date
+  }>(
     `
-      select distinct party_invites.to_user_id
+      select
+        party_invites.invite_id,
+        party_invites.to_user_id,
+        party_invites.created_at
       from party_invites
       inner join party_members on party_members.party_id = party_invites.party_id
       where party_members.user_id = $1
-      order by party_invites.to_user_id asc
+        and party_invites.created_at > now() - ($2 * interval '1 millisecond')
+      order by party_invites.created_at asc, party_invites.to_user_id asc
     `,
-    [userId],
+    [userId, PARTY_INVITE_TTL_MS],
   )
 
-  return result.rows.map((row) => row.to_user_id)
+  return normalizeOutgoingPartyInviteRows(result.rows)
 }
 
 class GameRepository {
@@ -290,7 +334,7 @@ class GameRepository {
         outgoingFriendRequestUserIds: [],
         party: null,
         incomingPartyInvites: [],
-        outgoingPartyInviteUserIds: [],
+        outgoingPartyInvites: [],
       }
     }
 
@@ -407,7 +451,7 @@ class GameRepository {
         )
         const party = await queryPartySummary(client, incomingProfile.userId)
         const incomingPartyInvites = await queryIncomingPartyInvites(client, incomingProfile.userId)
-        const outgoingPartyInviteUserIds = await queryOutgoingPartyInviteUserIds(client, incomingProfile.userId)
+        const outgoingPartyInvites = await queryOutgoingPartyInvites(client, incomingProfile.userId)
         const inventoryResult = await client.query<{
           inventory: unknown
         }>(
@@ -451,7 +495,7 @@ class GameRepository {
           outgoingFriendRequestUserIds: outgoingRequestsResult.rows.map((row) => row.to_user_id),
           party,
           incomingPartyInvites,
-          outgoingPartyInviteUserIds,
+          outgoingPartyInvites,
         }
       }
 
@@ -482,7 +526,7 @@ class GameRepository {
         outgoingFriendRequestUserIds: [],
         party: null,
         incomingPartyInvites: [],
-        outgoingPartyInviteUserIds: [],
+        outgoingPartyInvites: [],
       }
     } catch (error) {
       await client.query('ROLLBACK')
@@ -500,7 +544,7 @@ class GameRepository {
         outgoingFriendRequestUserIds: [],
         party: null,
         incomingPartyInvites: [],
-        outgoingPartyInviteUserIds: [],
+        outgoingPartyInvites: [],
       }
     } finally {
       client.release()
@@ -927,14 +971,14 @@ class GameRepository {
     }
   }
 
-  async getOutgoingPartyInviteUserIds(userId: string): Promise<string[]> {
+  async getOutgoingPartyInvites(userId: string): Promise<PartyOutgoingInviteSummary[]> {
     const pool = getDbPool()
     if (!pool) {
       return []
     }
 
     try {
-      return await queryOutgoingPartyInviteUserIds(pool, userId)
+      return await queryOutgoingPartyInvites(pool, userId)
     } catch (error) {
       console.error('[db] No fue posible leer las invitaciones de grupo enviadas.', error)
       return []
@@ -973,9 +1017,10 @@ class GameRepository {
           left join player_profiles on player_profiles.user_id = party_invites.from_user_id
           left join player_progress on player_progress.user_id = party_invites.from_user_id
           where party_invites.invite_id = $1
+            and party_invites.created_at > now() - ($2 * interval '1 millisecond')
           limit 1
         `,
-        [inviteId],
+        [inviteId, PARTY_INVITE_TTL_MS],
       )
 
       return normalizePartyInviteRows(result.rows)[0] ?? null
@@ -1187,6 +1232,7 @@ class GameRepository {
 
     try {
       await client.query('BEGIN')
+      await purgeExpiredPartyInvites(client)
 
       const friendshipResult = await client.query<{ friend_user_id: string }>(
         `
@@ -1316,6 +1362,7 @@ class GameRepository {
 
     try {
       await client.query('BEGIN')
+      await purgeExpiredPartyInvites(client)
 
       const currentMembershipResult = await client.query<{ party_id: string }>(
         `
