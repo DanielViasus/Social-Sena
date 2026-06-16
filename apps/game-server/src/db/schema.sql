@@ -59,6 +59,39 @@ create table if not exists friend_requests (
 create index if not exists idx_friend_requests_to_user_id on friend_requests(to_user_id);
 create index if not exists idx_friend_requests_from_user_id on friend_requests(from_user_id);
 
+create table if not exists parties (
+  party_id text primary key,
+  leader_user_id text not null references users(user_id) on delete cascade,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_parties_leader_user_id on parties(leader_user_id);
+
+create table if not exists party_members (
+  party_id text not null references parties(party_id) on delete cascade,
+  user_id text not null references users(user_id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (party_id, user_id),
+  unique (user_id)
+);
+
+create index if not exists idx_party_members_user_id on party_members(user_id);
+
+create table if not exists party_invites (
+  invite_id text primary key,
+  party_id text not null references parties(party_id) on delete cascade,
+  from_user_id text not null references users(user_id) on delete cascade,
+  to_user_id text not null references users(user_id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (party_id, to_user_id),
+  check (from_user_id <> to_user_id)
+);
+
+create index if not exists idx_party_invites_to_user_id on party_invites(to_user_id);
+create index if not exists idx_party_invites_from_user_id on party_invites(from_user_id);
+create index if not exists idx_party_invites_party_id on party_invites(party_id);
+
 alter table if exists player_profiles
 add column if not exists onboarding_completed boolean not null default true;
 

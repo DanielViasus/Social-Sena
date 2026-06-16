@@ -10,6 +10,9 @@ import {
   type ConnectionAcceptedPayload,
   type FriendRequestSummary,
   type FriendSummary,
+  type PartyInviteSummary,
+  type PartyStatePayload,
+  type PartySummary,
   type Position,
   type Presence,
   type RoomNpcTemplate,
@@ -128,10 +131,17 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const [friends, setFriends] = useState<FriendSummary[]>([])
   const [incomingFriendRequests, setIncomingFriendRequests] = useState<FriendRequestSummary[]>([])
   const [outgoingFriendRequestUserIds, setOutgoingFriendRequestUserIds] = useState<string[]>([])
+  const [party, setParty] = useState<PartySummary | null>(null)
+  const [incomingPartyInvites, setIncomingPartyInvites] = useState<PartyInviteSummary[]>([])
+  const [outgoingPartyInviteUserIds, setOutgoingPartyInviteUserIds] = useState<string[]>([])
   const [friendRequestPopups, setFriendRequestPopups] = useState<FriendRequestPopupState[]>([])
   const [addingFriendUserId, setAddingFriendUserId] = useState<string | null>(null)
   const [respondingFriendRequestId, setRespondingFriendRequestId] = useState<string | null>(null)
   const [removingFriendUserId, setRemovingFriendUserId] = useState<string | null>(null)
+  const [invitingPartyUserId, setInvitingPartyUserId] = useState<string | null>(null)
+  const [respondingPartyInviteId, setRespondingPartyInviteId] = useState<string | null>(null)
+  const [promotingPartyLeaderUserId, setPromotingPartyLeaderUserId] = useState<string | null>(null)
+  const [leavingParty, setLeavingParty] = useState(false)
   const [activeDialogue, setActiveDialogue] = useState<ActiveDialogueState | null>(null)
   const [dialogueVisibleChars, setDialogueVisibleChars] = useState(0)
   const [npcInteractionLocked, setNpcInteractionLocked] = useState(false)
@@ -522,6 +532,9 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       setFriends([])
       setIncomingFriendRequests([])
       setOutgoingFriendRequestUserIds([])
+      setParty(null)
+      setIncomingPartyInvites([])
+      setOutgoingPartyInviteUserIds([])
       friendRequestPopupsRef.current = []
       setFriendRequestPopups([])
       dismissedFriendRequestIdsRef.current.clear()
@@ -536,6 +549,9 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       setFriends([])
       setIncomingFriendRequests([])
       setOutgoingFriendRequestUserIds([])
+      setParty(null)
+      setIncomingPartyInvites([])
+      setOutgoingPartyInviteUserIds([])
       friendRequestPopupsRef.current = []
       setFriendRequestPopups([])
       dismissedFriendRequestIdsRef.current.clear()
@@ -553,12 +569,18 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
         friends,
         incomingFriendRequests,
         outgoingFriendRequestUserIds,
+        party,
+        incomingPartyInvites,
+        outgoingPartyInviteUserIds,
       }: ConnectionAcceptedPayload) => {
         sessionProfileRef.current = profile
         setAudioSettings(normalizeAudioSettings(profile.audioSettings))
         setFriends(friends)
         setIncomingFriendRequests(incomingFriendRequests)
         setOutgoingFriendRequestUserIds(outgoingFriendRequestUserIds)
+        setParty(party)
+        setIncomingPartyInvites(incomingPartyInvites)
+        setOutgoingPartyInviteUserIds(outgoingPartyInviteUserIds)
 
         const nextSession: AuthSession = {
           ...session,
@@ -608,12 +630,27 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       setOutgoingFriendRequestUserIds(outgoingFriendRequestUserIds)
     })
 
+    nextSocket.on(serverEvents.partyState, ({ party, incomingPartyInvites, outgoingPartyInviteUserIds }: PartyStatePayload) => {
+      setParty(party)
+      setIncomingPartyInvites(incomingPartyInvites)
+      setOutgoingPartyInviteUserIds(outgoingPartyInviteUserIds)
+    })
+
     nextSocket.on(serverEvents.friendRequestReceived, (request: FriendRequestSummary) => {
       void playUiSound('friend-request')
       setIncomingFriendRequests((currentValue) =>
         currentValue.some((currentRequest) => currentRequest.requestId === request.requestId)
           ? currentValue
           : [request, ...currentValue],
+      )
+    })
+
+    nextSocket.on(serverEvents.partyInviteReceived, (invite: PartyInviteSummary) => {
+      void playUiSound('chat-bubble')
+      setIncomingPartyInvites((currentValue) =>
+        currentValue.some((currentInvite) => currentInvite.inviteId === invite.inviteId)
+          ? currentValue
+          : [invite, ...currentValue],
       )
     })
 
@@ -702,6 +739,11 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const friendUserIds = new Set(friends.map((friend) => friend.userId))
   const incomingFriendRequestUserIds = new Set(incomingFriendRequests.map((request) => request.fromUserId))
   const outgoingFriendRequestUserIdSet = new Set(outgoingFriendRequestUserIds)
+  const partyMemberUserIds = new Set((party?.members ?? []).map((member) => member.userId))
+  const outgoingPartyInviteUserIdSet = new Set(outgoingPartyInviteUserIds)
+  const isPartyLeader = party?.leaderUserId === session.profile.userId
+  const partyLeaderDisplayName =
+    party?.members.find((member) => member.userId === party.leaderUserId)?.displayName ?? 'Sin lider'
   const pendingFriendRequestCount = incomingFriendRequests.length
   const currentDialogueLine = activeDialogue
     ? activeDialogue.dialogue.lines[activeDialogue.lineIndex] ?? ''
@@ -714,6 +756,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     }
 
     socketRef.current?.emit(clientEvents.requestSocialState)
+    socketRef.current?.emit(clientEvents.requestPartyState)
   }, [optionsOpen])
 
   const handleOpenChat = () => {
@@ -864,6 +907,77 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
         socket.emit(clientEvents.requestSocialState)
       }
     })
+  })
+
+  const handleInviteToParty = useEffectEvent((friendUserId: string) => {
+    const socket = socketRef.current
+    if (!socket || invitingPartyUserId) {
+      return
+    }
+
+    void playUiSound('send')
+    setInvitingPartyUserId(friendUserId)
+    socket.emit(clientEvents.inviteToParty, { friendUserId }, (response: { ok: boolean }) => {
+      setInvitingPartyUserId(null)
+      if (response.ok) {
+        socket.emit(clientEvents.requestPartyState)
+      }
+    })
+  })
+
+  const handleRespondToPartyInvite = useEffectEvent((inviteId: string, action: 'accept' | 'reject') => {
+    const socket = socketRef.current
+    if (!socket || respondingPartyInviteId) {
+      return
+    }
+
+    void playUiSound(action === 'accept' ? 'confirm' : 'cancel')
+    setRespondingPartyInviteId(inviteId)
+    socket.emit(clientEvents.respondPartyInvite, { inviteId, action }, (response: { ok: boolean }) => {
+      setRespondingPartyInviteId(null)
+      if (response.ok) {
+        setIncomingPartyInvites((currentValue) =>
+          currentValue.filter((currentInvite) => currentInvite.inviteId !== inviteId),
+        )
+        socket.emit(clientEvents.requestPartyState)
+      }
+    })
+  })
+
+  const handleLeaveParty = useEffectEvent(() => {
+    const socket = socketRef.current
+    if (!socket || leavingParty) {
+      return
+    }
+
+    void playUiSound('cancel')
+    setLeavingParty(true)
+    socket.emit(clientEvents.leaveParty, {}, (response: { ok: boolean }) => {
+      setLeavingParty(false)
+      if (response.ok) {
+        socket.emit(clientEvents.requestPartyState)
+      }
+    })
+  })
+
+  const handlePromotePartyLeader = useEffectEvent((nextLeaderUserId: string) => {
+    const socket = socketRef.current
+    if (!socket || promotingPartyLeaderUserId) {
+      return
+    }
+
+    void playUiSound('confirm')
+    setPromotingPartyLeaderUserId(nextLeaderUserId)
+    socket.emit(
+      clientEvents.promotePartyLeader,
+      { nextLeaderUserId },
+      (response: { ok: boolean }) => {
+        setPromotingPartyLeaderUserId(null)
+        if (response.ok) {
+          socket.emit(clientEvents.requestPartyState)
+        }
+      },
+    )
   })
 
   const handleDismissFriendRequestPopup = useEffectEvent((requestId: string) => {
@@ -1566,6 +1680,17 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                           activePlayers.map((player) => {
                             const isCurrentPlayer = player.userId === session.profile.userId
                             const isFriend = friendUserIds.has(player.userId)
+                            const isPartyMember = partyMemberUserIds.has(player.userId)
+                            const hasIncomingPartyInvite = incomingPartyInvites.some(
+                              (invite) => invite.fromUserId === player.userId,
+                            )
+                            const canInviteToParty =
+                              isFriend &&
+                              !isCurrentPlayer &&
+                              !isPartyMember &&
+                              !hasIncomingPartyInvite &&
+                              !outgoingPartyInviteUserIdSet.has(player.userId) &&
+                              (!party || isPartyLeader)
 
                             return (
                               <li
@@ -1583,24 +1708,53 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                                     <small>{resolveLevelSubtitle(player.level)}</small>
                                   </div>
                                 </div>
-                                {isCurrentPlayer ? (
-                                  <span className="menu-inline-tag is-current">Tu personaje</span>
-                                ) : isFriend ? (
-                                  <span className="menu-inline-tag is-friend">Amistad</span>
-                                ) : incomingFriendRequestUserIds.has(player.userId) ? (
-                                  <span className="menu-inline-tag is-pending">Te envio solicitud</span>
-                                ) : outgoingFriendRequestUserIdSet.has(player.userId) ? (
-                                  <span className="menu-inline-tag is-pending">Pendiente</span>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    className="mini-action-button"
-                                    onClick={() => handleAddFriend(player.userId)}
-                                    disabled={addingFriendUserId === player.userId}
-                                  >
-                                    {addingFriendUserId === player.userId ? 'Enviando...' : 'Solicitar'}
-                                  </button>
-                                )}
+                                <div className="inline-actions">
+                                  {isCurrentPlayer ? (
+                                    <span className="menu-inline-tag is-current">Tu personaje</span>
+                                  ) : isPartyMember ? (
+                                    <span className="menu-inline-tag is-current">
+                                      {party?.leaderUserId === player.userId ? 'Lider del grupo' : 'En tu grupo'}
+                                    </span>
+                                  ) : null}
+                                  {!isCurrentPlayer && isFriend && !isPartyMember ? (
+                                    <span className="menu-inline-tag is-friend">Amistad</span>
+                                  ) : null}
+                                  {!isCurrentPlayer && canInviteToParty ? (
+                                    <button
+                                      type="button"
+                                      className="mini-action-button"
+                                      onClick={() => handleInviteToParty(player.userId)}
+                                      disabled={invitingPartyUserId === player.userId}
+                                    >
+                                      {invitingPartyUserId === player.userId ? 'Invitando...' : 'Invitar'}
+                                    </button>
+                                  ) : null}
+                                  {!isCurrentPlayer && hasIncomingPartyInvite && !isPartyMember ? (
+                                    <span className="menu-inline-tag is-pending">Te invito</span>
+                                  ) : null}
+                                  {!isCurrentPlayer && outgoingPartyInviteUserIdSet.has(player.userId) && !isPartyMember ? (
+                                    <span className="menu-inline-tag is-pending">Invitacion enviada</span>
+                                  ) : null}
+                                  {!isCurrentPlayer && !isFriend && incomingFriendRequestUserIds.has(player.userId) ? (
+                                    <span className="menu-inline-tag is-pending">Te envio solicitud</span>
+                                  ) : null}
+                                  {!isCurrentPlayer && !isFriend && outgoingFriendRequestUserIdSet.has(player.userId) ? (
+                                    <span className="menu-inline-tag is-pending">Pendiente</span>
+                                  ) : null}
+                                  {!isCurrentPlayer &&
+                                  !isFriend &&
+                                  !incomingFriendRequestUserIds.has(player.userId) &&
+                                  !outgoingFriendRequestUserIdSet.has(player.userId) ? (
+                                    <button
+                                      type="button"
+                                      className="mini-action-button"
+                                      onClick={() => handleAddFriend(player.userId)}
+                                      disabled={addingFriendUserId === player.userId}
+                                    >
+                                      {addingFriendUserId === player.userId ? 'Enviando...' : 'Solicitar'}
+                                    </button>
+                                  ) : null}
+                                </div>
                               </li>
                             )
                           })
@@ -1656,6 +1810,129 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                       )}
                     </div>
                   </details>
+                  <details className="dropdown-section" open={Boolean(party) || incomingPartyInvites.length > 0}>
+                    <summary>Grupo</summary>
+                    <div className="dropdown-section-body">
+                      {!party ? (
+                        <p className="empty-state">
+                          {incomingPartyInvites.length > 0
+                            ? 'Tienes invitaciones pendientes para unirte a un grupo.'
+                            : 'Todavia no haces parte de ningun grupo.'}
+                        </p>
+                      ) : (
+                        <>
+                          <p className="dropdown-subtext">
+                            Lider actual: <strong>{partyLeaderDisplayName}</strong>
+                          </p>
+                          <ul className="players-list players-list-rich">
+                            {party.members.map((member) => {
+                              const isCurrentMember = member.userId === session.profile.userId
+                              const isLeaderMember = party.leaderUserId === member.userId
+                              const isPromoting = promotingPartyLeaderUserId === member.userId
+
+                              return (
+                                <li key={member.userId}>
+                                  <div className="player-entry-main">
+                                    <MenuAvatarPreview
+                                      skinId={member.skinId}
+                                      skinColors={member.skinColors}
+                                      displayName={member.displayName}
+                                    />
+                                    <div className="player-entry-copy">
+                                      <strong>{member.displayName}</strong>
+                                      <small>{resolveLevelSubtitle(member.level)}</small>
+                                    </div>
+                                  </div>
+                                  <div className="inline-actions">
+                                    <span className={`friend-status-pill ${member.isOnline ? 'is-online' : 'is-offline'}`}>
+                                      {member.isOnline ? 'Conectado' : 'Desconectado'}
+                                    </span>
+                                    {isLeaderMember ? (
+                                      <span className="menu-inline-tag is-current">Lider</span>
+                                    ) : null}
+                                    {isCurrentMember && !isLeaderMember ? (
+                                      <span className="menu-inline-tag is-friend">Miembro</span>
+                                    ) : null}
+                                    {isPartyLeader && !isCurrentMember ? (
+                                      <button
+                                        type="button"
+                                        className="mini-action-button"
+                                        onClick={() => handlePromotePartyLeader(member.userId)}
+                                        disabled={Boolean(promotingPartyLeaderUserId)}
+                                      >
+                                        {isPromoting ? 'Promoviendo...' : 'Promover'}
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                </li>
+                              )
+                            })}
+                          </ul>
+                          <div className="inline-actions">
+                            <button
+                              type="button"
+                              className="mini-action-button is-danger"
+                              onClick={handleLeaveParty}
+                              disabled={leavingParty}
+                            >
+                              {leavingParty
+                                ? 'Saliendo...'
+                                : party.members.length <= 1
+                                  ? 'Disolver grupo'
+                                  : isPartyLeader
+                                    ? 'Salir y ceder lider'
+                                    : 'Salir del grupo'}
+                            </button>
+                          </div>
+                        </>
+                      )}
+
+                      {incomingPartyInvites.length > 0 ? (
+                        <>
+                          <p className="dropdown-subtext">Invitaciones pendientes</p>
+                          <ul className="players-list players-list-rich">
+                            {incomingPartyInvites.map((invite) => {
+                              const isBusy = respondingPartyInviteId === invite.inviteId
+
+                              return (
+                                <li key={invite.inviteId} className="is-request-entry">
+                                  <div className="player-entry-main">
+                                    <MenuAvatarPreview
+                                      skinId={invite.skinId}
+                                      skinColors={invite.skinColors}
+                                      displayName={invite.displayName}
+                                    />
+                                    <div className="player-entry-copy">
+                                      <strong>{invite.displayName}</strong>
+                                      <small>{resolveLevelSubtitle(invite.level)}</small>
+                                    </div>
+                                  </div>
+                                  <div className="inline-actions">
+                                    <button
+                                      type="button"
+                                      className="mini-action-button"
+                                      onClick={() => handleRespondToPartyInvite(invite.inviteId, 'accept')}
+                                      disabled={isBusy}
+                                    >
+                                      {isBusy ? '...' : 'Aceptar'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="mini-action-button is-danger"
+                                      onClick={() => handleRespondToPartyInvite(invite.inviteId, 'reject')}
+                                      disabled={isBusy}
+                                    >
+                                      Rechazar
+                                    </button>
+                                  </div>
+                                </li>
+                              )
+                            })}
+                          </ul>
+                        </>
+                      ) : null}
+                    </div>
+                  </details>
                   <details className="dropdown-section" open={friends.length > 0}>
                     <summary>Amistades</summary>
                     <div className="dropdown-section-body">
@@ -1664,6 +1941,16 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                       ) : (
                         <ul className="players-list players-list-rich">
                           {friends.map((friend) => {
+                            const isPartyMember = partyMemberUserIds.has(friend.userId)
+                            const hasIncomingPartyInvite = incomingPartyInvites.some(
+                              (invite) => invite.fromUserId === friend.userId,
+                            )
+                            const canInviteToParty =
+                              !isPartyMember &&
+                              !hasIncomingPartyInvite &&
+                              !outgoingPartyInviteUserIdSet.has(friend.userId) &&
+                              (!party || isPartyLeader)
+
                             return (
                               <li key={friend.userId}>
                                 <div className="player-entry-main">
@@ -1681,6 +1968,27 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                                   <span className={`friend-status-pill ${friend.isOnline ? 'is-online' : 'is-offline'}`}>
                                     {friend.isOnline ? 'Conectado' : 'Desconectado'}
                                   </span>
+                                  {isPartyMember ? (
+                                    <span className="menu-inline-tag is-current">
+                                      {party?.leaderUserId === friend.userId ? 'Lider' : 'En tu grupo'}
+                                    </span>
+                                  ) : null}
+                                  {canInviteToParty ? (
+                                    <button
+                                      type="button"
+                                      className="mini-action-button"
+                                      onClick={() => handleInviteToParty(friend.userId)}
+                                      disabled={invitingPartyUserId === friend.userId}
+                                    >
+                                      {invitingPartyUserId === friend.userId ? 'Invitando...' : 'Invitar'}
+                                    </button>
+                                  ) : null}
+                                  {!isPartyMember && hasIncomingPartyInvite ? (
+                                    <span className="menu-inline-tag is-pending">Te invito</span>
+                                  ) : null}
+                                  {!isPartyMember && outgoingPartyInviteUserIdSet.has(friend.userId) ? (
+                                    <span className="menu-inline-tag is-pending">Invitacion enviada</span>
+                                  ) : null}
                                   <button
                                     type="button"
                                     className="mini-action-button is-danger"

@@ -90,6 +90,21 @@ export const removeFriendSchema = z.object({
   friendUserId: z.string().trim().min(1),
 })
 
+export const inviteToPartySchema = z.object({
+  friendUserId: z.string().trim().min(1),
+})
+
+export const respondPartyInviteSchema = z.object({
+  inviteId: z.string().trim().min(1),
+  action: z.enum(['accept', 'reject']),
+})
+
+export const leavePartySchema = z.object({})
+
+export const promotePartyLeaderSchema = z.object({
+  nextLeaderUserId: z.string().trim().min(1),
+})
+
 export const setTypingStateSchema = z.object({
   roomId: z.string().min(1),
   isTyping: z.boolean(),

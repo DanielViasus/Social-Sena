@@ -104,6 +104,32 @@ export interface FriendRequestSummary {
   createdAt: string
 }
 
+export interface PartyMemberSummary {
+  userId: string
+  displayName: string
+  skinId: string
+  skinColors: SkinColorSelections
+  level: number
+  isOnline: boolean
+}
+
+export interface PartySummary {
+  partyId: string
+  leaderUserId: string
+  members: PartyMemberSummary[]
+}
+
+export interface PartyInviteSummary {
+  inviteId: string
+  partyId: string
+  fromUserId: string
+  displayName: string
+  skinId: string
+  skinColors: SkinColorSelections
+  level: number
+  createdAt: string
+}
+
 export interface Position {
   x: number
   y: number
@@ -163,6 +189,9 @@ export interface ConnectionAcceptedPayload {
   friends: FriendSummary[]
   incomingFriendRequests: FriendRequestSummary[]
   outgoingFriendRequestUserIds: string[]
+  party: PartySummary | null
+  incomingPartyInvites: PartyInviteSummary[]
+  outgoingPartyInviteUserIds: string[]
 }
 
 export interface CompleteOnboardingPayload {
@@ -219,6 +248,27 @@ export interface SocialStatePayload {
   friends: FriendSummary[]
   incomingFriendRequests: FriendRequestSummary[]
   outgoingFriendRequestUserIds: string[]
+}
+
+export interface InviteToPartyPayload {
+  friendUserId: string
+}
+
+export interface RespondPartyInvitePayload {
+  inviteId: string
+  action: 'accept' | 'reject'
+}
+
+export interface LeavePartyPayload {}
+
+export interface PromotePartyLeaderPayload {
+  nextLeaderUserId: string
+}
+
+export interface PartyStatePayload {
+  party: PartySummary | null
+  incomingPartyInvites: PartyInviteSummary[]
+  outgoingPartyInviteUserIds: string[]
 }
 
 export interface SendChatMessagePayload {

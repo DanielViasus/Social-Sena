@@ -12,14 +12,21 @@ import {
   completeOnboardingSchema,
   connectToGameSchema,
   getRoomTemplateById,
+  inviteToPartySchema,
   joinRoomSchema,
+  leavePartySchema,
   movementInputSchema,
   navigateToSchema,
+  promotePartyLeaderSchema,
   removeFriendSchema,
+  respondPartyInviteSchema,
   respondFriendRequestSchema,
   updateAudioSettingsSchema,
   updateSkinSchema,
   updateInventorySchema,
+  type PartyInviteSummary,
+  type PartyStatePayload,
+  type PartySummary,
   setTypingStateSchema,
   stopNavigationSchema,
   sendChatMessageSchema,
@@ -166,6 +173,69 @@ async function emitSocialStateToSocket(socketId: string) {
 
 async function refreshSocialStateForAllSessions() {
   await Promise.all(Array.from(sessions.keys()).map((socketId) => emitSocialStateToSocket(socketId)))
+}
+
+async function buildPartyForUser(userId: string): Promise<PartySummary | null> {
+  const persistedParty = await gameRepository.getParty(userId)
+  if (!persistedParty) {
+    return null
+  }
+
+  const onlineUserIds = new Set(Array.from(sessions.values()).map((session) => session.profile.userId))
+
+  return {
+    ...persistedParty,
+    members: persistedParty.members.map((member) => ({
+      ...member,
+      isOnline: onlineUserIds.has(member.userId),
+    })),
+  }
+}
+
+async function buildIncomingPartyInvitesForUser(userId: string): Promise<PartyInviteSummary[]> {
+  return gameRepository.getIncomingPartyInvites(userId)
+}
+
+async function buildOutgoingPartyInviteUserIdsForUser(userId: string): Promise<string[]> {
+  return gameRepository.getOutgoingPartyInviteUserIds(userId)
+}
+
+async function emitPartyStateToSocket(socketId: string) {
+  const session = sessions.get(socketId)
+  if (!session) {
+    return
+  }
+
+  const [party, incomingPartyInvites, outgoingPartyInviteUserIds] = await Promise.all([
+    buildPartyForUser(session.profile.userId),
+    buildIncomingPartyInvitesForUser(session.profile.userId),
+    buildOutgoingPartyInviteUserIdsForUser(session.profile.userId),
+  ])
+
+  const payload: PartyStatePayload = {
+    party,
+    incomingPartyInvites,
+    outgoingPartyInviteUserIds,
+  }
+
+  io.to(socketId).emit(serverEvents.partyState, payload)
+}
+
+async function refreshPartyStateForAllSessions() {
+  await Promise.all(Array.from(sessions.keys()).map((socketId) => emitPartyStateToSocket(socketId)))
+}
+
+async function refreshPartyStateForUserIds(userIds: string[]) {
+  const normalizedUserIds = [...new Set(userIds.filter((userId) => userId.trim().length > 0))]
+  if (normalizedUserIds.length === 0) {
+    return
+  }
+
+  const targetSocketIds = Array.from(sessions.entries())
+    .filter(([, session]) => normalizedUserIds.includes(session.profile.userId))
+    .map(([socketId]) => socketId)
+
+  await Promise.all(targetSocketIds.map((socketId) => emitPartyStateToSocket(socketId)))
 }
 
 function getOrCreateRoom(roomId: string, templateId: string): RoomState | null {
@@ -1014,10 +1084,22 @@ io.on('connection', (socket) => {
       })),
       incomingFriendRequests: resolvedProfileResult.incomingFriendRequests,
       outgoingFriendRequestUserIds: resolvedProfileResult.outgoingFriendRequestUserIds,
+      party: resolvedProfileResult.party
+        ? {
+            ...resolvedProfileResult.party,
+            members: resolvedProfileResult.party.members.map((member) => ({
+              ...member,
+              isOnline: sessionsHasUser(member.userId),
+            })),
+          }
+        : null,
+      incomingPartyInvites: resolvedProfileResult.incomingPartyInvites,
+      outgoingPartyInviteUserIds: resolvedProfileResult.outgoingPartyInviteUserIds,
     }
 
     socket.emit(serverEvents.connectionAccepted, connectionAcceptedPayload)
     void refreshSocialStateForAllSessions()
+    void refreshPartyStateForAllSessions()
   })
 
   socket.on(clientEvents.completeOnboarding, async (rawPayload, callback) => {
@@ -1250,6 +1332,10 @@ io.on('connection', (socket) => {
     void emitSocialStateToSocket(socket.id)
   })
 
+  socket.on(clientEvents.requestPartyState, () => {
+    void emitPartyStateToSocket(socket.id)
+  })
+
   socket.on(clientEvents.addFriend, async (rawPayload, callback) => {
     const parsed = addFriendSchema.safeParse(rawPayload)
     const session = sessions.get(socket.id)
@@ -1361,6 +1447,120 @@ io.on('connection', (socket) => {
     callback?.({ ok: true })
   })
 
+  socket.on(clientEvents.inviteToParty, async (rawPayload, callback) => {
+    const parsed = inviteToPartySchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible enviar la invitacion al grupo.',
+      })
+      return
+    }
+
+    const result = await gameRepository.inviteToParty(session.profile.userId, parsed.data.friendUserId)
+    if (!result.ok) {
+      callback?.(result)
+      return
+    }
+
+    await emitPartyStateToSocket(socket.id)
+
+    const targetSocketIds = Array.from(sessions.entries())
+      .filter(([, currentSession]) => currentSession.profile.userId === parsed.data.friendUserId)
+      .map(([targetSocketId]) => targetSocketId)
+
+    await Promise.all(
+      targetSocketIds.map(async (targetSocketId) => {
+        if (result.invite) {
+          io.to(targetSocketId).emit(serverEvents.partyInviteReceived, result.invite)
+        }
+        await emitPartyStateToSocket(targetSocketId)
+      }),
+    )
+
+    await refreshPartyStateForAllSessions()
+    callback?.({
+      ok: true,
+      invite: result.invite,
+    })
+  })
+
+  socket.on(clientEvents.respondPartyInvite, async (rawPayload, callback) => {
+    const parsed = respondPartyInviteSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible responder la invitacion al grupo.',
+      })
+      return
+    }
+
+    const result = await gameRepository.respondToPartyInvite(
+      session.profile.userId,
+      parsed.data.inviteId,
+      parsed.data.action,
+    )
+
+    if (!result.ok) {
+      callback?.(result)
+      return
+    }
+
+    await refreshPartyStateForUserIds(result.affectedUserIds ?? [session.profile.userId])
+    await refreshPartyStateForAllSessions()
+    callback?.({ ok: true })
+  })
+
+  socket.on(clientEvents.leaveParty, async (rawPayload, callback) => {
+    const parsed = leavePartySchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible salir del grupo.',
+      })
+      return
+    }
+
+    const result = await gameRepository.leaveParty(session.profile.userId)
+    if (!result.ok) {
+      callback?.(result)
+      return
+    }
+
+    await refreshPartyStateForUserIds(result.affectedUserIds ?? [session.profile.userId])
+    await refreshPartyStateForAllSessions()
+    callback?.({ ok: true })
+  })
+
+  socket.on(clientEvents.promotePartyLeader, async (rawPayload, callback) => {
+    const parsed = promotePartyLeaderSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible promover al nuevo lider.',
+      })
+      return
+    }
+
+    const result = await gameRepository.promotePartyLeader(session.profile.userId, parsed.data.nextLeaderUserId)
+    if (!result.ok) {
+      callback?.(result)
+      return
+    }
+
+    await refreshPartyStateForUserIds(result.affectedUserIds ?? [session.profile.userId])
+    await refreshPartyStateForAllSessions()
+    callback?.({ ok: true })
+  })
+
   socket.on(clientEvents.sendChatMessage, (rawPayload) => {
     const parsed = sendChatMessageSchema.safeParse(rawPayload)
     const session = sessions.get(socket.id)
@@ -1439,6 +1639,7 @@ io.on('connection', (socket) => {
 
     sessions.delete(socket.id)
     void refreshSocialStateForAllSessions()
+    void refreshPartyStateForAllSessions()
   })
 })
 

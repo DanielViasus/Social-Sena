@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto'
 import type {
   FriendRequestSummary,
   FriendSummary,
+  PartyInviteSummary,
+  PartyMemberSummary,
+  PartySummary,
   PlayerInventory,
   PlayerProgress,
   Position,
@@ -24,6 +27,9 @@ interface ResolvedUserProfileResult {
   friends: FriendSummary[]
   incomingFriendRequests: FriendRequestSummary[]
   outgoingFriendRequestUserIds: string[]
+  party: PartySummary | null
+  incomingPartyInvites: PartyInviteSummary[]
+  outgoingPartyInviteUserIds: string[]
 }
 
 function normalizeSkinColors(value: unknown): SkinColorSelections {
@@ -123,6 +129,150 @@ function normalizeFriendRequestRows(
   }))
 }
 
+function normalizePartyMemberRows(
+  rows: Array<{
+    user_id: string
+    display_name: string | null
+    skin_id: string | null
+    skin_colors: unknown
+    level: number | null
+  }>,
+): PartyMemberSummary[] {
+  return rows.map((row) => ({
+    userId: row.user_id,
+    displayName: row.display_name?.trim() || 'Jugador',
+    skinId: row.skin_id?.trim() || 'crock',
+    skinColors: normalizeSkinColors(row.skin_colors),
+    level: row.level ?? 1,
+    isOnline: false,
+  }))
+}
+
+function normalizePartyInviteRows(
+  rows: Array<{
+    invite_id: string
+    party_id: string
+    from_user_id: string
+    display_name: string | null
+    skin_id: string | null
+    skin_colors: unknown
+    level: number | null
+    created_at: string | Date
+  }>,
+): PartyInviteSummary[] {
+  return rows.map((row) => ({
+    inviteId: row.invite_id,
+    partyId: row.party_id,
+    fromUserId: row.from_user_id,
+    displayName: row.display_name?.trim() || 'Jugador',
+    skinId: row.skin_id?.trim() || 'crock',
+    skinColors: normalizeSkinColors(row.skin_colors),
+    level: row.level ?? 1,
+    createdAt:
+      row.created_at instanceof Date ? row.created_at.toISOString() : new Date(row.created_at).toISOString(),
+  }))
+}
+
+async function queryPartySummary(
+  client: { query: <TRow>(queryText: string, values?: unknown[]) => Promise<{ rows: TRow[]; rowCount: number | null }> },
+  userId: string,
+): Promise<PartySummary | null> {
+  const result = await client.query<{
+    party_id: string
+    leader_user_id: string
+    user_id: string
+    display_name: string | null
+    skin_id: string | null
+    skin_colors: unknown
+    level: number | null
+  }>(
+    `
+      select
+        parties.party_id,
+        parties.leader_user_id,
+        party_members.user_id,
+        users.display_name,
+        player_profiles.skin_id,
+        player_profiles.skin_colors,
+        player_progress.level
+      from party_members as self_membership
+      inner join parties on parties.party_id = self_membership.party_id
+      inner join party_members on party_members.party_id = parties.party_id
+      inner join users on users.user_id = party_members.user_id
+      left join player_profiles on player_profiles.user_id = party_members.user_id
+      left join player_progress on player_progress.user_id = party_members.user_id
+      where self_membership.user_id = $1
+      order by party_members.created_at asc, users.display_name asc
+    `,
+    [userId],
+  )
+
+  if (!result.rowCount) {
+    return null
+  }
+
+  return {
+    partyId: result.rows[0].party_id,
+    leaderUserId: result.rows[0].leader_user_id,
+    members: normalizePartyMemberRows(result.rows),
+  }
+}
+
+async function queryIncomingPartyInvites(
+  client: { query: <TRow>(queryText: string, values?: unknown[]) => Promise<{ rows: TRow[]; rowCount: number | null }> },
+  userId: string,
+): Promise<PartyInviteSummary[]> {
+  const result = await client.query<{
+    invite_id: string
+    party_id: string
+    from_user_id: string
+    display_name: string | null
+    skin_id: string | null
+    skin_colors: unknown
+    level: number | null
+    created_at: string | Date
+  }>(
+    `
+      select
+        party_invites.invite_id,
+        party_invites.party_id,
+        party_invites.from_user_id,
+        users.display_name,
+        player_profiles.skin_id,
+        player_profiles.skin_colors,
+        player_progress.level,
+        party_invites.created_at
+      from party_invites
+      inner join users on users.user_id = party_invites.from_user_id
+      left join player_profiles on player_profiles.user_id = party_invites.from_user_id
+      left join player_progress on player_progress.user_id = party_invites.from_user_id
+      where party_invites.to_user_id = $1
+      order by party_invites.created_at desc
+    `,
+    [userId],
+  )
+
+  return normalizePartyInviteRows(result.rows)
+}
+
+async function queryOutgoingPartyInviteUserIds(
+  client: { query: <TRow>(queryText: string, values?: unknown[]) => Promise<{ rows: TRow[]; rowCount: number | null }> },
+  userId: string,
+): Promise<string[]> {
+  const result = await client.query<{ to_user_id: string }>(
+    `
+      select distinct party_invites.to_user_id
+      from party_invites
+      inner join party_members on party_members.party_id = party_invites.party_id
+      where party_members.user_id = $1
+      order by party_invites.to_user_id asc
+    `,
+    [userId],
+  )
+
+  return result.rows.map((row) => row.to_user_id)
+}
+
 class GameRepository {
   async resolveUserProfile(incomingProfile: UserProfile): Promise<ResolvedUserProfileResult> {
     const pool = getDbPool()
@@ -138,6 +288,9 @@ class GameRepository {
         friends: [],
         incomingFriendRequests: [],
         outgoingFriendRequestUserIds: [],
+        party: null,
+        incomingPartyInvites: [],
+        outgoingPartyInviteUserIds: [],
       }
     }
 
@@ -252,6 +405,9 @@ class GameRepository {
           `,
           [incomingProfile.userId],
         )
+        const party = await queryPartySummary(client, incomingProfile.userId)
+        const incomingPartyInvites = await queryIncomingPartyInvites(client, incomingProfile.userId)
+        const outgoingPartyInviteUserIds = await queryOutgoingPartyInviteUserIds(client, incomingProfile.userId)
         const inventoryResult = await client.query<{
           inventory: unknown
         }>(
@@ -293,6 +449,9 @@ class GameRepository {
           friends: normalizeFriendRows(friendsResult.rows),
           incomingFriendRequests: normalizeFriendRequestRows(incomingRequestsResult.rows),
           outgoingFriendRequestUserIds: outgoingRequestsResult.rows.map((row) => row.to_user_id),
+          party,
+          incomingPartyInvites,
+          outgoingPartyInviteUserIds,
         }
       }
 
@@ -321,6 +480,9 @@ class GameRepository {
         friends: [],
         incomingFriendRequests: [],
         outgoingFriendRequestUserIds: [],
+        party: null,
+        incomingPartyInvites: [],
+        outgoingPartyInviteUserIds: [],
       }
     } catch (error) {
       await client.query('ROLLBACK')
@@ -336,6 +498,9 @@ class GameRepository {
         friends: [],
         incomingFriendRequests: [],
         outgoingFriendRequestUserIds: [],
+        party: null,
+        incomingPartyInvites: [],
+        outgoingPartyInviteUserIds: [],
       }
     } finally {
       client.release()
@@ -734,6 +899,92 @@ class GameRepository {
     }
   }
 
+  async getParty(userId: string): Promise<PartySummary | null> {
+    const pool = getDbPool()
+    if (!pool) {
+      return null
+    }
+
+    try {
+      return await queryPartySummary(pool, userId)
+    } catch (error) {
+      console.error('[db] No fue posible leer el grupo actual.', error)
+      return null
+    }
+  }
+
+  async getIncomingPartyInvites(userId: string): Promise<PartyInviteSummary[]> {
+    const pool = getDbPool()
+    if (!pool) {
+      return []
+    }
+
+    try {
+      return await queryIncomingPartyInvites(pool, userId)
+    } catch (error) {
+      console.error('[db] No fue posible leer las invitaciones de grupo.', error)
+      return []
+    }
+  }
+
+  async getOutgoingPartyInviteUserIds(userId: string): Promise<string[]> {
+    const pool = getDbPool()
+    if (!pool) {
+      return []
+    }
+
+    try {
+      return await queryOutgoingPartyInviteUserIds(pool, userId)
+    } catch (error) {
+      console.error('[db] No fue posible leer las invitaciones de grupo enviadas.', error)
+      return []
+    }
+  }
+
+  async getPartyInviteById(inviteId: string): Promise<PartyInviteSummary | null> {
+    const pool = getDbPool()
+    if (!pool) {
+      return null
+    }
+
+    try {
+      const result = await pool.query<{
+        invite_id: string
+        party_id: string
+        from_user_id: string
+        display_name: string | null
+        skin_id: string | null
+        skin_colors: unknown
+        level: number | null
+        created_at: string | Date
+      }>(
+        `
+          select
+            party_invites.invite_id,
+            party_invites.party_id,
+            party_invites.from_user_id,
+            users.display_name,
+            player_profiles.skin_id,
+            player_profiles.skin_colors,
+            player_progress.level,
+            party_invites.created_at
+          from party_invites
+          inner join users on users.user_id = party_invites.from_user_id
+          left join player_profiles on player_profiles.user_id = party_invites.from_user_id
+          left join player_progress on player_progress.user_id = party_invites.from_user_id
+          where party_invites.invite_id = $1
+          limit 1
+        `,
+        [inviteId],
+      )
+
+      return normalizePartyInviteRows(result.rows)[0] ?? null
+    } catch (error) {
+      console.error('[db] No fue posible leer la invitacion de grupo.', error)
+      return null
+    }
+  }
+
   async sendFriendRequest(userId: string, friendUserId: string) {
     const pool = getDbPool()
     if (!pool || userId === friendUserId) {
@@ -923,6 +1174,445 @@ class GameRepository {
     } catch (error) {
       console.error('[db] No fue posible quitar la amistad.', error)
       return { ok: false, message: 'No fue posible quitar la amistad.' }
+    }
+  }
+
+  async inviteToParty(userId: string, friendUserId: string) {
+    const pool = getDbPool()
+    if (!pool || userId === friendUserId) {
+      return { ok: false, message: 'No fue posible enviar la invitacion al grupo.' }
+    }
+
+    const client = await pool.connect()
+
+    try {
+      await client.query('BEGIN')
+
+      const friendshipResult = await client.query<{ friend_user_id: string }>(
+        `
+          select friend_user_id
+          from friendships
+          where user_id = $1 and friend_user_id = $2
+          limit 1
+        `,
+        [userId, friendUserId],
+      )
+
+      if (!friendshipResult.rowCount) {
+        await client.query('ROLLBACK')
+        return { ok: false, message: 'Solo puedes invitar amistades confirmadas a tu grupo.' }
+      }
+
+      const targetMembershipResult = await client.query<{ party_id: string }>(
+        `
+          select party_id
+          from party_members
+          where user_id = $1
+          limit 1
+        `,
+        [friendUserId],
+      )
+
+      if (targetMembershipResult.rowCount) {
+        await client.query('ROLLBACK')
+        return { ok: false, message: 'Ese jugador ya pertenece a otro grupo.' }
+      }
+
+      let partyId: string
+      let leaderUserId = userId
+
+      const currentMembershipResult = await client.query<{
+        party_id: string
+        leader_user_id: string
+      }>(
+        `
+          select party_members.party_id, parties.leader_user_id
+          from party_members
+          inner join parties on parties.party_id = party_members.party_id
+          where party_members.user_id = $1
+          limit 1
+        `,
+        [userId],
+      )
+
+      if (!currentMembershipResult.rowCount) {
+        partyId = randomUUID()
+        await client.query(
+          `
+            insert into parties (party_id, leader_user_id)
+            values ($1, $2)
+          `,
+          [partyId, userId],
+        )
+        await client.query(
+          `
+            insert into party_members (party_id, user_id)
+            values ($1, $2)
+          `,
+          [partyId, userId],
+        )
+      } else {
+        partyId = currentMembershipResult.rows[0].party_id
+        leaderUserId = currentMembershipResult.rows[0].leader_user_id
+
+        if (leaderUserId !== userId) {
+          await client.query('ROLLBACK')
+          return { ok: false, message: 'Solo la persona lider puede invitar al grupo.' }
+        }
+      }
+
+      const existingInviteResult = await client.query<{ invite_id: string }>(
+        `
+          select invite_id
+          from party_invites
+          where party_id = $1 and to_user_id = $2
+          limit 1
+        `,
+        [partyId, friendUserId],
+      )
+
+      if (existingInviteResult.rowCount) {
+        await client.query('ROLLBACK')
+        return { ok: false, message: 'Ese jugador ya tiene una invitacion pendiente a tu grupo.' }
+      }
+
+      const inviteId = randomUUID()
+      await client.query(
+        `
+          insert into party_invites (invite_id, party_id, from_user_id, to_user_id)
+          values ($1, $2, $3, $4)
+        `,
+        [inviteId, partyId, userId, friendUserId],
+      )
+
+      await client.query(
+        `
+          update parties
+          set updated_at = now()
+          where party_id = $1
+        `,
+        [partyId],
+      )
+
+      await client.query('COMMIT')
+      const invite = await this.getPartyInviteById(inviteId)
+      return { ok: true, invite, partyId }
+    } catch (error) {
+      await client.query('ROLLBACK')
+      console.error('[db] No fue posible enviar la invitacion de grupo.', error)
+      return { ok: false, message: 'No fue posible enviar la invitacion de grupo.' }
+    } finally {
+      client.release()
+    }
+  }
+
+  async respondToPartyInvite(userId: string, inviteId: string, action: 'accept' | 'reject') {
+    const pool = getDbPool()
+    if (!pool) {
+      return { ok: false, message: 'No fue posible responder la invitacion del grupo.' }
+    }
+
+    const client = await pool.connect()
+
+    try {
+      await client.query('BEGIN')
+
+      const currentMembershipResult = await client.query<{ party_id: string }>(
+        `
+          select party_id
+          from party_members
+          where user_id = $1
+          limit 1
+        `,
+        [userId],
+      )
+
+      if (currentMembershipResult.rowCount) {
+        await client.query('ROLLBACK')
+        return { ok: false, message: 'Primero debes salir de tu grupo actual.' }
+      }
+
+      const inviteResult = await client.query<{
+        invite_id: string
+        party_id: string
+        from_user_id: string
+        to_user_id: string
+      }>(
+        `
+          select invite_id, party_id, from_user_id, to_user_id
+          from party_invites
+          where invite_id = $1 and to_user_id = $2
+          limit 1
+        `,
+        [inviteId, userId],
+      )
+
+      const invite = inviteResult.rows[0]
+      if (!invite) {
+        await client.query('ROLLBACK')
+        return { ok: false, message: 'La invitacion ya no esta disponible.' }
+      }
+
+      const partyExistsResult = await client.query<{ party_id: string }>(
+        `
+          select party_id
+          from parties
+          where party_id = $1
+          limit 1
+        `,
+        [invite.party_id],
+      )
+
+      if (!partyExistsResult.rowCount) {
+        await client.query('ROLLBACK')
+        return { ok: false, message: 'El grupo ya no existe.' }
+      }
+
+      if (action === 'accept') {
+        await client.query(
+          `
+            insert into party_members (party_id, user_id)
+            values ($1, $2)
+          `,
+          [invite.party_id, userId],
+        )
+
+        await client.query(
+          `
+            update parties
+            set updated_at = now()
+            where party_id = $1
+          `,
+          [invite.party_id],
+        )
+      }
+
+      if (action === 'accept') {
+        await client.query(
+          `
+            delete from party_invites
+            where to_user_id = $1
+          `,
+          [userId],
+        )
+      } else {
+        await client.query(
+          `
+            delete from party_invites
+            where invite_id = $1
+          `,
+          [inviteId],
+        )
+      }
+
+      const memberRows = await client.query<{ user_id: string }>(
+        `
+          select user_id
+          from party_members
+          where party_id = $1
+        `,
+        [invite.party_id],
+      )
+
+      await client.query('COMMIT')
+      return {
+        ok: true,
+        partyId: invite.party_id,
+        leaderUserId: invite.from_user_id,
+        affectedUserIds: [...new Set([invite.from_user_id, userId, ...memberRows.rows.map((row) => row.user_id)])],
+      }
+    } catch (error) {
+      await client.query('ROLLBACK')
+      console.error('[db] No fue posible responder la invitacion de grupo.', error)
+      return { ok: false, message: 'No fue posible responder la invitacion de grupo.' }
+    } finally {
+      client.release()
+    }
+  }
+
+  async leaveParty(userId: string) {
+    const pool = getDbPool()
+    if (!pool) {
+      return { ok: false, message: 'No fue posible salir del grupo.' }
+    }
+
+    const client = await pool.connect()
+
+    try {
+      await client.query('BEGIN')
+
+      const membershipResult = await client.query<{
+        party_id: string
+        leader_user_id: string
+      }>(
+        `
+          select party_members.party_id, parties.leader_user_id
+          from party_members
+          inner join parties on parties.party_id = party_members.party_id
+          where party_members.user_id = $1
+          limit 1
+        `,
+        [userId],
+      )
+
+      const membership = membershipResult.rows[0]
+      if (!membership) {
+        await client.query('ROLLBACK')
+        return { ok: false, message: 'No perteneces a ningun grupo activo.' }
+      }
+
+      await client.query(
+        `
+          delete from party_members
+          where party_id = $1 and user_id = $2
+        `,
+        [membership.party_id, userId],
+      )
+
+      await client.query(
+        `
+          delete from party_invites
+          where party_id = $1 and (from_user_id = $2 or to_user_id = $2)
+        `,
+        [membership.party_id, userId],
+      )
+
+      const remainingMembersResult = await client.query<{ user_id: string }>(
+        `
+          select user_id
+          from party_members
+          where party_id = $1
+          order by created_at asc
+        `,
+        [membership.party_id],
+      )
+
+      let nextLeaderUserId: string | null = membership.leader_user_id
+
+      if (remainingMembersResult.rows.length === 0) {
+        await client.query(
+          `
+            delete from parties
+            where party_id = $1
+          `,
+          [membership.party_id],
+        )
+        nextLeaderUserId = null
+      } else {
+        if (membership.leader_user_id === userId) {
+          nextLeaderUserId = remainingMembersResult.rows[0].user_id
+          await client.query(
+            `
+              update parties
+              set leader_user_id = $2, updated_at = now()
+              where party_id = $1
+            `,
+            [membership.party_id, nextLeaderUserId],
+          )
+        } else {
+          await client.query(
+            `
+              update parties
+              set updated_at = now()
+              where party_id = $1
+            `,
+            [membership.party_id],
+          )
+        }
+      }
+
+      await client.query('COMMIT')
+      return {
+        ok: true,
+        partyId: membership.party_id,
+        nextLeaderUserId,
+        affectedUserIds: [...new Set([userId, ...remainingMembersResult.rows.map((row) => row.user_id)])],
+      }
+    } catch (error) {
+      await client.query('ROLLBACK')
+      console.error('[db] No fue posible salir del grupo.', error)
+      return { ok: false, message: 'No fue posible salir del grupo.' }
+    } finally {
+      client.release()
+    }
+  }
+
+  async promotePartyLeader(userId: string, nextLeaderUserId: string) {
+    const pool = getDbPool()
+    if (!pool || userId === nextLeaderUserId) {
+      return { ok: false, message: 'No fue posible promover al nuevo lider.' }
+    }
+
+    const client = await pool.connect()
+
+    try {
+      await client.query('BEGIN')
+
+      const membershipResult = await client.query<{
+        party_id: string
+        leader_user_id: string
+      }>(
+        `
+          select party_members.party_id, parties.leader_user_id
+          from party_members
+          inner join parties on parties.party_id = party_members.party_id
+          where party_members.user_id = $1
+          limit 1
+        `,
+        [userId],
+      )
+
+      const membership = membershipResult.rows[0]
+      if (!membership || membership.leader_user_id !== userId) {
+        await client.query('ROLLBACK')
+        return { ok: false, message: 'Solo la persona lider puede promover a otra dentro del grupo.' }
+      }
+
+      const targetResult = await client.query<{ user_id: string }>(
+        `
+          select user_id
+          from party_members
+          where party_id = $1 and user_id = $2
+          limit 1
+        `,
+        [membership.party_id, nextLeaderUserId],
+      )
+
+      if (!targetResult.rowCount) {
+        await client.query('ROLLBACK')
+        return { ok: false, message: 'Ese jugador no hace parte de tu grupo.' }
+      }
+
+      await client.query(
+        `
+          update parties
+          set leader_user_id = $2, updated_at = now()
+          where party_id = $1
+        `,
+        [membership.party_id, nextLeaderUserId],
+      )
+
+      const memberRows = await client.query<{ user_id: string }>(
+        `
+          select user_id
+          from party_members
+          where party_id = $1
+        `,
+        [membership.party_id],
+      )
+
+      await client.query('COMMIT')
+      return {
+        ok: true,
+        partyId: membership.party_id,
+        affectedUserIds: memberRows.rows.map((row) => row.user_id),
+      }
+    } catch (error) {
+      await client.query('ROLLBACK')
+      console.error('[db] No fue posible promover al nuevo lider del grupo.', error)
+      return { ok: false, message: 'No fue posible promover al nuevo lider del grupo.' }
+    } finally {
+      client.release()
     }
   }
 }
