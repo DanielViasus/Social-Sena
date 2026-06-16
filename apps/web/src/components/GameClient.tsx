@@ -62,6 +62,12 @@ interface FriendRequestPopupState extends FriendRequestSummary {
 
 type PartyInvitePopupState = PartyInviteSummary
 
+interface ActivityNoticeState {
+  id: string
+  title: string
+  message: string
+}
+
 function areAudioSettingsEqual(left: AudioSettings, right: AudioSettings) {
   return (
     left.musicEnabled === right.musicEnabled &&
@@ -139,6 +145,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const [outgoingPartyInvites, setOutgoingPartyInvites] = useState<PartyOutgoingInviteSummary[]>([])
   const [friendRequestPopups, setFriendRequestPopups] = useState<FriendRequestPopupState[]>([])
   const [partyInvitePopups, setPartyInvitePopups] = useState<PartyInvitePopupState[]>([])
+  const [activityNotices, setActivityNotices] = useState<ActivityNoticeState[]>([])
   const [addingFriendUserId, setAddingFriendUserId] = useState<string | null>(null)
   const [respondingFriendRequestId, setRespondingFriendRequestId] = useState<string | null>(null)
   const [removingFriendUserId, setRemovingFriendUserId] = useState<string | null>(null)
@@ -177,11 +184,16 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const friendRequestPopupsRef = useRef<FriendRequestPopupState[]>([])
   const partyInvitePopupTimeoutsRef = useRef<Map<string, number>>(new Map())
   const partyInvitePopupsRef = useRef<PartyInvitePopupState[]>([])
+  const activityNoticeTimeoutsRef = useRef<Map<string, number>>(new Map())
+  const friendsRef = useRef<FriendSummary[]>([])
+  const partyRef = useRef<PartySummary | null>(null)
   const speechTimeoutsRef = useRef<Map<string, number>>(new Map())
   const typingIdleTimeoutRef = useRef<number | null>(null)
   const localTypingStateRef = useRef(false)
   const dismissedFriendRequestIdsRef = useRef<Set<string>>(new Set())
   const dismissedPartyInviteIdsRef = useRef<Set<string>>(new Set())
+  const socialStateInitializedRef = useRef(false)
+  const partyStateInitializedRef = useRef(false)
   const dialogueCooldownTimeoutRef = useRef<number | null>(null)
   const uiSoundControllerRef = useRef<ReturnType<typeof createUiSoundController> | null>(null)
   const ambientMusicControllerRef = useRef<ReturnType<typeof createAmbientMusicController> | null>(null)
@@ -382,6 +394,14 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   }, [partyInvitePopups])
 
   useEffect(() => {
+    friendsRef.current = friends
+  }, [friends])
+
+  useEffect(() => {
+    partyRef.current = party
+  }, [party])
+
+  useEffect(() => {
     const handlePopState = () => {
       setPathname(window.location.pathname)
     }
@@ -403,6 +423,113 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     partyInvitePopupTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId))
     partyInvitePopupTimeoutsRef.current.clear()
   }, [])
+
+  const clearAllActivityNoticeTimeouts = useCallback(() => {
+    activityNoticeTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId))
+    activityNoticeTimeoutsRef.current.clear()
+  }, [])
+
+  const dismissActivityNotice = useEffectEvent((noticeId: string) => {
+    const timeoutId = activityNoticeTimeoutsRef.current.get(noticeId)
+    if (timeoutId) {
+      window.clearTimeout(timeoutId)
+      activityNoticeTimeoutsRef.current.delete(noticeId)
+    }
+
+    setActivityNotices((currentValue) => currentValue.filter((notice) => notice.id !== noticeId))
+  })
+
+  const enqueueActivityNotice = useEffectEvent((title: string, message: string) => {
+    const noticeId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    void playUiSound('chat-bubble')
+    setActivityNotices((currentValue) => [{ id: noticeId, title, message }, ...currentValue].slice(0, 4))
+    const timeoutId = window.setTimeout(() => {
+      dismissActivityNotice(noticeId)
+    }, 6000)
+    activityNoticeTimeoutsRef.current.set(noticeId, timeoutId)
+  })
+
+  const applySocialState = useEffectEvent(
+    ({
+      nextFriends,
+      nextIncomingFriendRequests,
+      nextOutgoingFriendRequestUserIds,
+      notify = true,
+    }: {
+      nextFriends: FriendSummary[]
+      nextIncomingFriendRequests: FriendRequestSummary[]
+      nextOutgoingFriendRequestUserIds: string[]
+      notify?: boolean
+    }) => {
+      if (notify && socialStateInitializedRef.current) {
+        const previousFriendsById = new Map(friendsRef.current.map((friend) => [friend.userId, friend] as const))
+        nextFriends.forEach((friend) => {
+          const previousFriend = previousFriendsById.get(friend.userId)
+          if (!previousFriend) {
+            return
+          }
+
+          if (!previousFriend.isOnline && friend.isOnline) {
+            enqueueActivityNotice('Amistad conectada', `${friend.displayName} se conecto.`)
+          } else if (previousFriend.isOnline && !friend.isOnline) {
+            enqueueActivityNotice('Amistad desconectada', `${friend.displayName} se desconecto.`)
+          }
+        })
+      }
+
+      socialStateInitializedRef.current = true
+      setFriends(nextFriends)
+      setIncomingFriendRequests(nextIncomingFriendRequests)
+      setOutgoingFriendRequestUserIds(nextOutgoingFriendRequestUserIds)
+    },
+  )
+
+  const applyPartyState = useEffectEvent(
+    ({
+      nextParty,
+      nextIncomingPartyInvites,
+      nextOutgoingPartyInvites,
+      notify = true,
+    }: {
+      nextParty: PartySummary | null
+      nextIncomingPartyInvites: PartyInviteSummary[]
+      nextOutgoingPartyInvites: PartyOutgoingInviteSummary[]
+      notify?: boolean
+    }) => {
+      if (notify && partyStateInitializedRef.current) {
+        const previousParty = partyRef.current
+        if (
+          previousParty &&
+          (!nextParty || previousParty.partyId === nextParty.partyId)
+        ) {
+          const previousMembersById = new Map(previousParty.members.map((member) => [member.userId, member] as const))
+          const nextMembers = nextParty?.members ?? []
+          const nextMembersById = new Map(nextMembers.map((member) => [member.userId, member] as const))
+
+          nextMembers.forEach((member) => {
+            if (member.userId === session.profile.userId || previousMembersById.has(member.userId)) {
+              return
+            }
+
+            enqueueActivityNotice('Grupo actualizado', `${member.displayName} se unio al grupo.`)
+          })
+
+          previousParty.members.forEach((member) => {
+            if (member.userId === session.profile.userId || nextMembersById.has(member.userId)) {
+              return
+            }
+
+            enqueueActivityNotice('Grupo actualizado', `${member.displayName} dejo el grupo.`)
+          })
+        }
+      }
+
+      partyStateInitializedRef.current = true
+      setParty(nextParty)
+      setIncomingPartyInvites(nextIncomingPartyInvites)
+      setOutgoingPartyInvites(nextOutgoingPartyInvites)
+    },
+  )
 
   useEffect(() => {
     if (!optionsOpen) {
@@ -440,6 +567,14 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     return () => {
       popupTimeouts.forEach((timeoutId) => window.clearTimeout(timeoutId))
       popupTimeouts.clear()
+    }
+  }, [])
+
+  useEffect(() => {
+    const noticeTimeouts = activityNoticeTimeoutsRef.current
+    return () => {
+      noticeTimeouts.forEach((timeoutId) => window.clearTimeout(timeoutId))
+      noticeTimeouts.clear()
     }
   }, [])
 
@@ -558,6 +693,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     nextSocket.on('connect', () => {
       clearAllFriendRequestPopupTimeouts()
       clearAllPartyInvitePopupTimeouts()
+      clearAllActivityNoticeTimeouts()
       setConnected(true)
       setRoom(null)
       setMessages([])
@@ -570,12 +706,17 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       setParty(null)
       setIncomingPartyInvites([])
       setOutgoingPartyInvites([])
+      setActivityNotices([])
       friendRequestPopupsRef.current = []
       setFriendRequestPopups([])
       partyInvitePopupsRef.current = []
       setPartyInvitePopups([])
+      friendsRef.current = []
+      partyRef.current = null
       dismissedFriendRequestIdsRef.current.clear()
       dismissedPartyInviteIdsRef.current.clear()
+      socialStateInitializedRef.current = false
+      partyStateInitializedRef.current = false
       localTypingStateRef.current = false
       nextSocket.emit(clientEvents.connectToGame, { profile: sessionProfileRef.current })
     })
@@ -583,6 +724,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     nextSocket.on('disconnect', () => {
       clearAllFriendRequestPopupTimeouts()
       clearAllPartyInvitePopupTimeouts()
+      clearAllActivityNoticeTimeouts()
       setConnected(false)
       setTypingByUserId({})
       setFriends([])
@@ -591,12 +733,17 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       setParty(null)
       setIncomingPartyInvites([])
       setOutgoingPartyInvites([])
+      setActivityNotices([])
       friendRequestPopupsRef.current = []
       setFriendRequestPopups([])
       partyInvitePopupsRef.current = []
       setPartyInvitePopups([])
+      friendsRef.current = []
+      partyRef.current = null
       dismissedFriendRequestIdsRef.current.clear()
       dismissedPartyInviteIdsRef.current.clear()
+      socialStateInitializedRef.current = false
+      partyStateInitializedRef.current = false
       localTypingStateRef.current = false
       setInitialSkinSetupSubmitting(false)
     })
@@ -617,12 +764,18 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       }: ConnectionAcceptedPayload) => {
         sessionProfileRef.current = profile
         setAudioSettings(normalizeAudioSettings(profile.audioSettings))
-        setFriends(friends)
-        setIncomingFriendRequests(incomingFriendRequests)
-        setOutgoingFriendRequestUserIds(outgoingFriendRequestUserIds)
-        setParty(party)
-        setIncomingPartyInvites(incomingPartyInvites)
-        setOutgoingPartyInvites(outgoingPartyInvites)
+        applySocialState({
+          nextFriends: friends,
+          nextIncomingFriendRequests: incomingFriendRequests,
+          nextOutgoingFriendRequestUserIds: outgoingFriendRequestUserIds,
+          notify: false,
+        })
+        applyPartyState({
+          nextParty: party,
+          nextIncomingPartyInvites: incomingPartyInvites,
+          nextOutgoingPartyInvites: outgoingPartyInvites,
+          notify: false,
+        })
 
         const nextSession: AuthSession = {
           ...session,
@@ -667,15 +820,19 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     )
 
     nextSocket.on(serverEvents.socialState, ({ friends, incomingFriendRequests, outgoingFriendRequestUserIds }: SocialStatePayload) => {
-      setFriends(friends)
-      setIncomingFriendRequests(incomingFriendRequests)
-      setOutgoingFriendRequestUserIds(outgoingFriendRequestUserIds)
+      applySocialState({
+        nextFriends: friends,
+        nextIncomingFriendRequests: incomingFriendRequests,
+        nextOutgoingFriendRequestUserIds: outgoingFriendRequestUserIds,
+      })
     })
 
     nextSocket.on(serverEvents.partyState, ({ party, incomingPartyInvites, outgoingPartyInvites }: PartyStatePayload) => {
-      setParty(party)
-      setIncomingPartyInvites(incomingPartyInvites)
-      setOutgoingPartyInvites(outgoingPartyInvites)
+      applyPartyState({
+        nextParty: party,
+        nextIncomingPartyInvites: incomingPartyInvites,
+        nextOutgoingPartyInvites: outgoingPartyInvites,
+      })
     })
 
     nextSocket.on(serverEvents.friendRequestReceived, (request: FriendRequestSummary) => {
@@ -754,11 +911,15 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     return () => {
       clearAllFriendRequestPopupTimeouts()
       clearAllPartyInvitePopupTimeouts()
+      clearAllActivityNoticeTimeouts()
       socketRef.current = null
       nextSocket.disconnect()
     }
   }, [
     activeTemplate.id,
+    applyPartyState,
+    applySocialState,
+    clearAllActivityNoticeTimeouts,
     clearAllFriendRequestPopupTimeouts,
     clearAllPartyInvitePopupTimeouts,
     session.profile.userId,
@@ -2299,6 +2460,26 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                       Luego
                     </button>
                   </div>
+                </article>
+              ))}
+            </section>
+          ) : null}
+
+          {activityNotices.length > 0 ? (
+            <section className="activity-notice-stack" aria-label="Avisos sociales y de grupo">
+              {activityNotices.map((notice) => (
+                <article key={notice.id} className="activity-notice">
+                  <div className="activity-notice-copy">
+                    <strong>{notice.title}</strong>
+                    <span>{notice.message}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="mini-action-button is-ghost"
+                    onClick={() => dismissActivityNotice(notice.id)}
+                  >
+                    Cerrar
+                  </button>
                 </article>
               ))}
             </section>
