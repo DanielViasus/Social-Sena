@@ -136,6 +136,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const [connected, setConnected] = useState(false)
   const [optionsOpen, setOptionsOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
+  const [quickChatOpen, setQuickChatOpen] = useState(false)
   const [debugEnabled, setDebugEnabled] = useState(false)
   const [friends, setFriends] = useState<FriendSummary[]>([])
   const [incomingFriendRequests, setIncomingFriendRequests] = useState<FriendRequestSummary[]>([])
@@ -178,6 +179,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const sessionRef = useRef(session)
   const sessionProfileRef = useRef(session.profile)
   const optionsMenuRef = useRef<HTMLDivElement | null>(null)
+  const quickChatInputRef = useRef<HTMLInputElement | null>(null)
   const chatOpenRef = useRef(false)
   const floatingTimeoutsRef = useRef<Map<string, number>>(new Map())
   const friendRequestPopupTimeoutsRef = useRef<Map<string, number>>(new Map())
@@ -698,6 +700,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       setRoom(null)
       setMessages([])
       setFloatingMessages([])
+      setQuickChatOpen(false)
       setActiveSpeechByUserId({})
       setTypingByUserId({})
       setFriends([])
@@ -726,6 +729,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       clearAllPartyInvitePopupTimeouts()
       clearAllActivityNoticeTimeouts()
       setConnected(false)
+      setQuickChatOpen(false)
       setTypingByUserId({})
       setFriends([])
       setIncomingFriendRequests([])
@@ -917,8 +921,6 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     }
   }, [
     activeTemplate.id,
-    applyPartyState,
-    applySocialState,
     clearAllActivityNoticeTimeouts,
     clearAllFriendRequestPopupTimeouts,
     clearAllPartyInvitePopupTimeouts,
@@ -969,6 +971,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     floatingTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId))
     floatingTimeoutsRef.current.clear()
     setFloatingMessages([])
+    setQuickChatOpen(false)
     setChatOpen(true)
   }
 
@@ -1051,7 +1054,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
     friendRequestPopupsRef.current = nextPopups
     setFriendRequestPopups(nextPopups)
-  }, [FRIEND_REQUEST_POPUP_DURATION_MS, clearFriendRequestPopupTimeout, dismissFriendRequestPopup, incomingFriendRequests])
+  }, [FRIEND_REQUEST_POPUP_DURATION_MS, incomingFriendRequests])
 
   const clearPartyInvitePopupTimeout = useEffectEvent((inviteId: string) => {
     const timeoutId = partyInvitePopupTimeoutsRef.current.get(inviteId)
@@ -1120,7 +1123,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
     partyInvitePopupsRef.current = nextPopups
     setPartyInvitePopups(nextPopups)
-  }, [clearPartyInvitePopupTimeout, dismissPartyInvitePopup, incomingPartyInvites])
+  }, [incomingPartyInvites])
 
   useEffect(() => {
     if (partyInviteStateRefreshTimeoutRef.current) {
@@ -1589,7 +1592,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [activeDialogue, advanceDialogue])
+  }, [activeDialogue])
 
   const handleNavigate = (target: Position) => {
     const socket = socketRef.current
@@ -1856,18 +1859,47 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     }))
   }, [appliedSkinColorsKey, appliedSkinPreset.id, skinEditorOpen])
 
-  const handleChatSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
+  const closeQuickChat = useEffectEvent((clearInput = false) => {
+    stopLocalTyping()
+    setQuickChatOpen(false)
+    if (clearInput) {
+      setChatInput('')
+    }
+  })
+
+  const submitChatMessage = useEffectEvent((closeQuickBarOnSuccess = false) => {
     const socket = socketRef.current
-    if (!socket || !chatInput.trim() || !room) return
+    const trimmedContent = chatInput.trim()
+    if (!socket || !trimmedContent || !room) {
+      return false
+    }
 
     void playUiSound('send')
     stopLocalTyping()
     socket.emit(clientEvents.sendChatMessage, {
       roomId: room.roomId,
-      content: chatInput,
+      content: trimmedContent,
     })
     setChatInput('')
+    if (closeQuickBarOnSuccess) {
+      setQuickChatOpen(false)
+    }
+    return true
+  })
+
+  const handleChatSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    submitChatMessage()
+  }
+
+  const handleQuickChatSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!chatInput.trim()) {
+      closeQuickChat(true)
+      return
+    }
+
+    submitChatMessage(true)
   }
 
   const handleChatInputChange = (nextValue: string) => {
@@ -1909,6 +1941,64 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       typingIdleTimeoutRef.current = null
     }, 2000)
   }
+
+  useEffect(() => {
+    if (!quickChatOpen || chatOpen) {
+      return
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      quickChatInputRef.current?.focus()
+    })
+
+    return () => window.cancelAnimationFrame(frameId)
+  }, [chatOpen, quickChatOpen])
+
+  useEffect(() => {
+    if (!quickChatOpen) {
+      return
+    }
+
+    if (chatOpen || activeDialogue || initialSkinSetupOpen || skinEditorOpen) {
+      closeQuickChat(false)
+    }
+  }, [activeDialogue, chatOpen, initialSkinSetupOpen, quickChatOpen, skinEditorOpen])
+
+  useEffect(() => {
+    const handleQuickChatShortcut = (event: KeyboardEvent) => {
+      if (event.repeat || event.key !== 'Enter') {
+        return
+      }
+
+      const target = event.target as HTMLElement | null
+      const tagName = target?.tagName?.toLowerCase()
+      const isTyping =
+        tagName === 'input' ||
+        tagName === 'textarea' ||
+        target?.isContentEditable === true
+
+      if (isTyping || chatOpen || activeDialogue || initialSkinSetupOpen || skinEditorOpen) {
+        return
+      }
+
+      event.preventDefault()
+
+      if (!quickChatOpen) {
+        setQuickChatOpen(true)
+        return
+      }
+
+      if (!chatInput.trim()) {
+        closeQuickChat(true)
+        return
+      }
+
+      submitChatMessage(true)
+    }
+
+    window.addEventListener('keydown', handleQuickChatShortcut)
+    return () => window.removeEventListener('keydown', handleQuickChatShortcut)
+  }, [activeDialogue, chatInput, chatOpen, initialSkinSetupOpen, quickChatOpen, skinEditorOpen])
 
   return (
     <main className="hud-layout">
@@ -2637,6 +2727,20 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                   placeholder="Escribe un mensaje para la sala"
                 />
                 <button type="submit">Enviar</button>
+              </form>
+            </section>
+          ) : null}
+
+          {!chatOpen && quickChatOpen ? (
+            <section className="quick-chat-bar" aria-label="Barra de chat rapido">
+              <form className="quick-chat-form" onSubmit={handleQuickChatSubmit}>
+                <input
+                  ref={quickChatInputRef}
+                  value={chatInput}
+                  onChange={(event) => handleChatInputChange(event.target.value)}
+                  placeholder="Escribe rapido y pulsa Enter"
+                />
+                <span>Enter envia · Enter vacio cierra</span>
               </form>
             </section>
           ) : null}
