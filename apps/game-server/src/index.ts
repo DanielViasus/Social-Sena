@@ -42,6 +42,7 @@ import {
   type Position,
   type Presence,
   type RoomState,
+  type SkinColorSelections,
   type UserProfile,
 } from '@social-sena/shared'
 
@@ -65,6 +66,13 @@ interface RectBounds {
   right: number
   top: number
   bottom: number
+}
+
+interface PartyPresenceMarker {
+  partyId: string | null
+  partyLeaderUserId: string | null
+  partyLeaderSkinId: string | null
+  partyLeaderSkinColors: SkinColorSelections | null
 }
 
 const port = Number(process.env.PORT ?? 3001)
@@ -193,6 +201,81 @@ async function buildPartyForUser(userId: string): Promise<PartySummary | null> {
   }
 }
 
+async function buildPartyPresenceMarkerForUser(userId: string): Promise<PartyPresenceMarker> {
+  const party = await buildPartyForUser(userId)
+  if (!party) {
+    return {
+      partyId: null,
+      partyLeaderUserId: null,
+      partyLeaderSkinId: null,
+      partyLeaderSkinColors: null,
+    }
+  }
+
+  const leaderMember = party.members.find((member) => member.userId === party.leaderUserId) ?? null
+  return {
+    partyId: party.partyId,
+    partyLeaderUserId: party.leaderUserId,
+    partyLeaderSkinId: leaderMember?.skinId ?? null,
+    partyLeaderSkinColors: leaderMember?.skinColors ?? null,
+  }
+}
+
+async function refreshRoomPresenceForUserIds(userIds: string[]) {
+  const normalizedUserIds = [...new Set(userIds.filter((userId) => userId.trim().length > 0))]
+  if (normalizedUserIds.length === 0) {
+    return
+  }
+
+  const partyMarkers = new Map<string, PartyPresenceMarker>()
+  await Promise.all(
+    normalizedUserIds.map(async (userId) => {
+      partyMarkers.set(userId, await buildPartyPresenceMarkerForUser(userId))
+    }),
+  )
+
+  const affectedRoomIds = new Set<string>()
+  rooms.forEach((room) => {
+    let roomChanged = false
+    room.players.forEach((player) => {
+      const marker = partyMarkers.get(player.userId)
+      if (!marker) {
+        return
+      }
+
+      const nextLeaderSkinColors = marker.partyLeaderSkinColors ? { ...marker.partyLeaderSkinColors } : null
+      const didChange =
+        player.partyId !== marker.partyId ||
+        player.partyLeaderUserId !== marker.partyLeaderUserId ||
+        player.partyLeaderSkinId !== marker.partyLeaderSkinId ||
+        JSON.stringify(player.partyLeaderSkinColors ?? null) !== JSON.stringify(nextLeaderSkinColors)
+
+      if (!didChange) {
+        return
+      }
+
+      player.partyId = marker.partyId
+      player.partyLeaderUserId = marker.partyLeaderUserId
+      player.partyLeaderSkinId = marker.partyLeaderSkinId
+      player.partyLeaderSkinColors = nextLeaderSkinColors
+      roomChanged = true
+    })
+
+    if (roomChanged) {
+      affectedRoomIds.add(room.roomId)
+    }
+  })
+
+  await Promise.all(
+    Array.from(affectedRoomIds).map(async (roomId) => {
+      const room = rooms.get(roomId)
+      if (room) {
+        io.to(roomId).emit(serverEvents.roomState, room)
+      }
+    }),
+  )
+}
+
 async function buildIncomingPartyInvitesForUser(userId: string): Promise<PartyInviteSummary[]> {
   return gameRepository.getIncomingPartyInvites(userId)
 }
@@ -292,6 +375,10 @@ function buildPresence(
     moving: false,
     skinId: profile.skinId,
     skinColors: { ...(profile.skinColors ?? {}) },
+    partyId: null,
+    partyLeaderUserId: null,
+    partyLeaderSkinId: null,
+    partyLeaderSkinColors: null,
     animation: 'idle-down',
     destination: null,
     route: null,
@@ -1170,6 +1257,11 @@ io.on('connection', (socket) => {
         : room.template.world.spawn
 
     const presence = buildPresence(session.profile, session.progress, socket.id, room, preferredSpawnPosition)
+    const partyMarker = await buildPartyPresenceMarkerForUser(session.profile.userId)
+    presence.partyId = partyMarker.partyId
+    presence.partyLeaderUserId = partyMarker.partyLeaderUserId
+    presence.partyLeaderSkinId = partyMarker.partyLeaderSkinId
+    presence.partyLeaderSkinColors = partyMarker.partyLeaderSkinColors
     ensureNavigablePlayerPosition(room, presence)
     room.players.push(presence)
     void gameRepository.savePlayerState(session.profile.userId, {
@@ -1263,7 +1355,7 @@ io.on('connection', (socket) => {
     }
   })
 
-  socket.on(clientEvents.updateSkin, (rawPayload) => {
+  socket.on(clientEvents.updateSkin, async (rawPayload) => {
     const parsed = updateSkinSchema.safeParse(rawPayload)
     const session = sessions.get(socket.id)
 
@@ -1283,6 +1375,9 @@ io.on('connection', (socket) => {
     player.skinId = parsed.data.skinId
     player.skinColors = { ...(parsed.data.skinColors ?? {}) }
     void gameRepository.savePlayerProfile(session.profile)
+    const party = await buildPartyForUser(session.profile.userId)
+    const affectedUserIds = party?.members.map((member) => member.userId) ?? [session.profile.userId]
+    await refreshRoomPresenceForUserIds(affectedUserIds)
     io.to(room.roomId).emit(serverEvents.playerMoved, player)
     io.to(room.roomId).emit(serverEvents.roomState, room)
   })
@@ -1520,6 +1615,7 @@ io.on('connection', (socket) => {
     }
 
     await refreshPartyStateForUserIds(result.affectedUserIds ?? [session.profile.userId])
+    await refreshRoomPresenceForUserIds(result.affectedUserIds ?? [session.profile.userId])
     await refreshPartyStateForAllSessions()
     callback?.({ ok: true })
   })
@@ -1543,6 +1639,7 @@ io.on('connection', (socket) => {
     }
 
     await refreshPartyStateForUserIds(result.affectedUserIds ?? [session.profile.userId])
+    await refreshRoomPresenceForUserIds(result.affectedUserIds ?? [session.profile.userId])
     await refreshPartyStateForAllSessions()
     callback?.({ ok: true })
   })
@@ -1566,6 +1663,7 @@ io.on('connection', (socket) => {
     }
 
     await refreshPartyStateForUserIds(result.affectedUserIds ?? [session.profile.userId])
+    await refreshRoomPresenceForUserIds(result.affectedUserIds ?? [session.profile.userId])
     await refreshPartyStateForAllSessions()
     callback?.({ ok: true })
   })
@@ -1656,6 +1754,7 @@ io.on('connection', (socket) => {
       const partyLeaveResult = await gameRepository.leaveParty(session.profile.userId)
       if (partyLeaveResult.ok) {
         await refreshPartyStateForUserIds(partyLeaveResult.affectedUserIds ?? [session.profile.userId])
+        await refreshRoomPresenceForUserIds(partyLeaveResult.affectedUserIds ?? [session.profile.userId])
       }
     }
 

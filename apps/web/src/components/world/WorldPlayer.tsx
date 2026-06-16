@@ -1,5 +1,10 @@
 import type { Presence } from '@social-sena/shared'
-import type { AvatarPreset, AvatarTextureDefinition } from '../../game/avatar/avatarSprites'
+import {
+  resolveAvatarPreset,
+  resolveAvatarPrimaryColor,
+  type AvatarPreset,
+  type AvatarTextureDefinition,
+} from '../../game/avatar/avatarSprites'
 
 interface WorldPlayerProps {
   player: Presence
@@ -40,6 +45,13 @@ export function WorldPlayer({
 }: WorldPlayerProps) {
   const isSpeechActive = Boolean(speechText) || isTyping
   const labelText = isTyping ? typingIndicatorText : speechText || player.displayName
+  const partyBorderColor =
+    player.partyLeaderSkinId && player.partyLeaderSkinColors
+      ? resolveAvatarPrimaryColor(
+          resolveAvatarPreset(player.partyLeaderSkinId),
+          player.partyLeaderSkinColors,
+        )
+      : '#D9D9D9'
 
   return (
     <div
@@ -73,6 +85,9 @@ export function WorldPlayer({
       </div>
       <div
         className={`react-world-avatar-label ${isSelf ? 'is-self' : ''} ${isSpeechActive ? 'is-speech' : ''} ${isTyping ? 'is-typing' : ''}`}
+        style={{
+          borderColor: partyBorderColor,
+        }}
       >
         {labelText}
       </div>

@@ -161,6 +161,10 @@ export interface Presence {
   moving: boolean
   skinId: string
   skinColors: SkinColorSelections
+  partyId: string | null
+  partyLeaderUserId: string | null
+  partyLeaderSkinId: string | null
+  partyLeaderSkinColors: SkinColorSelections | null
   animation: string
   destination: Position | null
   route: RouteState | null

@@ -541,6 +541,18 @@ export function normalizeAvatarColorSelections(
   )
 }
 
+export function resolveAvatarPrimaryColor(
+  preset: AvatarPreset,
+  selections: AvatarColorSelections | null | undefined,
+) {
+  const primarySlot = preset.colorSlots[0]
+  if (!primarySlot) {
+    return '#D9D9D9'
+  }
+
+  return findColorOption(primarySlot, selections?.[primarySlot.id]).swatch
+}
+
 function hasDefaultAvatarColors(preset: AvatarPreset, selections: AvatarColorSelections) {
   return preset.colorSlots.every((slot) => selections[slot.id] === slot.defaultOptionId)
 }
