@@ -1460,6 +1460,18 @@ io.on('connection', (socket) => {
       return
     }
 
+    const targetSocketIds = Array.from(sessions.entries())
+      .filter(([, currentSession]) => currentSession.profile.userId === parsed.data.friendUserId)
+      .map(([targetSocketId]) => targetSocketId)
+
+    if (targetSocketIds.length === 0) {
+      callback?.({
+        ok: false,
+        message: 'Ese jugador no se encuentra conectado.',
+      })
+      return
+    }
+
     const result = await gameRepository.inviteToParty(session.profile.userId, parsed.data.friendUserId)
     if (!result.ok) {
       callback?.(result)
@@ -1467,10 +1479,6 @@ io.on('connection', (socket) => {
     }
 
     await emitPartyStateToSocket(socket.id)
-
-    const targetSocketIds = Array.from(sessions.entries())
-      .filter(([, currentSession]) => currentSession.profile.userId === parsed.data.friendUserId)
-      .map(([targetSocketId]) => targetSocketId)
 
     await Promise.all(
       targetSocketIds.map(async (targetSocketId) => {

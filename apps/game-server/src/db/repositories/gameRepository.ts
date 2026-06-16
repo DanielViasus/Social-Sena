@@ -208,6 +208,95 @@ async function purgeExpiredPartyInvites(
   )
 }
 
+async function removeUserFromPartyMembership(
+  client: { query: <TRow>(queryText: string, values?: unknown[]) => Promise<{ rows: TRow[]; rowCount: number | null }> },
+  userId: string,
+) {
+  const membershipResult = await client.query<{
+    party_id: string
+    leader_user_id: string
+  }>(
+    `
+      select party_members.party_id, parties.leader_user_id
+      from party_members
+      inner join parties on parties.party_id = party_members.party_id
+      where party_members.user_id = $1
+      limit 1
+    `,
+    [userId],
+  )
+
+  const membership = membershipResult.rows[0]
+  if (!membership) {
+    return null
+  }
+
+  await client.query(
+    `
+      delete from party_members
+      where party_id = $1 and user_id = $2
+    `,
+    [membership.party_id, userId],
+  )
+
+  await client.query(
+    `
+      delete from party_invites
+      where party_id = $1 and (from_user_id = $2 or to_user_id = $2)
+    `,
+    [membership.party_id, userId],
+  )
+
+  const remainingMembersResult = await client.query<{ user_id: string }>(
+    `
+      select user_id
+      from party_members
+      where party_id = $1
+      order by created_at asc
+    `,
+    [membership.party_id],
+  )
+
+  const remainingUserIds = remainingMembersResult.rows.map((row) => row.user_id)
+  let nextLeaderUserId: string | null = membership.leader_user_id
+
+  if (remainingMembersResult.rows.length <= 1) {
+    await client.query(
+      `
+        delete from parties
+        where party_id = $1
+      `,
+      [membership.party_id],
+    )
+    nextLeaderUserId = null
+  } else if (membership.leader_user_id === userId) {
+    nextLeaderUserId = remainingMembersResult.rows[0].user_id
+    await client.query(
+      `
+        update parties
+        set leader_user_id = $2, updated_at = now()
+        where party_id = $1
+      `,
+      [membership.party_id, nextLeaderUserId],
+    )
+  } else {
+    await client.query(
+      `
+        update parties
+        set updated_at = now()
+        where party_id = $1
+      `,
+      [membership.party_id],
+    )
+  }
+
+  return {
+    partyId: membership.party_id,
+    nextLeaderUserId,
+    affectedUserIds: [...new Set([userId, ...remainingUserIds])],
+  }
+}
+
 async function queryPartySummary(
   client: { query: <TRow>(queryText: string, values?: unknown[]) => Promise<{ rows: TRow[]; rowCount: number | null }> },
   userId: string,
@@ -1249,21 +1338,6 @@ class GameRepository {
         return { ok: false, message: 'Solo puedes invitar amistades confirmadas a tu grupo.' }
       }
 
-      const targetMembershipResult = await client.query<{ party_id: string }>(
-        `
-          select party_id
-          from party_members
-          where user_id = $1
-          limit 1
-        `,
-        [friendUserId],
-      )
-
-      if (targetMembershipResult.rowCount) {
-        await client.query('ROLLBACK')
-        return { ok: false, message: 'Ese jugador ya pertenece a otro grupo.' }
-      }
-
       let partyId: string
       let leaderUserId = userId
 
@@ -1364,21 +1438,6 @@ class GameRepository {
       await client.query('BEGIN')
       await purgeExpiredPartyInvites(client)
 
-      const currentMembershipResult = await client.query<{ party_id: string }>(
-        `
-          select party_id
-          from party_members
-          where user_id = $1
-          limit 1
-        `,
-        [userId],
-      )
-
-      if (currentMembershipResult.rowCount) {
-        await client.query('ROLLBACK')
-        return { ok: false, message: 'Primero debes salir de tu grupo actual.' }
-      }
-
       const inviteResult = await client.query<{
         invite_id: string
         party_id: string
@@ -1415,7 +1474,39 @@ class GameRepository {
         return { ok: false, message: 'El grupo ya no existe.' }
       }
 
+      let previousPartyLeaveResult:
+        | {
+            partyId: string
+            nextLeaderUserId: string | null
+            affectedUserIds: string[]
+          }
+        | null = null
+
       if (action === 'accept') {
+        const currentMembershipResult = await client.query<{ party_id: string }>(
+          `
+            select party_id
+            from party_members
+            where user_id = $1
+            limit 1
+          `,
+          [userId],
+        )
+
+        if (currentMembershipResult.rows[0]?.party_id === invite.party_id) {
+          await client.query(
+            `
+              delete from party_invites
+              where invite_id = $1
+            `,
+            [inviteId],
+          )
+          await client.query('COMMIT')
+          return { ok: true, partyId: invite.party_id, leaderUserId: invite.from_user_id, affectedUserIds: [userId] }
+        }
+
+        previousPartyLeaveResult = await removeUserFromPartyMembership(client, userId)
+
         await client.query(
           `
             insert into party_members (party_id, user_id)
@@ -1466,7 +1557,14 @@ class GameRepository {
         ok: true,
         partyId: invite.party_id,
         leaderUserId: invite.from_user_id,
-        affectedUserIds: [...new Set([invite.from_user_id, userId, ...memberRows.rows.map((row) => row.user_id)])],
+        affectedUserIds: [
+          ...new Set([
+            invite.from_user_id,
+            userId,
+            ...memberRows.rows.map((row) => row.user_id),
+            ...(previousPartyLeaveResult?.affectedUserIds ?? []),
+          ]),
+        ],
       }
     } catch (error) {
       await client.query('ROLLBACK')
@@ -1488,92 +1586,18 @@ class GameRepository {
     try {
       await client.query('BEGIN')
 
-      const membershipResult = await client.query<{
-        party_id: string
-        leader_user_id: string
-      }>(
-        `
-          select party_members.party_id, parties.leader_user_id
-          from party_members
-          inner join parties on parties.party_id = party_members.party_id
-          where party_members.user_id = $1
-          limit 1
-        `,
-        [userId],
-      )
-
-      const membership = membershipResult.rows[0]
-      if (!membership) {
+      const leaveResult = await removeUserFromPartyMembership(client, userId)
+      if (!leaveResult) {
         await client.query('ROLLBACK')
         return { ok: false, message: 'No perteneces a ningun grupo activo.' }
-      }
-
-      await client.query(
-        `
-          delete from party_members
-          where party_id = $1 and user_id = $2
-        `,
-        [membership.party_id, userId],
-      )
-
-      await client.query(
-        `
-          delete from party_invites
-          where party_id = $1 and (from_user_id = $2 or to_user_id = $2)
-        `,
-        [membership.party_id, userId],
-      )
-
-      const remainingMembersResult = await client.query<{ user_id: string }>(
-        `
-          select user_id
-          from party_members
-          where party_id = $1
-          order by created_at asc
-        `,
-        [membership.party_id],
-      )
-
-      let nextLeaderUserId: string | null = membership.leader_user_id
-
-      if (remainingMembersResult.rows.length === 0) {
-        await client.query(
-          `
-            delete from parties
-            where party_id = $1
-          `,
-          [membership.party_id],
-        )
-        nextLeaderUserId = null
-      } else {
-        if (membership.leader_user_id === userId) {
-          nextLeaderUserId = remainingMembersResult.rows[0].user_id
-          await client.query(
-            `
-              update parties
-              set leader_user_id = $2, updated_at = now()
-              where party_id = $1
-            `,
-            [membership.party_id, nextLeaderUserId],
-          )
-        } else {
-          await client.query(
-            `
-              update parties
-              set updated_at = now()
-              where party_id = $1
-            `,
-            [membership.party_id],
-          )
-        }
       }
 
       await client.query('COMMIT')
       return {
         ok: true,
-        partyId: membership.party_id,
-        nextLeaderUserId,
-        affectedUserIds: [...new Set([userId, ...remainingMembersResult.rows.map((row) => row.user_id)])],
+        partyId: leaveResult.partyId,
+        nextLeaderUserId: leaveResult.nextLeaderUserId,
+        affectedUserIds: leaveResult.affectedUserIds,
       }
     } catch (error) {
       await client.query('ROLLBACK')

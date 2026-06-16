@@ -2098,6 +2098,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                               (invite) => invite.fromUserId === friend.userId,
                             )
                             const canInviteToParty =
+                              friend.isOnline &&
                               !isPartyMember &&
                               !hasIncomingPartyInvite &&
                               !outgoingPartyInviteUserIdSet.has(friend.userId) &&
