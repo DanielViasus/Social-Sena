@@ -1607,7 +1607,7 @@ io.on('connection', (socket) => {
     })
   })
 
-  socket.on('disconnect', () => {
+  socket.on('disconnect', async () => {
     const session = sessions.get(socket.id)
     if (!session) {
       return
@@ -1639,8 +1639,19 @@ io.on('connection', (socket) => {
     }
 
     sessions.delete(socket.id)
-    void refreshSocialStateForAllSessions()
-    void refreshPartyStateForAllSessions()
+
+    const userStillHasActiveSession = Array.from(sessions.values()).some(
+      (currentSession) => currentSession.profile.userId === session.profile.userId,
+    )
+
+    if (!userStillHasActiveSession) {
+      const partyLeaveResult = await gameRepository.leaveParty(session.profile.userId)
+      if (partyLeaveResult.ok) {
+        await refreshPartyStateForUserIds(partyLeaveResult.affectedUserIds ?? [session.profile.userId])
+      }
+    }
+
+    await refreshSocialStateForAllSessions()
   })
 })
 
