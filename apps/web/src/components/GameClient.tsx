@@ -6,12 +6,14 @@ import {
   DEFAULT_AUDIO_SETTINGS,
   getRoomTemplateById,
   normalizeAudioSettings,
+  type ActivityNoticePayload,
   type AudioSettings,
   type ChatMessage,
   type ConnectionAcceptedPayload,
   type FriendRequestSummary,
   type FriendSummary,
   type PartyInviteSummary,
+  type PartyLeaderFollowPromptPayload,
   type PartyOutgoingInviteSummary,
   type PartyStatePayload,
   type PartySummary,
@@ -21,6 +23,8 @@ import {
   type RoomState,
   type SkinColorSelections,
   type SocialStatePayload,
+  type RoomTransitionRequestedPayload,
+  type ServerErrorPayload,
   type TypingStateChangedPayload,
 } from '@social-sena/shared'
 import { saveAuthSession, savePreferredSkin, savePreferredSkinColors, type AuthSession } from '../auth/localSession'
@@ -64,6 +68,7 @@ interface FriendRequestPopupState extends FriendRequestSummary {
 }
 
 type PartyInvitePopupState = PartyInviteSummary
+type PartyLeaderFollowPromptState = PartyLeaderFollowPromptPayload
 
 interface ActivityNoticeState {
   id: string
@@ -156,12 +161,14 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const [outgoingPartyInvites, setOutgoingPartyInvites] = useState<PartyOutgoingInviteSummary[]>([])
   const [friendRequestPopups, setFriendRequestPopups] = useState<FriendRequestPopupState[]>([])
   const [partyInvitePopups, setPartyInvitePopups] = useState<PartyInvitePopupState[]>([])
+  const [partyLeaderFollowPrompt, setPartyLeaderFollowPrompt] = useState<PartyLeaderFollowPromptState | null>(null)
   const [activityNotices, setActivityNotices] = useState<ActivityNoticeState[]>([])
   const [addingFriendUserId, setAddingFriendUserId] = useState<string | null>(null)
   const [respondingFriendRequestId, setRespondingFriendRequestId] = useState<string | null>(null)
   const [removingFriendUserId, setRemovingFriendUserId] = useState<string | null>(null)
   const [invitingPartyUserId, setInvitingPartyUserId] = useState<string | null>(null)
   const [respondingPartyInviteId, setRespondingPartyInviteId] = useState<string | null>(null)
+  const [respondingPartyLeaderFollow, setRespondingPartyLeaderFollow] = useState(false)
   const [promotingPartyLeaderUserId, setPromotingPartyLeaderUserId] = useState<string | null>(null)
   const [leavingParty, setLeavingParty] = useState(false)
   const [activeDialogue, setActiveDialogue] = useState<ActiveDialogueState | null>(null)
@@ -197,6 +204,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const partyInvitePopupTimeoutsRef = useRef<Map<string, number>>(new Map())
   const partyInvitePopupsRef = useRef<PartyInvitePopupState[]>([])
   const activityNoticeTimeoutsRef = useRef<Map<string, number>>(new Map())
+  const partyLeaderFollowPromptTimeoutRef = useRef<number | null>(null)
   const friendsRef = useRef<FriendSummary[]>([])
   const partyRef = useRef<PartySummary | null>(null)
   const speechTimeoutsRef = useRef<Map<string, number>>(new Map())
@@ -480,6 +488,16 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     activityNoticeTimeoutsRef.current.set(noticeId, timeoutId)
   })
 
+  const dismissPartyLeaderFollowPrompt = useEffectEvent(() => {
+    if (partyLeaderFollowPromptTimeoutRef.current) {
+      window.clearTimeout(partyLeaderFollowPromptTimeoutRef.current)
+      partyLeaderFollowPromptTimeoutRef.current = null
+    }
+
+    setPartyLeaderFollowPrompt(null)
+    setRespondingPartyLeaderFollow(false)
+  })
+
   const applySocialState = useEffectEvent(
     ({
       nextFriends,
@@ -553,6 +571,15 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
             enqueueActivityNotice('Grupo actualizado', `${member.displayName} dejo el grupo.`)
           })
         }
+      }
+
+      if (
+        partyLeaderFollowPrompt &&
+        (!nextParty ||
+          nextParty.partyId !== partyLeaderFollowPrompt.partyId ||
+          nextParty.leaderUserId === session.profile.userId)
+      ) {
+        dismissPartyLeaderFollowPrompt()
       }
 
       partyStateInitializedRef.current = true
@@ -849,6 +876,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
         nextSocket.emit(clientEvents.joinRoom, {
           roomId: routeTemplate.id,
           templateId: routeTemplate.id,
+          transition: 'direct',
         })
       },
     )
@@ -885,6 +913,29 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
           ? currentValue
           : [invite, ...currentValue],
       )
+    })
+
+    nextSocket.on(serverEvents.partyLeaderFollowRequested, (prompt: PartyLeaderFollowPromptPayload) => {
+      void playUiSound('friend-request')
+      setRespondingPartyLeaderFollow(false)
+      setPartyLeaderFollowPrompt(prompt)
+    })
+
+    nextSocket.on(serverEvents.activityNotice, (notice: ActivityNoticePayload) => {
+      enqueueActivityNotice(notice.title, notice.message)
+    })
+
+    nextSocket.on(serverEvents.serverError, (payload: ServerErrorPayload) => {
+      enqueueActivityNotice('Aviso del sistema', payload.message)
+    })
+
+    nextSocket.on(serverEvents.roomTransitionRequested, (payload: RoomTransitionRequestedPayload) => {
+      dismissPartyLeaderFollowPrompt()
+      transitionToRoom(payload.templateId, payload.spawnPosition, {
+        roomId: payload.roomId,
+        transition: payload.transition,
+        allowPartyFollower: true,
+      })
     })
 
     nextSocket.on(serverEvents.roomState, (nextRoom: RoomState) => {
@@ -1205,6 +1256,37 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     }
   }, [connected, incomingPartyInvites, outgoingPartyInvites])
 
+  useEffect(() => {
+    if (partyLeaderFollowPromptTimeoutRef.current) {
+      window.clearTimeout(partyLeaderFollowPromptTimeoutRef.current)
+      partyLeaderFollowPromptTimeoutRef.current = null
+    }
+
+    if (!partyLeaderFollowPrompt) {
+      return
+    }
+
+    const expiresAt = new Date(partyLeaderFollowPrompt.expiresAt).getTime()
+    if (!Number.isFinite(expiresAt)) {
+      return
+    }
+
+    partyLeaderFollowPromptTimeoutRef.current = window.setTimeout(() => {
+      partyLeaderFollowPromptTimeoutRef.current = null
+      setPartyLeaderFollowPrompt((currentValue) =>
+        currentValue?.requestId === partyLeaderFollowPrompt.requestId ? null : currentValue,
+      )
+      setRespondingPartyLeaderFollow(false)
+    }, Math.max(1_000, expiresAt - Date.now() + 2_000))
+
+    return () => {
+      if (partyLeaderFollowPromptTimeoutRef.current) {
+        window.clearTimeout(partyLeaderFollowPromptTimeoutRef.current)
+        partyLeaderFollowPromptTimeoutRef.current = null
+      }
+    }
+  }, [partyLeaderFollowPrompt])
+
   const handleAddFriend = useEffectEvent((friendUserId: string) => {
     const socket = socketRef.current
     if (!socket || addingFriendUserId) {
@@ -1300,6 +1382,28 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
         socket.emit(clientEvents.requestPartyState)
       }
     })
+  })
+
+  const handleRespondToPartyLeaderFollow = useEffectEvent((action: 'accept' | 'reject') => {
+    const socket = socketRef.current
+    if (!socket || !partyLeaderFollowPrompt || respondingPartyLeaderFollow) {
+      return
+    }
+
+    void playUiSound(action === 'accept' ? 'confirm' : 'cancel')
+    setRespondingPartyLeaderFollow(true)
+    socket.emit(
+      clientEvents.respondPartyLeaderFollow,
+      { requestId: partyLeaderFollowPrompt.requestId, action },
+      (response: { ok: boolean }) => {
+        if (!response.ok) {
+          setRespondingPartyLeaderFollow(false)
+          return
+        }
+
+        dismissPartyLeaderFollowPrompt()
+      },
+    )
   })
 
   const handleLeaveParty = useEffectEvent(() => {
@@ -1653,10 +1757,30 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
   }
 
-  const transitionToRoom = useEffectEvent((templateId: string, spawnPosition?: Position) => {
+  const transitionToRoom = useEffectEvent((
+    templateId: string,
+    spawnPosition?: Position,
+    options?: {
+      roomId?: string
+      transition?: 'direct' | 'teleport' | 'follow-leader'
+      allowPartyFollower?: boolean
+    },
+  ) => {
     const socket = socketRef.current
     const targetTemplate = getRoomTemplateById(templateId)
     if (!socket || !connected || !targetTemplate) {
+      return
+    }
+
+    const transition = options?.transition ?? 'teleport'
+    const currentParty = partyRef.current
+    if (
+      transition === 'teleport' &&
+      currentParty &&
+      currentParty.leaderUserId !== session.profile.userId &&
+      !options?.allowPartyFollower
+    ) {
+      enqueueActivityNotice('Grupo actualizado', 'Solo el lider del grupo se puede teletransportar.')
       return
     }
 
@@ -1674,9 +1798,10 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     }
 
     socket.emit(clientEvents.joinRoom, {
-      roomId: targetTemplate.id,
+      roomId: options?.roomId ?? targetTemplate.id,
       templateId: targetTemplate.id,
       spawnPosition,
+      transition,
     })
   })
 
@@ -1923,6 +2048,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
         socket.emit(clientEvents.joinRoom, {
           roomId: routeTemplate.id,
           templateId: routeTemplate.id,
+          transition: 'direct',
         })
       },
     )
@@ -2180,8 +2306,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                               !isCurrentPlayer &&
                               !isPartyMember &&
                               !hasIncomingPartyInvite &&
-                              !outgoingPartyInviteUserIdSet.has(player.userId) &&
-                              (!party || isPartyLeader)
+                              !outgoingPartyInviteUserIdSet.has(player.userId)
 
                             return (
                               <li
@@ -2440,8 +2565,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                               friend.isOnline &&
                               !isPartyMember &&
                               !hasIncomingPartyInvite &&
-                              !outgoingPartyInviteUserIdSet.has(friend.userId) &&
-                              (!party || isPartyLeader)
+                              !outgoingPartyInviteUserIdSet.has(friend.userId)
 
                             return (
                               <li key={friend.userId}>
@@ -2679,6 +2803,45 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                   </button>
                 </article>
               ))}
+            </section>
+          ) : null}
+
+          {partyLeaderFollowPrompt ? (
+            <section className="friend-request-popup-stack" aria-label="Seguimiento del lider del grupo">
+              <article className="friend-request-popup">
+                <div className="friend-request-popup-progress" aria-hidden="true">
+                  <span
+                    key={partyLeaderFollowPrompt.expiresAt}
+                    style={{
+                      animationDuration: `${Math.max(250, new Date(partyLeaderFollowPrompt.expiresAt).getTime() - Date.now())}ms`,
+                    }}
+                  />
+                </div>
+                <div className="friend-request-popup-copy">
+                  <strong>{partyLeaderFollowPrompt.leaderDisplayName}</strong>
+                  <span>
+                    {`El lider del grupo se movio a la sala ${partyLeaderFollowPrompt.roomName} quieres seguirlo`}
+                  </span>
+                </div>
+                <div className="inline-actions">
+                  <button
+                    type="button"
+                    className="mini-action-button"
+                    onClick={() => handleRespondToPartyLeaderFollow('accept')}
+                    disabled={respondingPartyLeaderFollow}
+                  >
+                    {respondingPartyLeaderFollow ? '...' : 'Seguir al lider'}
+                  </button>
+                  <button
+                    type="button"
+                    className="mini-action-button is-danger"
+                    onClick={() => handleRespondToPartyLeaderFollow('reject')}
+                    disabled={respondingPartyLeaderFollow}
+                  >
+                    Dejar el grupo
+                  </button>
+                </div>
+              </article>
             </section>
           ) : null}
 

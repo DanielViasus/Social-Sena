@@ -105,6 +105,7 @@ export interface FriendRequestSummary {
 }
 
 export const PARTY_INVITE_TTL_MS = 60_000
+export const PARTY_LEADER_FOLLOW_TTL_MS = 30_000
 
 export interface PartyMemberSummary {
   userId: string
@@ -216,6 +217,7 @@ export interface JoinRoomPayload {
   roomId: string
   templateId: string
   spawnPosition?: Position
+  transition?: 'direct' | 'teleport' | 'follow-leader'
 }
 
 export interface NavigateToPayload {
@@ -273,6 +275,23 @@ export interface RespondPartyInvitePayload {
   action: 'accept' | 'reject'
 }
 
+export interface PartyLeaderFollowPromptPayload {
+  requestId: string
+  partyId: string
+  leaderUserId: string
+  leaderDisplayName: string
+  roomId: string
+  roomName: string
+  templateId: string
+  spawnPosition: Position
+  expiresAt: string
+}
+
+export interface RespondPartyLeaderFollowPayload {
+  requestId: string
+  action: 'accept' | 'reject'
+}
+
 export interface LeavePartyPayload {}
 
 export interface PromotePartyLeaderPayload {
@@ -283,6 +302,19 @@ export interface PartyStatePayload {
   party: PartySummary | null
   incomingPartyInvites: PartyInviteSummary[]
   outgoingPartyInvites: PartyOutgoingInviteSummary[]
+}
+
+export interface ActivityNoticePayload {
+  noticeId: string
+  title: string
+  message: string
+}
+
+export interface RoomTransitionRequestedPayload {
+  roomId: string
+  templateId: string
+  spawnPosition: Position
+  transition: 'follow-leader'
 }
 
 export interface SendChatMessagePayload {

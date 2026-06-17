@@ -5,6 +5,7 @@ import { initializeDatabase } from './db/client'
 import { gameRepository } from './db/repositories/gameRepository'
 import {
   DEFAULT_ROOM_CAPACITY,
+  PARTY_LEADER_FOLLOW_TTL_MS,
   PLAYER_REACH_THRESHOLD,
   PLAYER_SPEED,
   addFriendSchema,
@@ -19,15 +20,19 @@ import {
   navigateToSchema,
   promotePartyLeaderSchema,
   removeFriendSchema,
+  respondPartyLeaderFollowSchema,
   respondPartyInviteSchema,
   respondFriendRequestSchema,
   updateAudioSettingsSchema,
   updateSkinSchema,
   updateInventorySchema,
+  type ActivityNoticePayload,
   type PartyInviteSummary,
+  type PartyLeaderFollowPromptPayload,
   type PartyOutgoingInviteSummary,
   type PartyStatePayload,
   type PartySummary,
+  type RoomTransitionRequestedPayload,
   setTypingStateSchema,
   stopNavigationSchema,
   sendChatMessageSchema,
@@ -73,6 +78,20 @@ interface PartyPresenceMarker {
   partyLeaderUserId: string | null
   partyLeaderSkinId: string | null
   partyLeaderSkinColors: SkinColorSelections | null
+}
+
+interface PendingPartyLeaderFollowRequest {
+  requestId: string
+  partyId: string
+  leaderUserId: string
+  leaderDisplayName: string
+  targetUserId: string
+  roomId: string
+  roomName: string
+  templateId: string
+  spawnPosition: Position
+  expiresAt: number
+  timeoutId: ReturnType<typeof setTimeout>
 }
 
 const port = Number(process.env.PORT ?? 3001)
@@ -138,6 +157,8 @@ const io = new Server(httpServer, {
 
 const sessions = new Map<string, SessionState>()
 const rooms = new Map<string, RoomState>()
+const pendingPartyLeaderFollowRequests = new Map<string, PendingPartyLeaderFollowRequest>()
+const pendingPartyLeaderFollowRequestIdsByUser = new Map<string, string>()
 let lastSimulationTick = Date.now()
 
 function hasMovementInput(input: SessionState['movementInput']) {
@@ -322,6 +343,237 @@ async function refreshPartyStateForUserIds(userIds: string[]) {
   await Promise.all(targetSocketIds.map((socketId) => emitPartyStateToSocket(socketId)))
 }
 
+function getSocketIdsForUser(userId: string) {
+  return Array.from(sessions.entries())
+    .filter(([, session]) => session.profile.userId === userId)
+    .map(([socketId]) => socketId)
+}
+
+function getPresenceForUser(userId: string): Presence | null {
+  for (const [socketId, session] of sessions.entries()) {
+    if (session.profile.userId !== userId || !session.roomId) {
+      continue
+    }
+
+    const room = rooms.get(session.roomId)
+    const player = room?.players.find((presence) => presence.sessionId === socketId) ?? null
+    if (player) {
+      return player
+    }
+  }
+
+  return null
+}
+
+function emitActivityNoticeToUserIds(userIds: string[], title: string, message: string) {
+  const payload: ActivityNoticePayload = {
+    noticeId: randomUUID(),
+    title,
+    message,
+  }
+
+  const targetSocketIds = Array.from(
+    new Set(userIds.flatMap((userId) => getSocketIdsForUser(userId))),
+  )
+
+  targetSocketIds.forEach((socketId) => {
+    io.to(socketId).emit(serverEvents.activityNotice, payload)
+  })
+}
+
+function clearPendingPartyLeaderFollowRequest(requestId: string) {
+  const pendingRequest = pendingPartyLeaderFollowRequests.get(requestId)
+  if (!pendingRequest) {
+    return
+  }
+
+  clearTimeout(pendingRequest.timeoutId)
+  pendingPartyLeaderFollowRequests.delete(requestId)
+
+  if (pendingPartyLeaderFollowRequestIdsByUser.get(pendingRequest.targetUserId) === requestId) {
+    pendingPartyLeaderFollowRequestIdsByUser.delete(pendingRequest.targetUserId)
+  }
+}
+
+function clearPendingPartyLeaderFollowRequestForUser(userId: string) {
+  const requestId = pendingPartyLeaderFollowRequestIdsByUser.get(userId)
+  if (requestId) {
+    clearPendingPartyLeaderFollowRequest(requestId)
+  }
+}
+
+function buildPartyLeaderFollowPromptPayload(
+  pendingRequest: PendingPartyLeaderFollowRequest,
+): PartyLeaderFollowPromptPayload {
+  return {
+    requestId: pendingRequest.requestId,
+    partyId: pendingRequest.partyId,
+    leaderUserId: pendingRequest.leaderUserId,
+    leaderDisplayName: pendingRequest.leaderDisplayName,
+    roomId: pendingRequest.roomId,
+    roomName: pendingRequest.roomName,
+    templateId: pendingRequest.templateId,
+    spawnPosition: { ...pendingRequest.spawnPosition },
+    expiresAt: new Date(pendingRequest.expiresAt).toISOString(),
+  }
+}
+
+function emitRoomTransitionToUser(userId: string, payload: RoomTransitionRequestedPayload) {
+  getSocketIdsForUser(userId).forEach((socketId) => {
+    io.to(socketId).emit(serverEvents.roomTransitionRequested, payload)
+  })
+}
+
+async function handlePartyLeaderFollowTimeout(requestId: string) {
+  const pendingRequest = pendingPartyLeaderFollowRequests.get(requestId)
+  if (!pendingRequest) {
+    return
+  }
+
+  clearPendingPartyLeaderFollowRequest(requestId)
+
+  const currentParty = await buildPartyForUser(pendingRequest.targetUserId)
+  if (!currentParty || currentParty.partyId !== pendingRequest.partyId) {
+    return
+  }
+
+  emitRoomTransitionToUser(pendingRequest.targetUserId, {
+    roomId: pendingRequest.roomId,
+    templateId: pendingRequest.templateId,
+    spawnPosition: { ...pendingRequest.spawnPosition },
+    transition: 'follow-leader',
+  })
+}
+
+function requestPartyLeaderFollowForUser({
+  partyId,
+  leaderUserId,
+  leaderDisplayName,
+  targetUserId,
+  roomId,
+  roomName,
+  templateId,
+  spawnPosition,
+}: {
+  partyId: string
+  leaderUserId: string
+  leaderDisplayName: string
+  targetUserId: string
+  roomId: string
+  roomName: string
+  templateId: string
+  spawnPosition: Position
+}) {
+  clearPendingPartyLeaderFollowRequestForUser(targetUserId)
+
+  const requestId = randomUUID()
+  const expiresAt = Date.now() + PARTY_LEADER_FOLLOW_TTL_MS
+  const timeoutId = setTimeout(() => {
+    void handlePartyLeaderFollowTimeout(requestId)
+  }, PARTY_LEADER_FOLLOW_TTL_MS)
+
+  const pendingRequest: PendingPartyLeaderFollowRequest = {
+    requestId,
+    partyId,
+    leaderUserId,
+    leaderDisplayName,
+    targetUserId,
+    roomId,
+    roomName,
+    templateId,
+    spawnPosition: { ...spawnPosition },
+    expiresAt,
+    timeoutId,
+  }
+
+  pendingPartyLeaderFollowRequests.set(requestId, pendingRequest)
+  pendingPartyLeaderFollowRequestIdsByUser.set(targetUserId, requestId)
+
+  const payload = buildPartyLeaderFollowPromptPayload(pendingRequest)
+  getSocketIdsForUser(targetUserId).forEach((socketId) => {
+    io.to(socketId).emit(serverEvents.partyLeaderFollowRequested, payload)
+  })
+}
+
+async function requestPartyLeaderFollowForMemberIfNeeded(userId: string) {
+  const party = await buildPartyForUser(userId)
+  if (!party) {
+    clearPendingPartyLeaderFollowRequestForUser(userId)
+    return
+  }
+
+  if (party.leaderUserId === userId) {
+    return
+  }
+
+  const leaderPresence = getPresenceForUser(party.leaderUserId)
+  const memberPresence = getPresenceForUser(userId)
+  if (!leaderPresence || !memberPresence || leaderPresence.roomId === memberPresence.roomId) {
+    clearPendingPartyLeaderFollowRequestForUser(userId)
+    return
+  }
+
+  const leaderRoom = rooms.get(leaderPresence.roomId)
+  if (!leaderRoom) {
+    return
+  }
+
+  const leaderDisplayName =
+    party.members.find((member) => member.userId === party.leaderUserId)?.displayName ?? 'El lider del grupo'
+
+  requestPartyLeaderFollowForUser({
+    partyId: party.partyId,
+    leaderUserId: party.leaderUserId,
+    leaderDisplayName,
+    targetUserId: userId,
+    roomId: leaderRoom.roomId,
+    roomName: leaderRoom.name,
+    templateId: leaderRoom.templateId,
+    spawnPosition: { ...leaderPresence.position },
+  })
+}
+
+async function requestPartyLeaderFollowForPartyMembers(leaderUserId: string) {
+  const party = await buildPartyForUser(leaderUserId)
+  if (!party) {
+    return
+  }
+
+  const leaderPresence = getPresenceForUser(leaderUserId)
+  if (!leaderPresence) {
+    return
+  }
+
+  const leaderRoom = rooms.get(leaderPresence.roomId)
+  if (!leaderRoom) {
+    return
+  }
+
+  const leaderDisplayName =
+    party.members.find((member) => member.userId === party.leaderUserId)?.displayName ?? 'El lider del grupo'
+
+  party.members
+    .filter((member) => member.userId !== leaderUserId && member.isOnline)
+    .forEach((member) => {
+      const memberPresence = getPresenceForUser(member.userId)
+      if (!memberPresence || memberPresence.roomId === leaderRoom.roomId) {
+        clearPendingPartyLeaderFollowRequestForUser(member.userId)
+        return
+      }
+
+      requestPartyLeaderFollowForUser({
+        partyId: party.partyId,
+        leaderUserId,
+        leaderDisplayName,
+        targetUserId: member.userId,
+        roomId: leaderRoom.roomId,
+        roomName: leaderRoom.name,
+        templateId: leaderRoom.templateId,
+        spawnPosition: { ...leaderPresence.position },
+      })
+    })
+}
+
 function getOrCreateRoom(roomId: string, templateId: string): RoomState | null {
   const existingRoom = rooms.get(roomId)
   if (existingRoom) {
@@ -355,6 +607,32 @@ function getOrCreateRoom(roomId: string, templateId: string): RoomState | null {
 
   rooms.set(roomId, room)
   return room
+}
+
+function pruneSessionPresenceAcrossRooms(sessionId: string) {
+  const affectedRoomIds: string[] = []
+
+  rooms.forEach((room, roomId) => {
+    const nextPlayers = room.players.filter((player) => player.sessionId !== sessionId)
+    if (nextPlayers.length === room.players.length) {
+      return
+    }
+
+    room.players = nextPlayers
+    if (room.players.length === 0) {
+      rooms.delete(roomId)
+      return
+    }
+
+    affectedRoomIds.push(roomId)
+  })
+
+  affectedRoomIds.forEach((roomId) => {
+    const room = rooms.get(roomId)
+    if (room) {
+      io.to(roomId).emit(serverEvents.roomState, room)
+    }
+  })
 }
 
 function buildPresence(
@@ -441,6 +719,7 @@ async function joinSessionToRoom(
   room: RoomState,
   entryPosition?: Position,
 ) {
+  pruneSessionPresenceAcrossRooms(socket.id)
   socket.join(room.roomId)
   session.roomId = room.roomId
 
@@ -472,6 +751,30 @@ async function joinSessionToRoom(
   socket.to(room.roomId).emit(serverEvents.playerJoined, presence)
 
   return presence
+}
+
+async function disconnectConflictingSessionsForUser(userId: string, currentSocketId: string) {
+  const conflictingEntries = Array.from(sessions.entries()).filter(
+    ([socketId, session]) => socketId !== currentSocketId && session.profile.userId === userId,
+  )
+
+  for (const [socketId, session] of conflictingEntries) {
+    clearPendingPartyLeaderFollowRequestForUser(session.profile.userId)
+    const conflictingSocket = io.sockets.sockets.get(socketId)
+    if (conflictingSocket) {
+      await removeSessionPresenceFromCurrentRoom(conflictingSocket, session)
+      conflictingSocket.emit(serverEvents.serverError, {
+        code: 'SESSION_REPLACED',
+        message: 'Tu cuenta se abrio en otra ventana o pestaña.',
+      })
+      sessions.delete(socketId)
+      conflictingSocket.disconnect(true)
+    } else {
+      sessions.delete(socketId)
+    }
+
+    pruneSessionPresenceAcrossRooms(socketId)
+  }
 }
 
 function getPlayerColliderBounds(position: Position): RectBounds {
@@ -1237,6 +1540,7 @@ io.on('connection', (socket) => {
     }
 
     sessions.set(socket.id, session)
+    await disconnectConflictingSessionsForUser(resolvedProfile.userId, socket.id)
 
     const connectionAcceptedPayload: ConnectionAcceptedPayload = {
       sessionId: socket.id,
@@ -1308,6 +1612,24 @@ io.on('connection', (socket) => {
       return
     }
 
+    const previousRoomId = session.roomId
+    const transition = parsed.data.transition ?? 'direct'
+    const party = await buildPartyForUser(session.profile.userId)
+    if (party && party.leaderUserId !== session.profile.userId && transition !== 'follow-leader') {
+      const leaderPresence = getPresenceForUser(party.leaderUserId)
+      const leaderRoomId = leaderPresence?.roomId ?? null
+      const requestedDifferentRoomFromLeader = leaderRoomId !== null && leaderRoomId !== parsed.data.roomId
+      const isSceneChange = previousRoomId !== null && previousRoomId !== parsed.data.roomId
+
+      if (requestedDifferentRoomFromLeader || isSceneChange) {
+        socket.emit(serverEvents.serverError, {
+          code: 'PARTY_LEADER_TELEPORT_ONLY',
+          message: 'Solo el lider del grupo se puede teletransportar.',
+        })
+        return
+      }
+    }
+
     const room = getOrCreateRoom(parsed.data.roomId, parsed.data.templateId)
     if (!room) {
       socket.emit(serverEvents.serverError, {
@@ -1327,6 +1649,10 @@ io.on('connection', (socket) => {
 
     await removeSessionPresenceFromCurrentRoom(socket, session)
     await joinSessionToRoom(socket, session, room, parsed.data.spawnPosition)
+
+    if (party?.leaderUserId === session.profile.userId && transition !== 'follow-leader') {
+      await requestPartyLeaderFollowForPartyMembers(session.profile.userId)
+    }
   })
 
   socket.on(clientEvents.navigateTo, (rawPayload) => {
@@ -1666,9 +1992,83 @@ io.on('connection', (socket) => {
       return
     }
 
+    clearPendingPartyLeaderFollowRequestForUser(session.profile.userId)
     await refreshPartyStateForUserIds(result.affectedUserIds ?? [session.profile.userId])
     await refreshRoomPresenceForUserIds(result.affectedUserIds ?? [session.profile.userId])
     await refreshPartyStateForAllSessions()
+
+    if (parsed.data.action === 'accept') {
+      await requestPartyLeaderFollowForMemberIfNeeded(session.profile.userId)
+    }
+
+    callback?.({ ok: true })
+  })
+
+  socket.on(clientEvents.respondPartyLeaderFollow, async (rawPayload, callback) => {
+    const parsed = respondPartyLeaderFollowSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible responder al movimiento del lider.',
+      })
+      return
+    }
+
+    const pendingRequest = pendingPartyLeaderFollowRequests.get(parsed.data.requestId)
+    if (!pendingRequest || pendingRequest.targetUserId !== session.profile.userId) {
+      socket.emit(serverEvents.serverError, {
+        code: 'PARTY_FOLLOW_REQUEST_EXPIRED',
+        message: 'La solicitud para seguir al lider ya no esta disponible.',
+      })
+      callback?.({
+        ok: false,
+        message: 'La solicitud para seguir al lider ya no esta disponible.',
+      })
+      return
+    }
+
+    clearPendingPartyLeaderFollowRequest(parsed.data.requestId)
+
+    const currentParty = await buildPartyForUser(session.profile.userId)
+    if (!currentParty || currentParty.partyId !== pendingRequest.partyId) {
+      callback?.({
+        ok: false,
+        message: 'Tu grupo cambio antes de responder al movimiento del lider.',
+      })
+      return
+    }
+
+    if (parsed.data.action === 'reject') {
+      const result = await gameRepository.leaveParty(session.profile.userId)
+      if (!result.ok) {
+        callback?.(result)
+        return
+      }
+
+      for (const userId of result.affectedUserIds ?? [session.profile.userId]) {
+        clearPendingPartyLeaderFollowRequestForUser(userId)
+      }
+      await refreshPartyStateForUserIds(result.affectedUserIds ?? [session.profile.userId])
+      await refreshRoomPresenceForUserIds(result.affectedUserIds ?? [session.profile.userId])
+      await refreshPartyStateForAllSessions()
+      emitActivityNoticeToUserIds(
+        result.affectedUserIds ?? [session.profile.userId],
+        'Grupo actualizado',
+        `${session.profile.displayName} decidio no seguir al lider y salio del grupo.`,
+      )
+      callback?.({ ok: true })
+      return
+    }
+
+    emitRoomTransitionToUser(session.profile.userId, {
+      roomId: pendingRequest.roomId,
+      templateId: pendingRequest.templateId,
+      spawnPosition: { ...pendingRequest.spawnPosition },
+      transition: 'follow-leader',
+    })
+
     callback?.({ ok: true })
   })
 
@@ -1690,6 +2090,9 @@ io.on('connection', (socket) => {
       return
     }
 
+    for (const userId of result.affectedUserIds ?? [session.profile.userId]) {
+      clearPendingPartyLeaderFollowRequestForUser(userId)
+    }
     await refreshPartyStateForUserIds(result.affectedUserIds ?? [session.profile.userId])
     await refreshRoomPresenceForUserIds(result.affectedUserIds ?? [session.profile.userId])
     await refreshPartyStateForAllSessions()
@@ -1714,6 +2117,9 @@ io.on('connection', (socket) => {
       return
     }
 
+    for (const userId of result.affectedUserIds ?? [session.profile.userId]) {
+      clearPendingPartyLeaderFollowRequestForUser(userId)
+    }
     await refreshPartyStateForUserIds(result.affectedUserIds ?? [session.profile.userId])
     await refreshRoomPresenceForUserIds(result.affectedUserIds ?? [session.profile.userId])
     await refreshPartyStateForAllSessions()
@@ -1780,8 +2186,12 @@ io.on('connection', (socket) => {
     )
 
     if (!userStillHasActiveSession) {
+      clearPendingPartyLeaderFollowRequestForUser(session.profile.userId)
       const partyLeaveResult = await gameRepository.leaveParty(session.profile.userId)
       if (partyLeaveResult.ok) {
+        for (const userId of partyLeaveResult.affectedUserIds ?? [session.profile.userId]) {
+          clearPendingPartyLeaderFollowRequestForUser(userId)
+        }
         await refreshPartyStateForUserIds(partyLeaveResult.affectedUserIds ?? [session.profile.userId])
         await refreshRoomPresenceForUserIds(partyLeaveResult.affectedUserIds ?? [session.profile.userId])
       }

@@ -132,8 +132,34 @@ function writeStoredSkinPreferences(nextPreferences: StoredSkinPreferences) {
   window.localStorage.setItem(SKIN_PREFERENCES_KEY, JSON.stringify(nextPreferences))
 }
 
+function readRawStoredAuthSession() {
+  const sessionStorageValue = window.sessionStorage.getItem(STORAGE_KEY)
+  if (sessionStorageValue) {
+    return sessionStorageValue
+  }
+
+  const localStorageValue = window.localStorage.getItem(STORAGE_KEY)
+  if (!localStorageValue) {
+    return null
+  }
+
+  try {
+    const parsedSession = JSON.parse(localStorageValue) as AuthSession
+    if (parsedSession.provider === 'local') {
+      window.sessionStorage.setItem(STORAGE_KEY, localStorageValue)
+      window.localStorage.removeItem(STORAGE_KEY)
+      return localStorageValue
+    }
+  } catch {
+    window.localStorage.removeItem(STORAGE_KEY)
+    return null
+  }
+
+  return localStorageValue
+}
+
 export function readStoredAuthSession(): AuthSession | null {
-  const storedValue = window.localStorage.getItem(STORAGE_KEY)
+  const storedValue = readRawStoredAuthSession()
   if (!storedValue) {
     return null
   }
@@ -151,13 +177,22 @@ export function readStoredAuthSession(): AuthSession | null {
       },
     }
   } catch {
+    window.sessionStorage.removeItem(STORAGE_KEY)
     window.localStorage.removeItem(STORAGE_KEY)
     return null
   }
 }
 
 export function saveAuthSession(session: AuthSession) {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(session))
+  const serializedSession = JSON.stringify(session)
+  if (session.provider === 'local') {
+    window.sessionStorage.setItem(STORAGE_KEY, serializedSession)
+    window.localStorage.removeItem(STORAGE_KEY)
+    return
+  }
+
+  window.localStorage.setItem(STORAGE_KEY, serializedSession)
+  window.sessionStorage.removeItem(STORAGE_KEY)
 }
 
 export function readPreferredSkin(userId: string): string | null {
@@ -200,6 +235,7 @@ export function savePreferredSkinColors(userId: string, skinId: string, skinColo
 }
 
 export function clearAuthSession() {
+  window.sessionStorage.removeItem(STORAGE_KEY)
   window.localStorage.removeItem(STORAGE_KEY)
 }
 

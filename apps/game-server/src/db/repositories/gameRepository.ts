@@ -1339,7 +1339,6 @@ class GameRepository {
       }
 
       let partyId: string
-      let leaderUserId = userId
 
       const currentMembershipResult = await client.query<{
         party_id: string
@@ -1373,12 +1372,6 @@ class GameRepository {
         )
       } else {
         partyId = currentMembershipResult.rows[0].party_id
-        leaderUserId = currentMembershipResult.rows[0].leader_user_id
-
-        if (leaderUserId !== userId) {
-          await client.query('ROLLBACK')
-          return { ok: false, message: 'Solo la persona lider puede invitar al grupo.' }
-        }
       }
 
       const existingInviteResult = await client.query<{ invite_id: string }>(

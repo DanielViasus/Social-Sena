@@ -45,6 +45,7 @@ export const joinRoomSchema = z.object({
   roomId: z.string().min(1),
   templateId: z.string().min(1),
   spawnPosition: positionSchema.optional(),
+  transition: z.enum(['direct', 'teleport', 'follow-leader']).optional(),
 })
 
 export const navigateToSchema = z.object({
@@ -97,6 +98,11 @@ export const inviteToPartySchema = z.object({
 
 export const respondPartyInviteSchema = z.object({
   inviteId: z.string().trim().min(1),
+  action: z.enum(['accept', 'reject']),
+})
+
+export const respondPartyLeaderFollowSchema = z.object({
+  requestId: z.string().trim().min(1),
   action: z.enum(['accept', 'reject']),
 })
 
