@@ -2,27 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type {
   Position,
   Presence,
+  RoomInteractableTemplate,
   RoomNpcTemplate,
   RoomObjectTemplate,
   RoomState,
+  RoomTeleportTemplate,
   RoomTemplate
 } from '@social-sena/shared'
 import { resolveAvatarPreset, resolveAvatarSheetUrl } from '../game/avatar/avatarSprites'
-import bkGarden from '../assets/Places/bk_garden.svg'
-import plazaSeparator1 from '../assets/Decoration/Plaza/Separador_Plaza_1.svg'
-import plazaSeparator2 from '../assets/Decoration/Plaza/Separador_Plaza_2.svg'
-import plazaSeparator3 from '../assets/Decoration/Plaza/Separador_Plaza_3.svg'
-import plazaSeparator4 from '../assets/Decoration/Plaza/Separador_Plaza_4.svg'
-import plazaSeparator5 from '../assets/Decoration/Plaza/Separador_Plaza_5.svg'
-import plazaSeparator6 from '../assets/Decoration/Plaza/Separador_Plaza_6.svg'
-
-import mageSheet from '../assets/npc/mago/Mage.svg'
-import npcAlert0 from '../assets/npc/icons/alert/ALERT_0.svg'
-import npcAlert1 from '../assets/npc/icons/alert/ALERT_1.svg'
-import npcAlert2 from '../assets/npc/icons/alert/ALERT_2.svg'
-import npcAlert3 from '../assets/npc/icons/alert/ALERT_3.svg'
-import npcInteractionE0 from '../assets/npc/icons/interaction/INTERACTION_E_0.svg'
-import npcInteractionE1 from '../assets/npc/icons/interaction/INTERACTION_E_1.svg'
 import { ObjectDecoration, getObjectPerspectiveY } from './world/ObjectDecoration'
 import {
   WorldPlayer,
@@ -39,6 +26,18 @@ import {
   getNpcWarningArea,
   getNpcInteractionArea,
 } from './world/WorldNpc'
+import {
+  WorldTeleport,
+  getTeleportAreaBounds,
+  getTeleportInteractionArea,
+  getTeleportPerspectiveY,
+  getTeleportWarningArea,
+} from './world/WorldTeleport'
+import {
+  getNpcSpriteAsset,
+  getRoomBackgroundAsset,
+  getWorldSpriteAsset,
+} from './world/worldAssetCatalog'
 
 interface ReactWorldProps {
   room: RoomState | null
@@ -49,12 +48,12 @@ interface ReactWorldProps {
   activeSpeechByUserId?: Record<string, string>
   typingByUserId?: Record<string, boolean>
   typingIndicatorText?: string
-  onNpcInteract?: (npc: RoomNpcTemplate) => void
-  onActiveInteractableNpcChange?: (npc: RoomNpcTemplate | null) => void
+  onInteract?: (interactable: RoomInteractableTemplate) => void
+  onActiveInteractableChange?: (interactable: RoomInteractableTemplate | null) => void
   navigationEnabled?: boolean
-  npcInteractionEnabled?: boolean
-  suppressNpcIconForId?: string | null
-  pointerNpcInteractionEnabled?: boolean
+  interactionEnabled?: boolean
+  suppressInteractionIconForId?: string | null
+  pointerInteractionEnabled?: boolean
 }
 
 interface AnimatedPlayerPosition {
@@ -81,6 +80,15 @@ type RenderLayerItem =
       spriteSrc?: string
     }
   | {
+      kind: 'teleport'
+      key: string
+      perspectiveY: number
+      teleportTemplate: RoomTeleportTemplate
+      state: NpcInteractionState
+      spriteSrc?: string
+      iconFrame: WorldNpcFrameDefinition | null
+    }
+  | {
       kind: 'player'
       key: string
       perspectiveY: number
@@ -99,24 +107,6 @@ type RenderLayerItem =
       iconFrame: WorldNpcFrameDefinition | null
       flipX: boolean
     }
-
-const ROOM_OBJECT_SPRITES: Record<string, string> = {
-  'plaza-separator-1': plazaSeparator1,
-  'plaza-separator-2': plazaSeparator2,
-  'plaza-separator-3': plazaSeparator3,
-  'plaza-separator-4': plazaSeparator4,
-  'plaza-separator-5': plazaSeparator5,
-  'plaza-separator-6': plazaSeparator6,
-}
-
-const NPC_SPRITES: Record<string, string> = {}
-NPC_SPRITES['npc-mage-sheet'] = mageSheet
-NPC_SPRITES['npc-alert-0'] = npcAlert0
-NPC_SPRITES['npc-alert-1'] = npcAlert1
-NPC_SPRITES['npc-alert-2'] = npcAlert2
-NPC_SPRITES['npc-alert-3'] = npcAlert3
-NPC_SPRITES['npc-interaction-e-0'] = npcInteractionE0
-NPC_SPRITES['npc-interaction-e-1'] = npcInteractionE1
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
@@ -165,7 +155,7 @@ function getAnimatedNpcFrame(
   now: number,
   frameDurationMs: number | undefined,
 ): WorldNpcFrameDefinition | null {
-  const sheetUrl = spriteSheetAssetId ? NPC_SPRITES[spriteSheetAssetId] : null
+  const sheetUrl = spriteSheetAssetId ? getNpcSpriteAsset(spriteSheetAssetId) : null
   const sheetFrameDefinitions = spriteFrames ?? []
 
   if (
@@ -194,7 +184,7 @@ function getAnimatedNpcFrame(
 
   const frames = (assetIds ?? [])
     .map((assetId) => {
-      const url = NPC_SPRITES[assetId]
+      const url = getNpcSpriteAsset(assetId)
       return url ? { key: assetId, url } : null
     })
     .filter((frame): frame is { key: string; url: string } => frame !== null)
@@ -321,6 +311,12 @@ function segmentIntersectsExpandedBounds(
 
 function getPerspectiveAwareRenderItems(
   template: RoomTemplate,
+  teleportViews: Array<{
+    teleportTemplate: RoomTeleportTemplate
+    state: NpcInteractionState
+    spriteSrc?: string
+    iconFrame: WorldNpcFrameDefinition | null
+  }>,
   playerViews: Array<{
     player: Presence
     animatedPosition: AnimatedPlayerPosition
@@ -340,7 +336,17 @@ function getPerspectiveAwareRenderItems(
     key: objectTemplate.id,
     perspectiveY: getObjectPerspectiveY(objectTemplate),
     objectTemplate,
-    spriteSrc: objectTemplate.spriteAssetId ? ROOM_OBJECT_SPRITES[objectTemplate.spriteAssetId] : undefined,
+    spriteSrc: objectTemplate.spriteAssetId ? getWorldSpriteAsset(objectTemplate.spriteAssetId) : undefined,
+  }))
+
+  const teleportItems: RenderLayerItem[] = teleportViews.map(({ teleportTemplate, state, spriteSrc, iconFrame }) => ({
+    kind: 'teleport',
+    key: teleportTemplate.id,
+    perspectiveY: getTeleportPerspectiveY(teleportTemplate),
+    teleportTemplate,
+    state,
+    spriteSrc,
+    iconFrame,
   }))
 
   const playerItems: RenderLayerItem[] = playerViews.map(({ player, animatedPosition, frame, isSelf }) => ({
@@ -366,11 +372,12 @@ function getPerspectiveAwareRenderItems(
 
   const layerPriority: Record<RenderLayerItem['kind'], number> = {
     object: 0,
-    npc: 1,
-    player: 2,
+    teleport: 1,
+    npc: 2,
+    player: 3,
   }
 
-  return [...objectItems, ...npcItems, ...playerItems].sort((left, right) => {
+  return [...objectItems, ...teleportItems, ...npcItems, ...playerItems].sort((left, right) => {
     if (left.perspectiveY !== right.perspectiveY) {
       return left.perspectiveY - right.perspectiveY
     }
@@ -391,6 +398,14 @@ function getNpcInteractionAnchor(npcTemplate: RoomNpcTemplate) {
   }
 }
 
+function getTeleportInteractionAnchor(teleportTemplate: RoomTeleportTemplate) {
+  const interactionArea = getTeleportInteractionArea(teleportTemplate)
+  return {
+    x: teleportTemplate.x + interactionArea.offsetX,
+    y: teleportTemplate.y + interactionArea.offsetY,
+  }
+}
+
 function ReactWorld({
   room,
   currentUserId,
@@ -400,12 +415,12 @@ function ReactWorld({
   activeSpeechByUserId = {},
   typingByUserId = {},
   typingIndicatorText = '...',
-  onNpcInteract,
-  onActiveInteractableNpcChange,
+  onInteract,
+  onActiveInteractableChange,
   navigationEnabled = true,
-  npcInteractionEnabled = true,
-  suppressNpcIconForId = null,
-  pointerNpcInteractionEnabled = false,
+  interactionEnabled = true,
+  suppressInteractionIconForId = null,
+  pointerInteractionEnabled = false,
 }: ReactWorldProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const roomRef = useRef(room)
@@ -589,31 +604,76 @@ function ReactWorld({
     })
   }, [currentPlayerBounds, runtime.now, template.npcs])
 
-  const activeInteractableNpc = useMemo(() => {
+  const teleportViews = useMemo(() => {
+    return (template.teleports ?? []).map((teleportTemplate) => {
+      const warningBounds = getTeleportAreaBounds(teleportTemplate, getTeleportWarningArea(teleportTemplate))
+      const interactionBounds = getTeleportAreaBounds(teleportTemplate, getTeleportInteractionArea(teleportTemplate))
+      const state: NpcInteractionState =
+        currentPlayerBounds && overlapsRect(currentPlayerBounds, interactionBounds)
+          ? 'interaction'
+          : currentPlayerBounds && overlapsRect(currentPlayerBounds, warningBounds)
+            ? 'warning'
+            : 'out'
+
+      const iconFrame = getAnimatedNpcFrame(
+        state === 'interaction' ? teleportTemplate.iconInteractionAssetIds : teleportTemplate.iconWarningAssetIds,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        runtime.now,
+        teleportTemplate.iconFrameDurationMs,
+      )
+
+      return {
+        teleportTemplate,
+        state,
+        spriteSrc: teleportTemplate.spriteAssetId ? getWorldSpriteAsset(teleportTemplate.spriteAssetId) : undefined,
+        iconFrame,
+      }
+    })
+  }, [currentPlayerBounds, runtime.now, template.teleports])
+
+  const activeInteractable = useMemo(() => {
     if (!currentPlayerView) {
       return null
     }
 
-    return npcViews
-      .filter((npcView) => npcView.state === 'interaction')
-      .sort((left, right) => {
-        const leftAnchor = getNpcInteractionAnchor(left.npcTemplate)
-        const rightAnchor = getNpcInteractionAnchor(right.npcTemplate)
+    const interactableCandidates = [
+      ...npcViews
+        .filter((npcView) => npcView.state === 'interaction')
+        .map((npcView) => ({
+          template: npcView.npcTemplate as RoomInteractableTemplate,
+          anchor: getNpcInteractionAnchor(npcView.npcTemplate),
+        })),
+      ...teleportViews
+        .filter((teleportView) => teleportView.state === 'interaction')
+        .map((teleportView) => ({
+          template: teleportView.teleportTemplate as RoomInteractableTemplate,
+          anchor: getTeleportInteractionAnchor(teleportView.teleportTemplate),
+        })),
+    ]
+
+    return (
+      interactableCandidates.sort((left, right) => {
         const leftDistance = Math.hypot(
-          currentPlayerView.animatedPosition.x - leftAnchor.x,
-          currentPlayerView.animatedPosition.y - leftAnchor.y,
+          currentPlayerView.animatedPosition.x - left.anchor.x,
+          currentPlayerView.animatedPosition.y - left.anchor.y,
         )
         const rightDistance = Math.hypot(
-          currentPlayerView.animatedPosition.x - rightAnchor.x,
-          currentPlayerView.animatedPosition.y - rightAnchor.y,
+          currentPlayerView.animatedPosition.x - right.anchor.x,
+          currentPlayerView.animatedPosition.y - right.anchor.y,
         )
         return leftDistance - rightDistance
       })[0] ?? null
-  }, [currentPlayerView, npcViews])
+    )
+  }, [currentPlayerView, npcViews, teleportViews])
 
   useEffect(() => {
-    onActiveInteractableNpcChange?.(activeInteractableNpc?.npcTemplate ?? null)
-  }, [activeInteractableNpc, onActiveInteractableNpcChange])
+    onActiveInteractableChange?.(activeInteractable?.template ?? null)
+  }, [activeInteractable, onActiveInteractableChange])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -628,30 +688,30 @@ function ReactWorld({
         tagName === 'textarea' ||
         target?.isContentEditable === true
 
-      if (isTyping || !npcInteractionEnabled || !activeInteractableNpc) {
+      if (isTyping || !interactionEnabled || !activeInteractable) {
         return
       }
 
       event.preventDefault()
 
-      if (onNpcInteract) {
-        onNpcInteract(activeInteractableNpc.npcTemplate)
+      if (onInteract) {
+        onInteract(activeInteractable.template)
         return
       }
 
-      console.info('[NPC] Interaccion activada', {
-        npcId: activeInteractableNpc.npcTemplate.id,
-        interactionId: activeInteractableNpc.npcTemplate.interactionId ?? null,
+      console.info('[WORLD] Interaccion activada', {
+        interactableId: activeInteractable.template.id,
+        interactionId: activeInteractable.template.interactionId ?? null,
       })
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [activeInteractableNpc, npcInteractionEnabled, onNpcInteract])
+  }, [activeInteractable, interactionEnabled, onInteract])
 
   const renderItems = useMemo(
-    () => getPerspectiveAwareRenderItems(template, playerViews, npcViews),
-    [template, playerViews, npcViews],
+    () => getPerspectiveAwareRenderItems(template, teleportViews, playerViews, npcViews),
+    [template, teleportViews, playerViews, npcViews],
   )
 
   const handleWorldPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -678,10 +738,10 @@ function ReactWorld({
           width: `${template.world.width}px`,
           height: `${template.world.height}px`,
           backgroundColor: colorToCss(template.world.backgroundColor, '#dfe8d2'),
-          backgroundImage: template.id === 'Room_1909' || template.id === 'CenterRoom' ? `url(${bkGarden})` : undefined,
-          backgroundSize: template.id === 'Room_1909' || template.id === 'CenterRoom' ? '100% 100%' : undefined,
-          backgroundRepeat: template.id === 'Room_1909' || template.id === 'CenterRoom' ? 'no-repeat' : undefined,
-          backgroundPosition: template.id === 'Room_1909' || template.id === 'CenterRoom' ? 'center center' : undefined,
+          backgroundImage: getRoomBackgroundAsset(template.id) ? `url(${getRoomBackgroundAsset(template.id)})` : undefined,
+          backgroundSize: getRoomBackgroundAsset(template.id) ? '100% 100%' : undefined,
+          backgroundRepeat: getRoomBackgroundAsset(template.id) ? 'no-repeat' : undefined,
+          backgroundPosition: getRoomBackgroundAsset(template.id) ? 'center center' : undefined,
           transform: `translate3d(${-runtime.cameraX}px, ${-runtime.cameraY}px, 0)`,
         }}
       >
@@ -732,9 +792,41 @@ function ReactWorld({
             )
           }
 
+          if (item.kind === 'teleport') {
+            const teleportAllowsPointerInteraction =
+              pointerInteractionEnabled && interactionEnabled && item.state === 'interaction'
+
+            return (
+              <div
+                key={item.key}
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  pointerEvents: teleportAllowsPointerInteraction ? 'auto' : 'none',
+                  zIndex: 20 + index,
+                }}
+              >
+                <WorldTeleport
+                  teleportTemplate={item.teleportTemplate}
+                  debugEnabled={debugEnabled}
+                  state={item.state}
+                  spriteSrc={item.spriteSrc}
+                  iconFrame={item.iconFrame}
+                  hideIcon={suppressInteractionIconForId === item.teleportTemplate.id}
+                  interactive={teleportAllowsPointerInteraction}
+                  onInteractClick={
+                    teleportAllowsPointerInteraction && onInteract
+                      ? () => onInteract(item.teleportTemplate)
+                      : undefined
+                  }
+                />
+              </div>
+            )
+          }
+
           if (item.kind === 'npc') {
             const npcAllowsPointerInteraction =
-              pointerNpcInteractionEnabled && npcInteractionEnabled && item.state === 'interaction'
+              pointerInteractionEnabled && interactionEnabled && item.state === 'interaction'
 
             return (
               <div
@@ -753,11 +845,11 @@ function ReactWorld({
                   spriteFrame={item.spriteFrame}
                   iconFrame={item.iconFrame}
                   flipX={item.flipX}
-                  hideIcon={suppressNpcIconForId === item.npcTemplate.id}
+                  hideIcon={suppressInteractionIconForId === item.npcTemplate.id}
                   interactive={npcAllowsPointerInteraction}
                   onInteractClick={
-                    npcAllowsPointerInteraction && onNpcInteract
-                      ? () => onNpcInteract(item.npcTemplate)
+                    npcAllowsPointerInteraction && onInteract
+                      ? () => onInteract(item.npcTemplate)
                       : undefined
                   }
                 />

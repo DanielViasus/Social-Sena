@@ -19,7 +19,7 @@ import {
   type PartySummary,
   type Position,
   type Presence,
-  type RoomNpcTemplate,
+  type RoomInteractableTemplate,
   type RoomState,
   type SkinColorSelections,
   type SocialStatePayload,
@@ -41,6 +41,7 @@ import {
 } from '../game/avatar/avatarSprites'
 import { createAvatarBubblePalette } from '../game/avatar/avatarUiColors'
 import ReactWorld from './ReactWorld'
+import SceneLoadingOverlay from './SceneLoadingOverlay'
 import DialogueOverlay from './dialogue/DialogueOverlay'
 import MobileNpcInteractButton from './MobileNpcInteractButton'
 import InitialSkinSetupOverlay from './skins/InitialSkinSetupOverlay'
@@ -48,6 +49,7 @@ import SkinEditorOverlay from './skins/SkinEditorOverlay'
 import { availableRoomRoutes, resolveRoomTemplateFromPath } from '../rooms/registry'
 import { createUiSoundController, type UiSoundName } from '../audio/chiptuneSounds'
 import { createAmbientMusicController } from '../audio/chiptuneMusic'
+import { preloadImageAsset, preloadRoomTemplateAssets } from './world/worldAssetCatalog'
 
 const SERVER_URL = import.meta.env.VITE_GAME_SERVER_URL ?? 'http://localhost:3001'
 
@@ -175,7 +177,8 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const [dialogueVisibleChars, setDialogueVisibleChars] = useState(0)
   const [npcInteractionLocked, setNpcInteractionLocked] = useState(false)
   const [mobileInteractionEnabled, setMobileInteractionEnabled] = useState(false)
-  const [activeInteractableNpc, setActiveInteractableNpc] = useState<RoomNpcTemplate | null>(null)
+  const [activeInteractable, setActiveInteractable] = useState<RoomInteractableTemplate | null>(null)
+  const [sceneLoadingVisible, setSceneLoadingVisible] = useState(true)
   const [skinEditorOpen, setSkinEditorOpen] = useState(false)
   const [initialSkinSetupOpen, setInitialSkinSetupOpen] = useState(false)
   const [initialSkinSetupSubmitting, setInitialSkinSetupSubmitting] = useState(false)
@@ -221,6 +224,14 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const pendingAudioSettingsSyncRef = useRef<AudioSettings | null>(null)
   const partyInviteStateRefreshTimeoutRef = useRef<number | null>(null)
   const chatTypingToneStepRef = useRef(0)
+  const pendingSceneLoadRef = useRef<{
+    sequence: number
+    templateId: string
+    roomId: string
+    assetsReady: boolean
+    roomReady: boolean
+  } | null>(null)
+  const sceneLoadSequenceRef = useRef(0)
   const lastDialogueAudioProgressRef = useRef<{ lineKey: string; visibleChars: number }>({
     lineKey: '',
     visibleChars: 0,
@@ -752,6 +763,8 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       clearAllFriendRequestPopupTimeouts()
       clearAllPartyInvitePopupTimeouts()
       clearAllActivityNoticeTimeouts()
+      pendingSceneLoadRef.current = null
+      setSceneLoadingVisible(true)
       setConnected(true)
       setRoom(null)
       setMessages([])
@@ -784,6 +797,8 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       clearAllFriendRequestPopupTimeouts()
       clearAllPartyInvitePopupTimeouts()
       clearAllActivityNoticeTimeouts()
+      pendingSceneLoadRef.current = null
+      setSceneLoadingVisible(true)
       setConnected(false)
       setQuickChatOpen(false)
       setTypingByUserId({})
@@ -861,6 +876,8 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
         }
 
         if (needsOnboarding) {
+          pendingSceneLoadRef.current = null
+          setSceneLoadingVisible(false)
           const onboardingPreset = resolveAvatarPreset(profile.skinId)
           setSelectedSkinId(onboardingPreset.id)
           setSelectedSkinColorsBySkinId((currentValue) => ({
@@ -873,6 +890,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
         setInitialSkinSetupOpen(false)
         const routeTemplate = resolveRoomTemplateFromPath(window.location.pathname)
+        startSceneLoad(routeTemplate.id, routeTemplate.id)
         nextSocket.emit(clientEvents.joinRoom, {
           roomId: routeTemplate.id,
           templateId: routeTemplate.id,
@@ -940,6 +958,21 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
     nextSocket.on(serverEvents.roomState, (nextRoom: RoomState) => {
       setRoom(nextRoom)
+      const pendingSceneLoad = pendingSceneLoadRef.current
+      if (
+        pendingSceneLoad &&
+        pendingSceneLoad.templateId === nextRoom.templateId &&
+        pendingSceneLoad.roomId === nextRoom.roomId
+      ) {
+        pendingSceneLoad.roomReady = true
+        finishPendingSceneLoad()
+        return
+      }
+
+      const routeTemplate = resolveRoomTemplateFromPath(window.location.pathname)
+      if (!pendingSceneLoad && nextRoom.templateId === routeTemplate.id) {
+        setSceneLoadingVisible(false)
+      }
     })
 
     nextSocket.on(serverEvents.playerJoined, (player: Presence) => {
@@ -1052,8 +1085,60 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     : quickChatOpen
       ? chatInput.trim()
         ? 'enviar chat'
-        : 'cerrar chat'
+      : 'cerrar chat'
       : 'chat rapido'
+
+  const finishPendingSceneLoad = useEffectEvent(() => {
+    const pendingSceneLoad = pendingSceneLoadRef.current
+    if (!pendingSceneLoad || !pendingSceneLoad.assetsReady || !pendingSceneLoad.roomReady) {
+      return
+    }
+
+    pendingSceneLoadRef.current = null
+    window.requestAnimationFrame(() => {
+      setSceneLoadingVisible(false)
+    })
+  })
+
+  const startSceneLoad = useEffectEvent((templateId: string, roomId: string) => {
+    const targetTemplate = getRoomTemplateById(templateId)
+    if (!targetTemplate) {
+      pendingSceneLoadRef.current = null
+      setSceneLoadingVisible(false)
+      return
+    }
+
+    const sequence = sceneLoadSequenceRef.current + 1
+    sceneLoadSequenceRef.current = sequence
+    pendingSceneLoadRef.current = {
+      sequence,
+      templateId,
+      roomId,
+      assetsReady: false,
+      roomReady: false,
+    }
+    setSceneLoadingVisible(true)
+
+    const currentProfile = sessionProfileRef.current
+    const loadingPreset = resolveAvatarPreset(currentProfile.skinId)
+    const loadingSheetUrl = resolveAvatarSheetUrl(
+      loadingPreset,
+      normalizeAvatarColorSelections(loadingPreset, currentProfile.skinColors),
+    )
+
+    void Promise.all([
+      preloadRoomTemplateAssets(targetTemplate),
+      preloadImageAsset(loadingSheetUrl),
+    ]).then(() => {
+      const activePendingLoad = pendingSceneLoadRef.current
+      if (!activePendingLoad || activePendingLoad.sequence !== sequence) {
+        return
+      }
+
+      activePendingLoad.assetsReady = true
+      finishPendingSceneLoad()
+    })
+  })
 
   useEffect(() => {
     if (!optionsOpen) {
@@ -1790,6 +1875,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     setFloatingMessages([])
     setActiveSpeechByUserId({})
     setTypingByUserId({})
+    startSceneLoad(targetTemplate.id, options?.roomId ?? targetTemplate.id)
 
     const nextPath = `/${targetTemplate.routeSegment}`
     if (window.location.pathname !== nextPath) {
@@ -1805,33 +1891,38 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
   })
 
-  const handleNpcInteract = useEffectEvent((npc: RoomNpcTemplate) => {
+  const handleWorldInteract = useEffectEvent((interactable: RoomInteractableTemplate) => {
     if (activeDialogue || npcInteractionLocked || skinEditorOpen || initialSkinSetupOpen) {
       return
     }
 
     void ensureAudioUnlocked()
 
-    if (npc.teleportTarget) {
-      transitionToRoom(npc.teleportTarget.templateId, npc.teleportTarget.position)
+    if (interactable.teleportTarget) {
+      transitionToRoom(interactable.teleportTarget.templateId, interactable.teleportTarget.position)
+      return
+    }
+
+    if (interactable.entityType !== 'npc') {
       return
     }
 
     requestStopMovement()
 
-    const dialogue = getDialogueById(npc.dialogueId)
+    const dialogue = getDialogueById(interactable.dialogueId)
     if (dialogue) {
       setActiveDialogue({
-        npcId: npc.id,
+        npcId: interactable.id,
         dialogue,
         lineIndex: 0,
       })
       return
     }
 
-    console.info('[NPC] Interaccion ejecutada', {
-      npcId: npc.id,
-      interactionId: npc.interactionId ?? null,
+    console.info('[WORLD] Interaccion ejecutada', {
+      interactableId: interactable.id,
+      interactionType: interactable.entityType,
+      interactionId: interactable.interactionId ?? null,
       roomId: room?.roomId ?? null,
       userId: session.profile.userId,
     })
@@ -1843,8 +1934,8 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       return
     }
 
-    if (activeInteractableNpc && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen) {
-      handleNpcInteract(activeInteractableNpc)
+    if (activeInteractable && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen) {
+      handleWorldInteract(activeInteractable)
     }
   })
 
@@ -2045,6 +2136,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
         setInitialSkinSetupOpen(false)
         const routeTemplate = resolveRoomTemplateFromPath(window.location.pathname)
+        startSceneLoad(routeTemplate.id, routeTemplate.id)
         socket.emit(clientEvents.joinRoom, {
           roomId: routeTemplate.id,
           templateId: routeTemplate.id,
@@ -2226,12 +2318,17 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
           activeSpeechByUserId={activeSpeechByUserId}
           typingByUserId={typingByUserId}
           typingIndicatorText={typingIndicatorText}
-          onNpcInteract={handleNpcInteract}
-          onActiveInteractableNpcChange={setActiveInteractableNpc}
+          onInteract={handleWorldInteract}
+          onActiveInteractableChange={setActiveInteractable}
           navigationEnabled={!activeDialogue && !skinEditorOpen && !initialSkinSetupOpen}
-          npcInteractionEnabled={!activeDialogue && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen}
-          suppressNpcIconForId={activeDialogue?.npcId ?? null}
-          pointerNpcInteractionEnabled={false}
+          interactionEnabled={!activeDialogue && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen}
+          suppressInteractionIconForId={activeDialogue?.npcId ?? null}
+          pointerInteractionEnabled={false}
+        />
+        <SceneLoadingOverlay
+          visible={sceneLoadingVisible}
+          skinId={appliedSkinId}
+          skinColors={appliedSkinColors}
         />
 
         <div className="hud-layer">
@@ -2900,8 +2997,8 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
             Chat
           </button>
 
-          {mobileInteractionEnabled && activeInteractableNpc && !activeDialogue && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen ? (
-            <MobileNpcInteractButton onInteract={() => handleNpcInteract(activeInteractableNpc)} />
+          {mobileInteractionEnabled && activeInteractable && !activeDialogue && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen ? (
+            <MobileNpcInteractButton onInteract={() => handleWorldInteract(activeInteractable)} />
           ) : null}
 
           {!mobileInteractionEnabled ? (
@@ -2929,9 +3026,9 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                 </button>
                 <button
                   type="button"
-                  className={`shortcut-chip ${activeInteractableNpc || activeDialogue ? '' : 'is-disabled'}`}
+                  className={`shortcut-chip ${activeInteractable || activeDialogue ? '' : 'is-disabled'}`}
                   onClick={handleInteractShortcut}
-                  disabled={!activeInteractableNpc && !activeDialogue}
+                  disabled={!activeInteractable && !activeDialogue}
                 >
                   <span className="shortcut-key">E</span>
                   <span className="shortcut-label">{activeDialogue ? 'dialogo' : 'interactuar'}</span>

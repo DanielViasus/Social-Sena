@@ -190,6 +190,7 @@ export const centerRoomTemplate: RoomTemplate = {
   ],
   npcs: [
     {
+      entityType: 'npc',
       id: 'lobby-guide',
       label: '',
       x: 1000,
@@ -253,14 +254,19 @@ export const centerRoomTemplate: RoomTemplate = {
       interactionId: 'lobby-guide',
       dialogueId: 'lobby-guide-intro',
     },
+  ],
+  teleports: [
     {
+      entityType: 'teleport',
       id: 'room-1909-teleport',
       label: '',
       x: 1097,
       y: 366,
-      width: 1,
-      height: 1,
-      opacity: 0,
+      width: 220,
+      height: 104,
+      fillColor: 0x936d6d,
+      strokeColor: 0xd8c4c4,
+      opacity: 0.34,
       iconFrameDurationMs: 400,
       iconWarningAssetIds: [
         'npc-alert-0',

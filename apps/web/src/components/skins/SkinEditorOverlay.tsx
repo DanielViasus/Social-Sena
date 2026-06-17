@@ -162,7 +162,7 @@ export default function SkinEditorOverlay({
                       onClick={() => onSelectSkin(preset.id)}
                       aria-pressed={isSelected}
                     >
-                      <SkinSpritePreview preset={preset} frame={frame} sheetUrl={optionSheetUrl} size={112} />
+                      <SkinSpritePreview preset={preset} frame={frame} sheetUrl={optionSheetUrl} size={96} />
                     </button>
                   )
                 })}

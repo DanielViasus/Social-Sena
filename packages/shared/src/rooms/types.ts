@@ -34,6 +34,31 @@ export interface RoomSpriteFrameTemplate {
   column: number
 }
 
+export interface RoomInteractableBaseTemplate {
+  id: string
+  x: number
+  y: number
+  width: number
+  height: number
+  label?: string
+  fillColor?: number
+  opacity?: number
+  iconWarningAssetIds?: string[]
+  iconInteractionAssetIds?: string[]
+  iconFrameDurationMs?: number
+  iconOffsetX?: number
+  iconOffsetY?: number
+  iconWidth?: number
+  iconHeight?: number
+  iconWarningFillColor?: number
+  iconInteractionFillColor?: number
+  collider?: RoomColliderTemplate
+  zIndexRef?: RoomZIndexReferenceTemplate
+  warningArea?: RoomInteractionAreaTemplate
+  interactionArea?: RoomInteractionAreaTemplate
+  interactionId?: string
+}
+
 export interface RoomObjectTemplate {
   id: string
   kind: RoomObjectKind
@@ -51,15 +76,8 @@ export interface RoomObjectTemplate {
   zIndexRef?: RoomZIndexReferenceTemplate
 }
 
-export interface RoomNpcTemplate {
-  id: string
-  x: number
-  y: number
-  width: number
-  height: number
-  label?: string
-  fillColor?: number
-  opacity?: number
+export interface RoomNpcTemplate extends RoomInteractableBaseTemplate {
+  entityType: 'npc'
   spriteAssetIds?: string[]
   spriteSheetAssetId?: string
   spriteSheetWidth?: number
@@ -68,23 +86,19 @@ export interface RoomNpcTemplate {
   spriteFrameHeight?: number
   spriteFrames?: RoomSpriteFrameTemplate[]
   spriteFrameDurationMs?: number
-  iconWarningAssetIds?: string[]
-  iconInteractionAssetIds?: string[]
-  iconFrameDurationMs?: number
-  iconOffsetX?: number
-  iconOffsetY?: number
-  iconWidth?: number
-  iconHeight?: number
-  iconWarningFillColor?: number
-  iconInteractionFillColor?: number
-  collider?: RoomColliderTemplate
-  zIndexRef?: RoomZIndexReferenceTemplate
-  warningArea?: RoomInteractionAreaTemplate
-  interactionArea?: RoomInteractionAreaTemplate
-  interactionId?: string
   dialogueId?: string
   teleportTarget?: RoomTeleportTargetTemplate
 }
+
+export interface RoomTeleportTemplate extends RoomInteractableBaseTemplate {
+  entityType: 'teleport'
+  fillColor?: number
+  strokeColor?: number
+  spriteAssetId?: string
+  teleportTarget: RoomTeleportTargetTemplate
+}
+
+export type RoomInteractableTemplate = RoomNpcTemplate | RoomTeleportTemplate
 
 export interface RoomCameraTemplate {
   delayMs: number
@@ -112,4 +126,5 @@ export interface RoomTemplate {
   camera: RoomCameraTemplate
   objects: RoomObjectTemplate[]
   npcs?: RoomNpcTemplate[]
+  teleports?: RoomTeleportTemplate[]
 }
