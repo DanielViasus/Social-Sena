@@ -163,6 +163,7 @@ export default function SkinEditorOverlay({
                       aria-pressed={isSelected}
                     >
                       <SkinSpritePreview preset={preset} frame={frame} sheetUrl={optionSheetUrl} size={96} />
+                      <span className="skin-editor-option-label">{preset.label}</span>
                     </button>
                   )
                 })}
