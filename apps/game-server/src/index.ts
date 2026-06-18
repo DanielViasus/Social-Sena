@@ -76,6 +76,7 @@ interface RectBounds {
 interface PartyPresenceMarker {
   partyId: string | null
   partyLeaderUserId: string | null
+  partyLeaderDisplayName: string | null
   partyLeaderSkinId: string | null
   partyLeaderSkinColors: SkinColorSelections | null
 }
@@ -160,6 +161,95 @@ const rooms = new Map<string, RoomState>()
 const pendingPartyLeaderFollowRequests = new Map<string, PendingPartyLeaderFollowRequest>()
 const pendingPartyLeaderFollowRequestIdsByUser = new Map<string, string>()
 let lastSimulationTick = Date.now()
+const ROOM_INSTANCE_SEPARATOR = '::'
+
+function getRoomInstanceNumber(roomId: string, templateId: string) {
+  if (roomId === templateId) {
+    return 1
+  }
+
+  const prefix = `${templateId}${ROOM_INSTANCE_SEPARATOR}`
+  if (!roomId.startsWith(prefix)) {
+    return Number.MAX_SAFE_INTEGER
+  }
+
+  const instanceNumber = Number(roomId.slice(prefix.length))
+  return Number.isInteger(instanceNumber) && instanceNumber > 0 ? instanceNumber : Number.MAX_SAFE_INTEGER
+}
+
+function buildRoomInstanceId(templateId: string, instanceNumber: number) {
+  return `${templateId}${ROOM_INSTANCE_SEPARATOR}${instanceNumber}`
+}
+
+function getRoomsForTemplate(templateId: string) {
+  return Array.from(rooms.values())
+    .filter((room) => room.templateId === templateId)
+    .sort(
+      (leftRoom, rightRoom) =>
+        getRoomInstanceNumber(leftRoom.roomId, templateId) -
+        getRoomInstanceNumber(rightRoom.roomId, templateId),
+    )
+}
+
+function getAvailableSlotsForRoom(room: RoomState) {
+  return room.maxUsers - room.players.length
+}
+
+function createRoomInstance(templateId: string): RoomState | null {
+  const nextInstanceNumber =
+    getRoomsForTemplate(templateId).reduce(
+      (highestInstanceNumber, room) =>
+        Math.max(highestInstanceNumber, getRoomInstanceNumber(room.roomId, templateId)),
+      0,
+    ) + 1
+
+  return getOrCreateRoom(buildRoomInstanceId(templateId, nextInstanceNumber), templateId)
+}
+
+function findOrCreateRoomForDirectJoin(templateId: string): RoomState | null {
+  const bestExistingRoom =
+    getRoomsForTemplate(templateId)
+      .filter((room) => getAvailableSlotsForRoom(room) >= 1)
+      .sort(
+        (leftRoom, rightRoom) =>
+          rightRoom.players.length - leftRoom.players.length ||
+          getRoomInstanceNumber(leftRoom.roomId, templateId) -
+            getRoomInstanceNumber(rightRoom.roomId, templateId),
+      )[0] ?? null
+
+  return bestExistingRoom ?? createRoomInstance(templateId)
+}
+
+function findOrCreateRoomForPartyPlacement(
+  templateId: string,
+  requiredPartySize: number,
+  excludedRoomIds: string[] = [],
+): RoomState | null {
+  if (requiredPartySize > DEFAULT_ROOM_CAPACITY) {
+    return null
+  }
+
+  const normalizedExcludedRoomIds = new Set(excludedRoomIds)
+  const candidateRooms = getRoomsForTemplate(templateId).filter(
+    (room) =>
+      !normalizedExcludedRoomIds.has(room.roomId) && getAvailableSlotsForRoom(room) >= requiredPartySize,
+  )
+
+  const emptyRoom = candidateRooms.find((room) => room.players.length === 0)
+  if (emptyRoom) {
+    return emptyRoom
+  }
+
+  const bestExistingRoom =
+    candidateRooms.sort(
+      (leftRoom, rightRoom) =>
+        leftRoom.players.length - rightRoom.players.length ||
+        getRoomInstanceNumber(leftRoom.roomId, templateId) -
+          getRoomInstanceNumber(rightRoom.roomId, templateId),
+    )[0] ?? null
+
+  return bestExistingRoom ?? createRoomInstance(templateId)
+}
 
 function hasMovementInput(input: SessionState['movementInput']) {
   return input.up || input.down || input.left || input.right
@@ -228,6 +318,7 @@ async function buildPartyPresenceMarkerForUser(userId: string): Promise<PartyPre
     return {
       partyId: null,
       partyLeaderUserId: null,
+      partyLeaderDisplayName: null,
       partyLeaderSkinId: null,
       partyLeaderSkinColors: null,
     }
@@ -237,6 +328,7 @@ async function buildPartyPresenceMarkerForUser(userId: string): Promise<PartyPre
   return {
     partyId: party.partyId,
     partyLeaderUserId: party.leaderUserId,
+    partyLeaderDisplayName: leaderMember?.displayName ?? null,
     partyLeaderSkinId: leaderMember?.skinId ?? null,
     partyLeaderSkinColors: leaderMember?.skinColors ?? null,
   }
@@ -268,6 +360,7 @@ async function refreshRoomPresenceForUserIds(userIds: string[]) {
       const didChange =
         player.partyId !== marker.partyId ||
         player.partyLeaderUserId !== marker.partyLeaderUserId ||
+        player.partyLeaderDisplayName !== marker.partyLeaderDisplayName ||
         player.partyLeaderSkinId !== marker.partyLeaderSkinId ||
         JSON.stringify(player.partyLeaderSkinColors ?? null) !== JSON.stringify(nextLeaderSkinColors)
 
@@ -277,6 +370,7 @@ async function refreshRoomPresenceForUserIds(userIds: string[]) {
 
       player.partyId = marker.partyId
       player.partyLeaderUserId = marker.partyLeaderUserId
+      player.partyLeaderDisplayName = marker.partyLeaderDisplayName
       player.partyLeaderSkinId = marker.partyLeaderSkinId
       player.partyLeaderSkinColors = nextLeaderSkinColors
       roomChanged = true
@@ -495,44 +589,6 @@ function requestPartyLeaderFollowForUser({
   })
 }
 
-async function requestPartyLeaderFollowForMemberIfNeeded(userId: string) {
-  const party = await buildPartyForUser(userId)
-  if (!party) {
-    clearPendingPartyLeaderFollowRequestForUser(userId)
-    return
-  }
-
-  if (party.leaderUserId === userId) {
-    return
-  }
-
-  const leaderPresence = getPresenceForUser(party.leaderUserId)
-  const memberPresence = getPresenceForUser(userId)
-  if (!leaderPresence || !memberPresence || leaderPresence.roomId === memberPresence.roomId) {
-    clearPendingPartyLeaderFollowRequestForUser(userId)
-    return
-  }
-
-  const leaderRoom = rooms.get(leaderPresence.roomId)
-  if (!leaderRoom) {
-    return
-  }
-
-  const leaderDisplayName =
-    party.members.find((member) => member.userId === party.leaderUserId)?.displayName ?? 'El lider del grupo'
-
-  requestPartyLeaderFollowForUser({
-    partyId: party.partyId,
-    leaderUserId: party.leaderUserId,
-    leaderDisplayName,
-    targetUserId: userId,
-    roomId: leaderRoom.roomId,
-    roomName: leaderRoom.name,
-    templateId: leaderRoom.templateId,
-    spawnPosition: { ...leaderPresence.position },
-  })
-}
-
 async function requestPartyLeaderFollowForPartyMembers(leaderUserId: string) {
   const party = await buildPartyForUser(leaderUserId)
   if (!party) {
@@ -572,6 +628,67 @@ async function requestPartyLeaderFollowForPartyMembers(leaderUserId: string) {
         spawnPosition: { ...leaderPresence.position },
       })
     })
+}
+
+async function ensurePartyCanGatherInSharedRoom(leaderUserId: string) {
+  const party = await buildPartyForUser(leaderUserId)
+  if (!party || party.leaderUserId !== leaderUserId) {
+    return
+  }
+
+  const leaderPresence = getPresenceForUser(leaderUserId)
+  if (!leaderPresence) {
+    return
+  }
+
+  const leaderRoom = rooms.get(leaderPresence.roomId)
+  if (!leaderRoom) {
+    return
+  }
+
+  const onlinePartyPresences = party.members
+    .filter((member) => member.isOnline)
+    .flatMap((member) => {
+      const presence = getPresenceForUser(member.userId)
+      return presence ? [{ userId: member.userId, presence }] : []
+    })
+
+  if (onlinePartyPresences.length <= 1) {
+    return
+  }
+
+  const membersOutsideLeaderRoom = onlinePartyPresences.filter(
+    ({ presence }) => presence.roomId !== leaderRoom.roomId,
+  )
+
+  if (membersOutsideLeaderRoom.length === 0) {
+    return
+  }
+
+  if (getAvailableSlotsForRoom(leaderRoom) >= membersOutsideLeaderRoom.length) {
+    await requestPartyLeaderFollowForPartyMembers(leaderUserId)
+    return
+  }
+
+  const targetRoom = findOrCreateRoomForPartyPlacement(leaderRoom.templateId, onlinePartyPresences.length, [
+    leaderRoom.roomId,
+  ])
+
+  if (!targetRoom) {
+    emitActivityNoticeToUserIds(
+      [leaderUserId],
+      'Grupo actualizado',
+      'No hay una sala con cupo suficiente para mover a todo el grupo.',
+    )
+    return
+  }
+
+  emitRoomTransitionToUser(leaderUserId, {
+    roomId: targetRoom.roomId,
+    templateId: targetRoom.templateId,
+    spawnPosition: { ...leaderPresence.position },
+    transition: 'teleport',
+  })
 }
 
 function getOrCreateRoom(roomId: string, templateId: string): RoomState | null {
@@ -655,6 +772,7 @@ function buildPresence(
     skinColors: { ...(profile.skinColors ?? {}) },
     partyId: null,
     partyLeaderUserId: null,
+    partyLeaderDisplayName: null,
     partyLeaderSkinId: null,
     partyLeaderSkinColors: null,
     animation: 'idle-down',
@@ -734,6 +852,7 @@ async function joinSessionToRoom(
   const partyMarker = await buildPartyPresenceMarkerForUser(session.profile.userId)
   presence.partyId = partyMarker.partyId
   presence.partyLeaderUserId = partyMarker.partyLeaderUserId
+  presence.partyLeaderDisplayName = partyMarker.partyLeaderDisplayName
   presence.partyLeaderSkinId = partyMarker.partyLeaderSkinId
   presence.partyLeaderSkinColors = partyMarker.partyLeaderSkinColors
   ensureNavigablePlayerPosition(room, presence)
@@ -1614,12 +1733,13 @@ io.on('connection', (socket) => {
 
     const previousRoomId = session.roomId
     const transition = parsed.data.transition ?? 'direct'
+    const requestedRoomId = parsed.data.roomId?.trim() || null
     const party = await buildPartyForUser(session.profile.userId)
     if (party && party.leaderUserId !== session.profile.userId && transition !== 'follow-leader') {
       const leaderPresence = getPresenceForUser(party.leaderUserId)
       const leaderRoomId = leaderPresence?.roomId ?? null
-      const requestedDifferentRoomFromLeader = leaderRoomId !== null && leaderRoomId !== parsed.data.roomId
-      const isSceneChange = previousRoomId !== null && previousRoomId !== parsed.data.roomId
+      const requestedDifferentRoomFromLeader = leaderRoomId !== null && leaderRoomId !== requestedRoomId
+      const isSceneChange = previousRoomId !== null && previousRoomId !== requestedRoomId
 
       if (requestedDifferentRoomFromLeader || isSceneChange) {
         socket.emit(serverEvents.serverError, {
@@ -1630,11 +1750,25 @@ io.on('connection', (socket) => {
       }
     }
 
-    const room = getOrCreateRoom(parsed.data.roomId, parsed.data.templateId)
+    const isAutoRoomAssignment = !requestedRoomId || requestedRoomId === parsed.data.templateId
+    const requiredRoomCapacity =
+      party && party.leaderUserId === session.profile.userId && transition !== 'follow-leader'
+        ? Math.max(1, party.members.filter((member) => member.isOnline).length)
+        : 1
+
+    const room = isAutoRoomAssignment
+      ? requiredRoomCapacity > 1
+        ? findOrCreateRoomForPartyPlacement(parsed.data.templateId, requiredRoomCapacity)
+        : findOrCreateRoomForDirectJoin(parsed.data.templateId)
+      : getOrCreateRoom(requestedRoomId, parsed.data.templateId)
+
     if (!room) {
       socket.emit(serverEvents.serverError, {
-        code: 'ROOM_TEMPLATE_INVALID',
-        message: 'La plantilla de la sala no existe o no coincide con la ruta solicitada.',
+        code: requiredRoomCapacity > DEFAULT_ROOM_CAPACITY ? 'ROOM_CAPACITY_EXCEEDED' : 'ROOM_TEMPLATE_INVALID',
+        message:
+          requiredRoomCapacity > DEFAULT_ROOM_CAPACITY
+            ? 'El grupo supera el cupo maximo permitido para una sala.'
+            : 'La plantilla de la sala no existe o no coincide con la ruta solicitada.',
       })
       return
     }
@@ -1998,7 +2132,7 @@ io.on('connection', (socket) => {
     await refreshPartyStateForAllSessions()
 
     if (parsed.data.action === 'accept') {
-      await requestPartyLeaderFollowForMemberIfNeeded(session.profile.userId)
+      await ensurePartyCanGatherInSharedRoom(result.leaderUserId ?? session.profile.userId)
     }
 
     callback?.({ ok: true })

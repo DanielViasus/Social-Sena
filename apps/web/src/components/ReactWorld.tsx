@@ -45,6 +45,7 @@ interface ReactWorldProps {
   template: RoomTemplate
   onNavigate: (target: Position) => void
   debugEnabled: boolean
+  playerIdentityMode?: 'icons' | 'names'
   activeSpeechByUserId?: Record<string, string>
   typingByUserId?: Record<string, boolean>
   typingIndicatorText?: string
@@ -71,6 +72,11 @@ interface WorldRuntimeState {
   facingBySession: Record<string, FacingPose>
 }
 
+interface ViewportSize {
+  width: number
+  height: number
+}
+
 type RenderLayerItem =
   | {
       kind: 'object'
@@ -86,6 +92,7 @@ type RenderLayerItem =
       teleportTemplate: RoomTeleportTemplate
       state: NpcInteractionState
       spriteSrc?: string
+      hoverSpriteSrc?: string
       iconFrame: WorldNpcFrameDefinition | null
     }
   | {
@@ -142,6 +149,25 @@ function resolveFacingPose(player: Presence, fallback: FacingPose): FacingPose {
   }
 
   return fallback
+}
+
+function resolveCameraPosition(
+  playerPosition: Position,
+  template: RoomTemplate,
+  viewportSize: ViewportSize,
+) {
+  const targetCenterX = playerPosition.x + template.camera.offsetX
+  const targetCenterY = playerPosition.y + template.camera.offsetY
+  const unclampedCameraX = targetCenterX - viewportSize.width / 2
+  const unclampedCameraY = targetCenterY - viewportSize.height / 2
+
+  const maxCameraX = Math.max(0, template.world.width - viewportSize.width)
+  const maxCameraY = Math.max(0, template.world.height - viewportSize.height)
+
+  return {
+    cameraX: template.camera.clampBorders ? clamp(unclampedCameraX, 0, maxCameraX) : unclampedCameraX,
+    cameraY: template.camera.clampBorders ? clamp(unclampedCameraY, 0, maxCameraY) : unclampedCameraY,
+  }
 }
 
 function getAnimatedNpcFrame(
@@ -315,6 +341,7 @@ function getPerspectiveAwareRenderItems(
     teleportTemplate: RoomTeleportTemplate
     state: NpcInteractionState
     spriteSrc?: string
+    hoverSpriteSrc?: string
     iconFrame: WorldNpcFrameDefinition | null
   }>,
   playerViews: Array<{
@@ -339,13 +366,14 @@ function getPerspectiveAwareRenderItems(
     spriteSrc: objectTemplate.spriteAssetId ? getWorldSpriteAsset(objectTemplate.spriteAssetId) : undefined,
   }))
 
-  const teleportItems: RenderLayerItem[] = teleportViews.map(({ teleportTemplate, state, spriteSrc, iconFrame }) => ({
+  const teleportItems: RenderLayerItem[] = teleportViews.map(({ teleportTemplate, state, spriteSrc, hoverSpriteSrc, iconFrame }) => ({
     kind: 'teleport',
     key: teleportTemplate.id,
     perspectiveY: getTeleportPerspectiveY(teleportTemplate),
     teleportTemplate,
     state,
     spriteSrc,
+    hoverSpriteSrc,
     iconFrame,
   }))
 
@@ -412,6 +440,7 @@ function ReactWorld({
   template,
   onNavigate,
   debugEnabled,
+  playerIdentityMode = 'icons',
   activeSpeechByUserId = {},
   typingByUserId = {},
   typingIndicatorText = '...',
@@ -460,6 +489,44 @@ function ReactWorld({
   }, [])
 
   useEffect(() => {
+    if (!room) {
+      const emptyRuntime: WorldRuntimeState = {
+        now: performance.now(),
+        cameraX: 0,
+        cameraY: 0,
+        playersBySession: {},
+        facingBySession: {},
+      }
+
+      runtimeRef.current = emptyRuntime
+      setRuntime(emptyRuntime)
+      return
+    }
+
+    const playersBySession = Object.fromEntries(
+      room.players.map((player) => [player.sessionId, { x: player.position.x, y: player.position.y }] as const),
+    )
+    const facingBySession = Object.fromEntries(
+      room.players.map((player) => [player.sessionId, resolveFacingPose(player, 'front-right')] as const),
+    )
+    const currentPlayer = room.players.find((player) => player.userId === currentUserId) ?? null
+    const nextCamera = currentPlayer
+      ? resolveCameraPosition(currentPlayer.position, template, viewportSize)
+      : { cameraX: 0, cameraY: 0 }
+
+    const nextRuntime: WorldRuntimeState = {
+      now: performance.now(),
+      cameraX: nextCamera.cameraX,
+      cameraY: nextCamera.cameraY,
+      playersBySession,
+      facingBySession,
+    }
+
+    runtimeRef.current = nextRuntime
+    setRuntime(nextRuntime)
+  }, [room?.roomId, currentUserId, template, viewportSize])
+
+  useEffect(() => {
     let frameId = 0
     let previousTime = performance.now()
 
@@ -498,19 +565,11 @@ function ReactWorld({
 
       if (currentPlayer) {
         const animatedCurrentPlayer = nextPlayersBySession[currentPlayer.sessionId] ?? currentPlayer.position
-        const targetCenterX = animatedCurrentPlayer.x + template.camera.offsetX
-        const targetCenterY = animatedCurrentPlayer.y + template.camera.offsetY
-        const unclampedCameraX = targetCenterX - viewportSize.width / 2
-        const unclampedCameraY = targetCenterY - viewportSize.height / 2
-
-        const maxCameraX = Math.max(0, template.world.width - viewportSize.width)
-        const maxCameraY = Math.max(0, template.world.height - viewportSize.height)
-        const desiredCameraX = template.camera.clampBorders ? clamp(unclampedCameraX, 0, maxCameraX) : unclampedCameraX
-        const desiredCameraY = template.camera.clampBorders ? clamp(unclampedCameraY, 0, maxCameraY) : unclampedCameraY
+        const nextCamera = resolveCameraPosition(animatedCurrentPlayer, template, viewportSize)
         const cameraLerp = 1 - Math.exp(-delta / template.camera.delayMs)
 
-        nextCameraX = previousState.cameraX + (desiredCameraX - previousState.cameraX) * cameraLerp
-        nextCameraY = previousState.cameraY + (desiredCameraY - previousState.cameraY) * cameraLerp
+        nextCameraX = previousState.cameraX + (nextCamera.cameraX - previousState.cameraX) * cameraLerp
+        nextCameraY = previousState.cameraY + (nextCamera.cameraY - previousState.cameraY) * cameraLerp
       }
 
       const nextState: WorldRuntimeState = {
@@ -631,6 +690,9 @@ function ReactWorld({
         teleportTemplate,
         state,
         spriteSrc: teleportTemplate.spriteAssetId ? getWorldSpriteAsset(teleportTemplate.spriteAssetId) : undefined,
+        hoverSpriteSrc: teleportTemplate.spriteHoverAssetId
+          ? getWorldSpriteAsset(teleportTemplate.spriteHoverAssetId)
+          : undefined,
         iconFrame,
       }
     })
@@ -713,6 +775,7 @@ function ReactWorld({
     () => getPerspectiveAwareRenderItems(template, teleportViews, playerViews, npcViews),
     [template, teleportViews, playerViews, npcViews],
   )
+  const backgroundAsset = getRoomBackgroundAsset(template.id)
 
   const handleWorldPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!navigationEnabled) {
@@ -738,13 +801,18 @@ function ReactWorld({
           width: `${template.world.width}px`,
           height: `${template.world.height}px`,
           backgroundColor: colorToCss(template.world.backgroundColor, '#dfe8d2'),
-          backgroundImage: getRoomBackgroundAsset(template.id) ? `url(${getRoomBackgroundAsset(template.id)})` : undefined,
-          backgroundSize: getRoomBackgroundAsset(template.id) ? '100% 100%' : undefined,
-          backgroundRepeat: getRoomBackgroundAsset(template.id) ? 'no-repeat' : undefined,
-          backgroundPosition: getRoomBackgroundAsset(template.id) ? 'center center' : undefined,
-          transform: `translate3d(${-runtime.cameraX}px, ${-runtime.cameraY}px, 0)`,
+          transform: `translate(${-runtime.cameraX}px, ${-runtime.cameraY}px)`,
         }}
       >
+        {backgroundAsset ? (
+          <img
+            className="react-world-background"
+            src={backgroundAsset}
+            alt=""
+            draggable={false}
+          />
+        ) : null}
+
         {debugEnabled ? (
           <svg className="react-world-routes" width={template.world.width} height={template.world.height}>
             {(room?.players ?? []).map((player) => {
@@ -811,6 +879,7 @@ function ReactWorld({
                   debugEnabled={debugEnabled}
                   state={item.state}
                   spriteSrc={item.spriteSrc}
+                  hoverSpriteSrc={item.hoverSpriteSrc}
                   iconFrame={item.iconFrame}
                   hideIcon={suppressInteractionIconForId === item.teleportTemplate.id}
                   interactive={teleportAllowsPointerInteraction}
@@ -864,6 +933,7 @@ function ReactWorld({
                 displayX={item.animatedPosition.x}
                 displayY={item.animatedPosition.y}
                 isSelf={item.isSelf}
+                playerIdentityMode={playerIdentityMode}
                 speechText={activeSpeechByUserId[item.player.userId] ?? null}
                 isTyping={Boolean(typingByUserId[item.player.userId])}
                 typingIndicatorText={typingIndicatorText}

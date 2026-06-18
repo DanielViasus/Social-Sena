@@ -95,6 +95,7 @@ export interface RoomTeleportTemplate extends RoomInteractableBaseTemplate {
   fillColor?: number
   strokeColor?: number
   spriteAssetId?: string
+  spriteHoverAssetId?: string
   teleportTarget: RoomTeleportTargetTemplate
 }
 

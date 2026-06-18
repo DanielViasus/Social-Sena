@@ -1,8 +1,9 @@
 import { getDefaultRoomTemplate, type RoomTemplate } from '@social-sena/shared'
 import CenterRoom from './templates/CenterRoom'
+import MazmorraDemo from './templates/mazmorra_demo'
 import Room_1909 from './templates/Room_1909'
 
-const webRoomTemplates = [Room_1909, CenterRoom]
+const webRoomTemplates = [Room_1909, CenterRoom, MazmorraDemo]
 
 const roomTemplateByRoute = new Map(
   webRoomTemplates.map((template) => [template.routeSegment.toLowerCase(), template]),

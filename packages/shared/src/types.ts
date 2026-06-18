@@ -164,6 +164,7 @@ export interface Presence {
   skinColors: SkinColorSelections
   partyId: string | null
   partyLeaderUserId: string | null
+  partyLeaderDisplayName: string | null
   partyLeaderSkinId: string | null
   partyLeaderSkinColors: SkinColorSelections | null
   animation: string
@@ -214,7 +215,7 @@ export interface CompleteOnboardingPayload {
 }
 
 export interface JoinRoomPayload {
-  roomId: string
+  roomId?: string
   templateId: string
   spawnPosition?: Position
   transition?: 'direct' | 'teleport' | 'follow-leader'
@@ -314,7 +315,7 @@ export interface RoomTransitionRequestedPayload {
   roomId: string
   templateId: string
   spawnPosition: Position
-  transition: 'follow-leader'
+  transition: 'teleport' | 'follow-leader'
 }
 
 export interface SendChatMessagePayload {

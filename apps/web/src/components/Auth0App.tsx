@@ -12,6 +12,15 @@ import {
 import GameClient from './GameClient'
 import LoginScreen from './LoginScreen'
 
+function redirectToLobbyIfNeeded() {
+  if (window.location.pathname === '/Room_1909') {
+    return
+  }
+
+  window.history.replaceState({}, '', '/Room_1909')
+  window.dispatchEvent(new PopStateEvent('popstate'))
+}
+
 function Auth0App() {
   const { error, isAuthenticated, isLoading, loginWithRedirect, logout, user } = useAuth0()
   const [session, setSession] = useState<AuthSession | null>(null)
@@ -52,6 +61,7 @@ function Auth0App() {
 
   const handleLocalLogout = () => {
     clearAuthSession()
+    redirectToLobbyIfNeeded()
     setLocalSession(null)
   }
 
@@ -80,6 +90,12 @@ function Auth0App() {
       return nextSession
     })
   }, [auth0UserId, displayName, isAuthenticated, user])
+
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated && !localSession) {
+      redirectToLobbyIfNeeded()
+    }
+  }, [isAuthenticated, isLoading, localSession])
 
   if (isLoading) {
     return (
@@ -131,7 +147,7 @@ function Auth0App() {
       onLogout={() =>
         void logout({
           logoutParams: {
-            returnTo: window.location.origin,
+            returnTo: `${window.location.origin}/Room_1909`,
           },
         })
       }

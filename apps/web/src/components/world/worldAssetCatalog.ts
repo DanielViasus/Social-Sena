@@ -1,11 +1,17 @@
 import type { RoomTemplate } from '@social-sena/shared'
-import bkGarden from '../../assets/Places/bk_garden.svg'
+import bkGarden from '../../assets/Places/bk_garden.svg?url&no-inline'
+import bkCenterRoom from '../../assets/Places/bk_centerRoom.svg?url&no-inline'
+import mazmorraDemo from '../../assets/Places/mazmorra_demo.svg?url&no-inline'
 import plazaSeparator1 from '../../assets/Decoration/Plaza/Separador_Plaza_1.svg'
 import plazaSeparator2 from '../../assets/Decoration/Plaza/Separador_Plaza_2.svg'
 import plazaSeparator3 from '../../assets/Decoration/Plaza/Separador_Plaza_3.svg'
 import plazaSeparator4 from '../../assets/Decoration/Plaza/Separador_Plaza_4.svg'
 import plazaSeparator5 from '../../assets/Decoration/Plaza/Separador_Plaza_5.svg'
 import plazaSeparator6 from '../../assets/Decoration/Plaza/Separador_Plaza_6.svg'
+import tpCenterRoom1 from '../../assets/Decoration/Doors_tp/tp_center_room_1.svg'
+import tpCenterRoom1Hover from '../../assets/Decoration/Doors_tp/tp_center_room_1_hover.svg'
+import tpRoom1909_1 from '../../assets/Decoration/Doors_tp/tp_room_1909_1.svg'
+import tpRoom1909_1Hover from '../../assets/Decoration/Doors_tp/tp_room_1909_1_hover.svg'
 import mageSheet from '../../assets/npc/mago/Mage.svg'
 import npcAlert0 from '../../assets/npc/icons/alert/ALERT_0.svg'
 import npcAlert1 from '../../assets/npc/icons/alert/ALERT_1.svg'
@@ -16,7 +22,8 @@ import npcInteractionE1 from '../../assets/npc/icons/interaction/INTERACTION_E_1
 
 export const WORLD_BACKGROUND_BY_TEMPLATE_ID: Record<string, string> = {
   Room_1909: bkGarden,
-  CenterRoom: bkGarden,
+  CenterRoom: bkCenterRoom,
+  mazmorra_demo: mazmorraDemo,
 }
 
 export const WORLD_SPRITES: Record<string, string> = {
@@ -26,6 +33,10 @@ export const WORLD_SPRITES: Record<string, string> = {
   'plaza-separator-4': plazaSeparator4,
   'plaza-separator-5': plazaSeparator5,
   'plaza-separator-6': plazaSeparator6,
+  'tp-center-room-1': tpCenterRoom1,
+  'tp-center-room-1-hover': tpCenterRoom1Hover,
+  'tp-room-1909-1': tpRoom1909_1,
+  'tp-room-1909-1-hover': tpRoom1909_1Hover,
 }
 
 export const NPC_SPRITES: Record<string, string> = {
@@ -127,6 +138,11 @@ function collectRoomAssetUrls(template: RoomTemplate) {
     const spriteSrc = getWorldSpriteAsset(teleportTemplate.spriteAssetId)
     if (spriteSrc) {
       assetUrls.add(spriteSrc)
+    }
+
+    const hoverSpriteSrc = getWorldSpriteAsset(teleportTemplate.spriteHoverAssetId)
+    if (hoverSpriteSrc) {
+      assetUrls.add(hoverSpriteSrc)
     }
 
     ;(teleportTemplate.iconWarningAssetIds ?? []).forEach((assetId) => {

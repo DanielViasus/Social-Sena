@@ -927,6 +927,37 @@ button {
   transition: width 180ms ease, padding 180ms ease, gap 180ms ease, background 180ms ease;
 }
 
+.debug-position-panel {
+  position: absolute;
+  left: 28px;
+  bottom: calc(168px + env(safe-area-inset-bottom));
+  display: grid;
+  gap: 8px;
+  min-width: 220px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(13, 24, 39, 0.94);
+  border: 1px solid rgba(215, 230, 255, 0.12);
+  box-shadow: 0 20px 36px rgba(2, 8, 16, 0.36);
+  pointer-events: none;
+}
+
+.debug-position-panel strong,
+.debug-position-panel span {
+  font-family: 'Press Start 2P', monospace;
+}
+
+.debug-position-panel strong {
+  color: #eff5ff;
+  font-size: 0.66rem;
+}
+
+.debug-position-panel span {
+  color: #c8d7eb;
+  font-size: 0.58rem;
+  line-height: 1.7;
+}
+
 .shortcut-board:hover,
 .shortcut-board:focus-within {
   width: 248px;
@@ -1467,7 +1498,18 @@ button {
   top: 0;
   left: 0;
   transform-origin: top left;
-  will-change: transform;
+}
+
+.react-world-background {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: fill;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .react-world-routes {
@@ -1635,28 +1677,65 @@ button {
   backface-visibility: hidden;
 }
 
-.react-world-avatar-label {
+.react-world-avatar-label-group {
   position: absolute;
   left: 0;
-  top: -132px;
+  top: -122px;
   transform: translate(-50%, -100%);
-  padding: 7px 12px;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  width: max-content;
+  max-width: 248px;
+  pointer-events: none;
+}
+
+.react-world-avatar-label-group-shell {
+  display: inline-flex;
+  align-items: stretch;
+  justify-content: center;
+  transition: opacity 260ms ease, transform 340ms ease;
+}
+
+.react-world-avatar-label {
+  padding: 6px 10px;
   border: 3px solid #d9d9d9;
   border-radius: 12px;
   background: #eef5ff;
   color: #102033;
-  max-width: 220px;
+  max-width: 184px;
   font-family: 'Press Start 2P', monospace;
-  font-size: 11px;
+  font-size: 9px;
   line-height: 1.35;
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
   overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 1 auto;
+  transform-origin: right center;
+  transition:
+    max-width 340ms ease,
+    width 340ms ease,
+    min-width 340ms ease,
+    padding 340ms ease,
+    border-width 340ms ease,
+    opacity 260ms ease;
+}
+
+.react-world-avatar-label-text {
+  display: block;
+  transition: opacity 240ms ease, transform 340ms ease;
 }
 
 .react-world-avatar-label.is-self {
   background: #fff1dc;
+}
+
+.react-world-avatar-label.has-group-badge {
+  border-radius: 12px 0 0 12px;
 }
 
 .react-world-avatar-label.is-speech {
@@ -1680,6 +1759,82 @@ button {
 
 .react-world-avatar-label.is-typing {
   letter-spacing: 0.12em;
+}
+
+.react-world-avatar-group-badge {
+  margin-left: -3px;
+  padding: 6px 10px;
+  border: 3px solid #af6b4b;
+  border-radius: 0 12px 12px 0;
+  min-width: 42px;
+  background: #d98f61;
+  color: #fffaf0;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 9px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  text-transform: uppercase;
+  transform-origin: center center;
+  transition:
+    margin-left 340ms ease,
+    border-radius 340ms ease,
+    min-width 340ms ease,
+    padding 340ms ease,
+    opacity 260ms ease,
+    transform 340ms ease;
+}
+
+.react-world-avatar-label-group-shell.is-badge .react-world-avatar-label {
+  width: 0;
+  min-width: 0;
+  max-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  border-left-width: 0;
+  border-right-width: 0;
+  opacity: 0;
+}
+
+.react-world-avatar-label-group-shell.is-badge .react-world-avatar-label-text {
+  opacity: 0;
+  transform: translateX(6px);
+}
+
+.react-world-avatar-label-group-shell.is-badge .react-world-avatar-group-badge {
+  margin-left: 0;
+  min-width: 36px;
+  padding: 6px 8px;
+  border-radius: 12px;
+}
+
+.react-world-avatar-label-group-shell.is-hidden {
+  opacity: 0;
+  transform: scaleX(0.72);
+}
+
+.react-world-avatar-label-group-shell.is-hidden .react-world-avatar-label {
+  width: 0;
+  min-width: 0;
+  max-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  border-left-width: 0;
+  border-right-width: 0;
+  opacity: 0;
+}
+
+.react-world-avatar-label-group-shell.is-hidden .react-world-avatar-label-text {
+  opacity: 0;
+  transform: translateX(6px);
+}
+
+.react-world-avatar-label-group-shell.is-names .react-world-avatar-label-text,
+.react-world-avatar-label-group-shell.is-speech .react-world-avatar-label-text {
+  opacity: 1;
+  transform: translateX(0);
 }
 
 .world-npc {

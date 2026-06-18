@@ -52,6 +52,24 @@ import { createAmbientMusicController } from '../audio/chiptuneMusic'
 import { preloadImageAsset, preloadRoomTemplateAssets } from './world/worldAssetCatalog'
 
 const SERVER_URL = import.meta.env.VITE_GAME_SERVER_URL ?? 'http://localhost:3001'
+const PLAYER_NAMES_VISIBILITY_STORAGE_KEY = 'social-sena-player-names-visible'
+type PlayerIdentityMode = 'icons' | 'names'
+
+function parsePlayerIdentityMode(value: string | null): PlayerIdentityMode {
+  if (value === 'names' || value === 'icons') {
+    return value
+  }
+
+  if (value === 'true') {
+    return 'names'
+  }
+
+  return 'icons'
+}
+
+function getNextPlayerIdentityMode(currentMode: PlayerIdentityMode): PlayerIdentityMode {
+  return currentMode === 'icons' ? 'names' : 'icons'
+}
 
 interface GameClientProps {
   onLogout: () => void
@@ -154,6 +172,17 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const [optionsOpen, setOptionsOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   const [quickChatOpen, setQuickChatOpen] = useState(false)
+  const [playerIdentityMode, setPlayerIdentityMode] = useState<PlayerIdentityMode>(() => {
+    if (typeof window === 'undefined') {
+      return 'icons'
+    }
+
+    try {
+      return parsePlayerIdentityMode(window.localStorage.getItem(PLAYER_NAMES_VISIBILITY_STORAGE_KEY))
+    } catch {
+      return 'icons'
+    }
+  })
   const [debugEnabled, setDebugEnabled] = useState(false)
   const [friends, setFriends] = useState<FriendSummary[]>([])
   const [incomingFriendRequests, setIncomingFriendRequests] = useState<FriendRequestSummary[]>([])
@@ -227,7 +256,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const pendingSceneLoadRef = useRef<{
     sequence: number
     templateId: string
-    roomId: string
+    roomId: string | null
     assetsReady: boolean
     roomReady: boolean
   } | null>(null)
@@ -706,6 +735,14 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   }, [])
 
   useEffect(() => {
+    try {
+      window.localStorage.setItem(PLAYER_NAMES_VISIBILITY_STORAGE_KEY, playerIdentityMode)
+    } catch {
+      // Ignore localStorage failures and keep the in-memory preference.
+    }
+  }, [playerIdentityMode])
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.repeat) {
         return
@@ -731,6 +768,12 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       if (event.key.toLowerCase() === 'm' && !activeDialogue && !initialSkinSetupOpen) {
         event.preventDefault()
         setSkinEditorOpen((currentValue) => !currentValue)
+        return
+      }
+
+      if (event.key.toLowerCase() === 'n') {
+        event.preventDefault()
+        setPlayerIdentityMode((currentValue) => getNextPlayerIdentityMode(currentValue))
       }
     }
 
@@ -890,9 +933,8 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
         setInitialSkinSetupOpen(false)
         const routeTemplate = resolveRoomTemplateFromPath(window.location.pathname)
-        startSceneLoad(routeTemplate.id, routeTemplate.id)
+        startSceneLoad(routeTemplate.id, null)
         nextSocket.emit(clientEvents.joinRoom, {
-          roomId: routeTemplate.id,
           templateId: routeTemplate.id,
           transition: 'direct',
         })
@@ -962,7 +1004,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       if (
         pendingSceneLoad &&
         pendingSceneLoad.templateId === nextRoom.templateId &&
-        pendingSceneLoad.roomId === nextRoom.roomId
+        (pendingSceneLoad.roomId === null || pendingSceneLoad.roomId === nextRoom.roomId)
       ) {
         pendingSceneLoad.roomReady = true
         finishPendingSceneLoad()
@@ -1052,6 +1094,8 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
   const currentPlayer =
     room?.players.find((player) => player.userId === session.profile.userId) ?? null
+  const debugPositionX = currentPlayer ? Math.round(currentPlayer.position.x) : null
+  const debugPositionY = currentPlayer ? Math.round(currentPlayer.position.y) : null
   const appliedSkinId = currentPlayer?.skinId ?? sessionProfileRef.current.skinId
   const appliedSkinPreset = resolveAvatarPreset(appliedSkinId)
   const appliedSkinColors = normalizeAvatarColorSelections(
@@ -1080,6 +1124,8 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     : ''
   const isDialogueLineComplete = dialogueVisibleChars >= currentDialogueLine.length
   const quickChatShortcutDisabled = chatOpen || Boolean(activeDialogue) || initialSkinSetupOpen || skinEditorOpen
+  const playerIdentityShortcutLabel =
+    playerIdentityMode === 'icons' ? 'siglas' : 'nombres'
   const quickChatShortcutLabel = chatOpen
     ? 'chat abierto'
     : quickChatOpen
@@ -1100,7 +1146,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
   })
 
-  const startSceneLoad = useEffectEvent((templateId: string, roomId: string) => {
+  const startSceneLoad = useEffectEvent((templateId: string, roomId: string | null) => {
     const targetTemplate = getRoomTemplateById(templateId)
     if (!targetTemplate) {
       pendingSceneLoadRef.current = null
@@ -1875,7 +1921,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     setFloatingMessages([])
     setActiveSpeechByUserId({})
     setTypingByUserId({})
-    startSceneLoad(targetTemplate.id, options?.roomId ?? targetTemplate.id)
+    startSceneLoad(targetTemplate.id, options?.roomId ?? null)
 
     const nextPath = `/${targetTemplate.routeSegment}`
     if (window.location.pathname !== nextPath) {
@@ -1884,7 +1930,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     }
 
     socket.emit(clientEvents.joinRoom, {
-      roomId: options?.roomId ?? targetTemplate.id,
+      ...(options?.roomId ? { roomId: options.roomId } : {}),
       templateId: targetTemplate.id,
       spawnPosition,
       transition,
@@ -1942,6 +1988,11 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const toggleDebug = useEffectEvent(() => {
     void playUiSound('select')
     setDebugEnabled((currentValue) => !currentValue)
+  })
+
+  const togglePlayerNames = useEffectEvent(() => {
+    void playUiSound('select')
+    setPlayerIdentityMode((currentValue) => getNextPlayerIdentityMode(currentValue))
   })
 
   const toggleSkinEditor = useEffectEvent(() => {
@@ -2136,9 +2187,8 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
         setInitialSkinSetupOpen(false)
         const routeTemplate = resolveRoomTemplateFromPath(window.location.pathname)
-        startSceneLoad(routeTemplate.id, routeTemplate.id)
+        startSceneLoad(routeTemplate.id, null)
         socket.emit(clientEvents.joinRoom, {
-          roomId: routeTemplate.id,
           templateId: routeTemplate.id,
           transition: 'direct',
         })
@@ -2315,6 +2365,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
           template={activeTemplate}
           onNavigate={handleNavigate}
           debugEnabled={debugEnabled}
+          playerIdentityMode={playerIdentityMode}
           activeSpeechByUserId={activeSpeechByUserId}
           typingByUserId={typingByUserId}
           typingIndicatorText={typingIndicatorText}
@@ -2792,6 +2843,13 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                   <div className="dropdown-actions">
                     <button
                       type="button"
+                      className={`secondary-action-button ${playerIdentityMode === 'names' ? 'is-active' : ''}`}
+                      onClick={togglePlayerNames}
+                    >
+                      {`Identificadores: ${playerIdentityShortcutLabel}`}
+                    </button>
+                    <button
+                      type="button"
                       className={`secondary-action-button ${debugEnabled ? 'is-active' : ''}`}
                       onClick={toggleDebug}
                     >
@@ -3007,6 +3065,10 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                 <h2>Atajos</h2>
               </header>
               <div className="shortcut-board-actions">
+                <button type="button" className="shortcut-chip" onClick={togglePlayerNames}>
+                  <span className="shortcut-key">N</span>
+                  <span className="shortcut-label">{playerIdentityShortcutLabel}</span>
+                </button>
                 <button type="button" className="shortcut-chip" onClick={toggleDebug}>
                   <span className="shortcut-key">P</span>
                   <span className="shortcut-label">colision</span>
@@ -3034,6 +3096,14 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                   <span className="shortcut-label">{activeDialogue ? 'dialogo' : 'interactuar'}</span>
                 </button>
               </div>
+            </section>
+          ) : null}
+
+          {debugEnabled && debugPositionX !== null && debugPositionY !== null ? (
+            <section className="debug-position-panel" aria-label="Posicion del personaje en debug">
+              <strong>Posicion</strong>
+              <span>X: {debugPositionX} / {activeTemplate.world.width}</span>
+              <span>Y: {debugPositionY} / {activeTemplate.world.height}</span>
             </section>
           ) : null}
 

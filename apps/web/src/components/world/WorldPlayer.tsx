@@ -13,6 +13,7 @@ interface WorldPlayerProps {
   displayX: number
   displayY: number
   isSelf: boolean
+  playerIdentityMode: 'icons' | 'names'
   speechText?: string | null
   isTyping?: boolean
   typingIndicatorText?: string
@@ -34,11 +35,32 @@ export function getPlayerPerspectiveY(positionY: number) {
   return positionY
 }
 
+function getLeaderInitials(displayName: string | null) {
+  if (!displayName) {
+    return null
+  }
+
+  const words = displayName
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word.length > 0)
+
+  if (words.length === 0) {
+    return null
+  }
+
+  if (words.length === 1) {
+    return words[0].slice(0, 2).toUpperCase()
+  }
+
+  return `${words[0][0] ?? ''}${words[1][0] ?? ''}`.toUpperCase()
+}
 export function WorldPlayer({
   player,
   displayX,
   displayY,
   isSelf,
+  playerIdentityMode,
   speechText,
   isTyping = false,
   typingIndicatorText = '...',
@@ -47,27 +69,52 @@ export function WorldPlayer({
 }: WorldPlayerProps) {
   const isSpeechActive = Boolean(speechText) || isTyping
   const labelText = isTyping ? typingIndicatorText : speechText || player.displayName
-  const partyBorderColor =
+  const leaderPrimaryColor =
     player.partyLeaderSkinId && player.partyLeaderSkinColors
       ? resolveAvatarPrimaryColor(
           resolveAvatarPreset(player.partyLeaderSkinId),
           player.partyLeaderSkinColors,
         )
       : '#D9D9D9'
+  const isGroupedPlayer = Boolean(player.partyId)
   const playerPrimaryColor = resolveAvatarPrimaryColor(
     resolveAvatarPreset(player.skinId),
     player.skinColors,
   )
   const speechBubblePalette = createAvatarBubblePalette(playerPrimaryColor)
+  const leaderPalette = createAvatarBubblePalette(leaderPrimaryColor)
+  const speechPalette = isGroupedPlayer ? leaderPalette : speechBubblePalette
+  const leaderInitials = isGroupedPlayer ? getLeaderInitials(player.partyLeaderDisplayName) : null
+  const identityDisplayMode = isSpeechActive
+    ? 'speech'
+    : playerIdentityMode === 'names'
+      ? 'names'
+      : isGroupedPlayer && leaderInitials
+        ? 'badge'
+        : 'hidden'
   const labelStyle: CSSProperties = isSpeechActive
     ? {
-        backgroundColor: speechBubblePalette.fill,
-        borderColor: speechBubblePalette.border,
-        boxShadow: `0 0 0 4px ${speechBubblePalette.outline}, 0 10px 24px ${speechBubblePalette.shadow}`,
+        backgroundColor: speechPalette.fill,
+        borderColor: speechPalette.border,
+        boxShadow: `0 10px 24px ${speechPalette.shadow}`,
+        color: speechPalette.ink,
       }
-    : {
-        borderColor: partyBorderColor,
+    : isGroupedPlayer
+      ? {
+          backgroundColor: leaderPalette.fill,
+          borderColor: leaderPalette.border,
+          color: leaderPalette.ink,
+        }
+      : {
+          borderColor: leaderPrimaryColor,
+        }
+  const leaderBadgeStyle: CSSProperties | undefined = leaderInitials
+    ? {
+        backgroundColor: leaderPrimaryColor,
+        borderColor: leaderPalette.border,
+        color: '#fffaf0',
       }
+    : undefined
 
   return (
     <div
@@ -99,11 +146,23 @@ export function WorldPlayer({
           }}
         />
       </div>
-      <div
-        className={`react-world-avatar-label ${isSelf ? 'is-self' : ''} ${isSpeechActive ? 'is-speech' : ''} ${isTyping ? 'is-typing' : ''}`}
-        style={labelStyle}
-      >
-        {labelText}
+      <div className="react-world-avatar-label-group">
+        <div
+          className={`react-world-avatar-label-group-shell is-${identityDisplayMode}`}
+          data-has-group-badge={leaderInitials ? 'true' : 'false'}
+        >
+          <div
+            className={`react-world-avatar-label ${isSelf ? 'is-self' : ''} ${isSpeechActive ? 'is-speech' : ''} ${isTyping ? 'is-typing' : ''} ${leaderInitials ? 'has-group-badge' : ''}`}
+            style={labelStyle}
+          >
+            <span className="react-world-avatar-label-text">{labelText}</span>
+          </div>
+          {leaderInitials ? (
+            <div className="react-world-avatar-group-badge" style={leaderBadgeStyle}>
+              {leaderInitials}
+            </div>
+          ) : null}
+        </div>
       </div>
 
       {debugEnabled ? (

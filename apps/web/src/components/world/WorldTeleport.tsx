@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type {
   RoomColliderTemplate,
   RoomInteractionAreaTemplate,
@@ -11,6 +12,7 @@ interface WorldTeleportProps {
   debugEnabled: boolean
   state: NpcInteractionState
   spriteSrc?: string
+  hoverSpriteSrc?: string
   iconFrame?: WorldNpcFrameDefinition | null
   hideIcon?: boolean
   interactive?: boolean
@@ -93,11 +95,13 @@ export function WorldTeleport({
   debugEnabled,
   state,
   spriteSrc,
+  hoverSpriteSrc,
   iconFrame,
   hideIcon = false,
   interactive = false,
   onInteractClick,
 }: WorldTeleportProps) {
+  const [isHovered, setIsHovered] = useState(false)
   const collider = getTeleportCollider(teleportTemplate)
   const zIndexRef = getTeleportZIndexRef(teleportTemplate, collider)
   const warningArea = getTeleportWarningArea(teleportTemplate)
@@ -107,6 +111,7 @@ export function WorldTeleport({
   const iconOffsetX = teleportTemplate.iconOffsetX ?? 0
   const iconOffsetY = teleportTemplate.iconOffsetY ?? -(teleportTemplate.height + 42)
   const shouldShowIcon = !hideIcon && state !== 'out'
+  const activeSpriteSrc = isHovered && hoverSpriteSrc ? hoverSpriteSrc : spriteSrc
   const teleportFill = colorToCss(teleportTemplate.fillColor, '#6f93b5')
   const teleportStroke = colorToCss(teleportTemplate.strokeColor, '#d7edf9')
   const iconFill =
@@ -149,6 +154,10 @@ export function WorldTeleport({
           className="world-teleport-hitbox"
           aria-label={`Usar ${teleportTemplate.label || teleportTemplate.id}`}
           onPointerDown={(event) => event.stopPropagation()}
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
+          onFocus={() => setIsHovered(true)}
+          onBlur={() => setIsHovered(false)}
           onClick={(event) => {
             event.stopPropagation()
             onInteractClick?.()
@@ -162,9 +171,9 @@ export function WorldTeleport({
         />
       ) : null}
 
-      {spriteSrc ? (
+      {activeSpriteSrc ? (
         <img
-          src={spriteSrc}
+          src={activeSpriteSrc}
           alt={teleportTemplate.label ?? teleportTemplate.id}
           draggable={false}
           className="react-world-teleport-sprite"
