@@ -5,6 +5,9 @@ import {
   resolveAvatarPreset,
   resolveAvatarSheetUrl,
 } from '../game/avatar/avatarSprites'
+import skyLayerUrl from '../assets/loading/cielo_pantalla_de_carga.svg?url'
+import mountainsLayerUrl from '../assets/loading/montanas_pantalla_de_carga.svg?url'
+import grassLayerUrl from '../assets/loading/cesped_pantalla_de_carga.svg?url'
 
 interface SceneLoadingOverlayProps {
   visible: boolean
@@ -19,9 +22,36 @@ const LOADING_COPY_FRAMES = [
 ] as const
 
 const LOADING_OVERLAY_FADE_MS = 300
+const SCENE_LOADING_LAYER_DEFINITIONS = [
+  { key: 'sky', src: skyLayerUrl, className: 'scene-loading-layer--sky' },
+  { key: 'mountains', src: mountainsLayerUrl, className: 'scene-loading-layer--mountains' },
+  { key: 'grass', src: grassLayerUrl, className: 'scene-loading-layer--grass' },
+] as const
+
+export const SCENE_LOADING_LAYER_ASSETS = SCENE_LOADING_LAYER_DEFINITIONS.map((layer) => layer.src)
+
+function preloadLoadingImage(src: string) {
+  return new Promise<void>((resolve) => {
+    const image = new Image()
+    const finalize = () => {
+      image.onload = null
+      image.onerror = null
+      resolve()
+    }
+
+    image.onload = finalize
+    image.onerror = finalize
+    image.src = src
+
+    if (image.complete) {
+      finalize()
+    }
+  })
+}
 
 export default function SceneLoadingOverlay({ visible, skinId, skinColors }: SceneLoadingOverlayProps) {
   const [loadingFrame, setLoadingFrame] = useState(0)
+  const [assetsReady, setAssetsReady] = useState(false)
   const [shouldRender, setShouldRender] = useState(visible)
   const preset = resolveAvatarPreset(skinId)
   const normalizedColors = normalizeAvatarColorSelections(preset, skinColors)
@@ -55,39 +85,82 @@ export default function SceneLoadingOverlay({ visible, skinId, skinColors }: Sce
     return () => window.clearInterval(intervalId)
   }, [visible])
 
+  useEffect(() => {
+    if (!visible) {
+      return
+    }
+
+    let isCancelled = false
+    setAssetsReady(false)
+
+    void Promise.all([
+      preloadLoadingImage(sheetUrl),
+      ...SCENE_LOADING_LAYER_ASSETS.map((assetUrl) => preloadLoadingImage(assetUrl)),
+    ]).then(() => {
+      if (!isCancelled) {
+        setAssetsReady(true)
+      }
+    })
+
+    return () => {
+      isCancelled = true
+    }
+  }, [sheetUrl, visible])
+
   if (!shouldRender) {
     return null
   }
 
   return (
     <div
-      className={`scene-loading-overlay ${visible ? 'is-visible' : 'is-hiding'}`}
+      className={`scene-loading-overlay ${visible ? 'is-visible' : 'is-hiding'} ${assetsReady ? 'is-assets-ready' : 'is-assets-pending'}`}
       role="status"
       aria-live="polite"
       aria-label="Conectando a servidores"
     >
       <div className="scene-loading-panel">
-        <div className="scene-loading-avatar-shell" aria-hidden="true">
-          <div className="scene-loading-avatar-glow" />
-          <div
-            className="scene-loading-avatar-frame"
-            style={{
-              width: `${preset.frameWidth * scale}px`,
-              height: `${preset.frameHeight * scale}px`,
-            }}
-          >
-            <img
-              src={sheetUrl}
-              alt=""
-              draggable={false}
-              className="scene-loading-avatar-sheet"
+        <div className="scene-loading-stage" aria-hidden="true">
+          {SCENE_LOADING_LAYER_DEFINITIONS.map((layer) => (
+            <div key={layer.key} className={`scene-loading-layer ${layer.className}`}>
+              <div className="scene-loading-layer-track">
+                <img
+                  src={layer.src}
+                  alt=""
+                  draggable={false}
+                  className="scene-loading-layer-image"
+                />
+                <img
+                  src={layer.src}
+                  alt=""
+                  draggable={false}
+                  className="scene-loading-layer-image"
+                />
+              </div>
+            </div>
+          ))}
+
+          <div className="scene-loading-avatar-shell">
+            <div className="scene-loading-avatar-glow" />
+            <div
+              className="scene-loading-avatar-frame"
               style={{
-                width: `${preset.sheetWidth * scale}px`,
-                height: `${preset.sheetHeight * scale}px`,
-                left: `${-walkFrame.column * preset.frameWidth * scale}px`,
-                top: `${-walkFrame.row * preset.frameHeight * scale}px`,
+                width: `${preset.frameWidth * scale}px`,
+                height: `${preset.frameHeight * scale}px`,
               }}
-            />
+            >
+              <img
+                src={sheetUrl}
+                alt=""
+                draggable={false}
+                className="scene-loading-avatar-sheet"
+                style={{
+                  width: `${preset.sheetWidth * scale}px`,
+                  height: `${preset.sheetHeight * scale}px`,
+                  left: `${-walkFrame.column * preset.frameWidth * scale}px`,
+                  top: `${-walkFrame.row * preset.frameHeight * scale}px`,
+                }}
+              />
+            </div>
           </div>
         </div>
 

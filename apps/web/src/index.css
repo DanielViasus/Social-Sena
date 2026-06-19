@@ -204,6 +204,7 @@ button {
   background:
     radial-gradient(circle at center, rgba(21, 37, 58, 0.3), rgba(0, 0, 0, 0) 28%),
     #000000;
+  overflow: hidden;
 }
 
 .scene-loading-overlay.is-hiding {
@@ -213,27 +214,108 @@ button {
 .scene-loading-panel {
   display: grid;
   justify-items: center;
-  gap: 18px;
+  gap: 22px;
+  width: 100%;
+  opacity: 0;
+  transition: opacity 180ms ease;
+  will-change: opacity;
+}
+
+.scene-loading-overlay.is-assets-ready .scene-loading-panel {
+  opacity: 1;
+}
+
+.scene-loading-stage {
+  --scene-loading-stage-height: clamp(300px, 30vw, 560px);
+  --scene-loading-tile-width: calc(var(--scene-loading-stage-height) * 3.8660531697);
+  position: relative;
+  width: 100%;
+  height: var(--scene-loading-stage-height);
+  overflow: hidden;
+}
+
+.scene-loading-layer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 100%;
+  transform: translateY(-50%);
+  overflow: hidden;
+}
+
+.scene-loading-layer-track {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: calc(var(--scene-loading-tile-width) * 2);
+  display: flex;
+  animation-name: scene-loading-pan-left;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform;
+}
+
+.scene-loading-layer-image {
+  display: block;
+  width: var(--scene-loading-tile-width);
+  height: 100%;
+  flex: 0 0 auto;
+  max-width: none;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.scene-loading-layer--sky {
+  z-index: 1;
+}
+
+.scene-loading-layer--sky .scene-loading-layer-track {
+  animation-duration: 156s;
+}
+
+.scene-loading-layer--mountains {
+  z-index: 2;
+}
+
+.scene-loading-layer--mountains .scene-loading-layer-track {
+  animation-duration: 26s;
+}
+
+.scene-loading-layer--grass {
+  z-index: 3;
+}
+
+.scene-loading-layer--grass .scene-loading-layer-track {
+  animation-duration: 12s;
 }
 
 .scene-loading-avatar-shell {
   position: relative;
+  z-index: 4;
   width: 224px;
   height: 248px;
   display: grid;
   place-items: center;
+  position: absolute;
+  left: 50%;
+  bottom: clamp(20px, 5vw, 42px);
+  transform: translateX(-50%);
 }
 
 .scene-loading-avatar-glow {
   position: absolute;
   left: 50%;
-  top: 58%;
+  top: 70%;
   width: 132px;
   height: 52px;
   transform: translate(-50%, -50%);
   border-radius: 999px;
-  background: rgba(227, 237, 255, 0.18);
-  filter: blur(12px);
+  background: rgba(30, 51, 34, 0.24);
+  filter: blur(10px);
 }
 
 .scene-loading-avatar-frame {
@@ -263,6 +345,16 @@ button {
   line-height: 1.9;
   text-align: left;
   text-shadow: 0 0 12px rgba(255, 255, 255, 0.14);
+}
+
+@keyframes scene-loading-pan-left {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(calc(-1 * var(--scene-loading-tile-width)));
+  }
 }
 
 @supports (height: 100dvh) {
