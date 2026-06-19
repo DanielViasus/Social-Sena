@@ -78,6 +78,10 @@ export interface RoomObjectTemplate {
 
 export interface RoomNpcTemplate extends RoomInteractableBaseTemplate {
   entityType: 'npc'
+  interactionMode?: 'manual' | 'touch'
+  showInteractionIcon?: boolean
+  patrolArea?: RoomInteractionAreaTemplate
+  patrolSpeedPxPerSecond?: number
   spriteAssetIds?: string[]
   spriteSheetAssetId?: string
   spriteSheetWidth?: number

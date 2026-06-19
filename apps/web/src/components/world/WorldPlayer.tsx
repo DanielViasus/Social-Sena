@@ -106,7 +106,7 @@ export function WorldPlayer({
           color: leaderPalette.ink,
         }
       : {
-          borderColor: leaderPrimaryColor,
+          borderColor: '#8D96A8',
         }
   const leaderBadgeStyle: CSSProperties | undefined = leaderInitials
     ? {

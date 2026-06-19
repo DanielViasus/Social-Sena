@@ -83,6 +83,11 @@ interface ActiveDialogueState {
   lineIndex: number
 }
 
+interface ActiveTouchNpcPromptState {
+  npcId: string
+  title: string
+}
+
 interface FriendRequestPopupState extends FriendRequestSummary {
   expiresAt: number
 }
@@ -203,6 +208,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const [promotingPartyLeaderUserId, setPromotingPartyLeaderUserId] = useState<string | null>(null)
   const [leavingParty, setLeavingParty] = useState(false)
   const [activeDialogue, setActiveDialogue] = useState<ActiveDialogueState | null>(null)
+  const [activeTouchNpcPrompt, setActiveTouchNpcPrompt] = useState<ActiveTouchNpcPromptState | null>(null)
   const [dialogueVisibleChars, setDialogueVisibleChars] = useState(0)
   const [npcInteractionLocked, setNpcInteractionLocked] = useState(false)
   const [mobileInteractionEnabled, setMobileInteractionEnabled] = useState(false)
@@ -1123,7 +1129,8 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     ? activeDialogue.dialogue.lines[activeDialogue.lineIndex] ?? ''
     : ''
   const isDialogueLineComplete = dialogueVisibleChars >= currentDialogueLine.length
-  const quickChatShortcutDisabled = chatOpen || Boolean(activeDialogue) || initialSkinSetupOpen || skinEditorOpen
+  const quickChatShortcutDisabled =
+    chatOpen || Boolean(activeDialogue) || Boolean(activeTouchNpcPrompt) || initialSkinSetupOpen || skinEditorOpen
   const playerIdentityShortcutLabel =
     playerIdentityMode === 'icons' ? 'siglas' : 'nombres'
   const quickChatShortcutLabel = chatOpen
@@ -1224,6 +1231,11 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     socket.emit(clientEvents.stopNavigation, {
       roomId: room.roomId,
     })
+  })
+
+  const closeActiveTouchNpcPrompt = useEffectEvent(() => {
+    void playUiSound('panel-close')
+    setActiveTouchNpcPrompt(null)
   })
 
   const clearFriendRequestPopupTimeout = useEffectEvent((requestId: string) => {
@@ -1878,7 +1890,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
   const handleNavigate = (target: Position) => {
     const socket = socketRef.current
-    if (!socket || !room || !connected || activeDialogue || initialSkinSetupOpen) {
+    if (!socket || !room || !connected || activeDialogue || activeTouchNpcPrompt || initialSkinSetupOpen) {
       return
     }
 
@@ -1938,7 +1950,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   })
 
   const handleWorldInteract = useEffectEvent((interactable: RoomInteractableTemplate) => {
-    if (activeDialogue || npcInteractionLocked || skinEditorOpen || initialSkinSetupOpen) {
+    if (activeDialogue || activeTouchNpcPrompt || npcInteractionLocked || skinEditorOpen || initialSkinSetupOpen) {
       return
     }
 
@@ -1954,6 +1966,15 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     }
 
     requestStopMovement()
+
+    if (interactable.interactionMode === 'touch') {
+      void playUiSound('panel-open')
+      setActiveTouchNpcPrompt({
+        npcId: interactable.id,
+        title: interactable.label ?? '',
+      })
+      return
+    }
 
     const dialogue = getDialogueById(interactable.dialogueId)
     if (dialogue) {
@@ -1980,7 +2001,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       return
     }
 
-    if (activeInteractable && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen) {
+    if (activeInteractable && !activeTouchNpcPrompt && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen) {
       handleWorldInteract(activeInteractable)
     }
   })
@@ -1996,13 +2017,17 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   })
 
   const toggleSkinEditor = useEffectEvent(() => {
-    if (activeDialogue || initialSkinSetupOpen) {
+    if (activeDialogue || activeTouchNpcPrompt || initialSkinSetupOpen) {
       return
     }
 
     void playUiSound(skinEditorOpen ? 'panel-close' : 'panel-open')
     setSkinEditorOpen((currentValue) => !currentValue)
   })
+
+  useEffect(() => {
+    setActiveTouchNpcPrompt(null)
+  }, [room?.roomId])
 
   const handleCloseSkinEditor = useEffectEvent(() => {
     if (!skinEditorOpen) {
@@ -2371,8 +2396,8 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
           typingIndicatorText={typingIndicatorText}
           onInteract={handleWorldInteract}
           onActiveInteractableChange={setActiveInteractable}
-          navigationEnabled={!activeDialogue && !skinEditorOpen && !initialSkinSetupOpen}
-          interactionEnabled={!activeDialogue && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen}
+          navigationEnabled={!activeDialogue && !activeTouchNpcPrompt && !skinEditorOpen && !initialSkinSetupOpen}
+          interactionEnabled={!activeDialogue && !activeTouchNpcPrompt && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen}
           suppressInteractionIconForId={activeDialogue?.npcId ?? null}
           pointerInteractionEnabled={false}
         />
@@ -3055,7 +3080,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
             Chat
           </button>
 
-          {mobileInteractionEnabled && activeInteractable && !activeDialogue && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen ? (
+          {mobileInteractionEnabled && activeInteractable && !activeDialogue && !activeTouchNpcPrompt && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen ? (
             <MobileNpcInteractButton onInteract={() => handleWorldInteract(activeInteractable)} />
           ) : null}
 
@@ -3199,6 +3224,29 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
               visibleText={currentDialogueLine.slice(0, dialogueVisibleChars)}
               onAdvance={advanceDialogue}
             />
+          ) : null}
+
+          {activeTouchNpcPrompt ? (
+            <section className="fullscreen-touch-prompt" aria-modal="true" role="dialog" aria-label="Evento rival">
+              <div className="fullscreen-touch-prompt-backdrop" />
+              <div className="fullscreen-touch-prompt-panel">
+                {activeTouchNpcPrompt.title ? (
+                  <header className="fullscreen-touch-prompt-header">
+                    <h2>{activeTouchNpcPrompt.title}</h2>
+                  </header>
+                ) : null}
+                <div className="fullscreen-touch-prompt-body" />
+                <div className="fullscreen-touch-prompt-actions">
+                  <button
+                    type="button"
+                    className="secondary-action-button is-active"
+                    onClick={closeActiveTouchNpcPrompt}
+                  >
+                    Cerrar
+                  </button>
+                </div>
+              </div>
+            </section>
           ) : null}
         </div>
       </div>

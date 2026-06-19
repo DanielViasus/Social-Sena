@@ -110,15 +110,16 @@ export function WorldNpc({
   interactive = false,
   onInteractClick,
 }: WorldNpcProps) {
+  const NPC_ICON_SCALE = 0.6
   const collider = getNpcCollider(npcTemplate)
   const zIndexRef = getNpcZIndexRef(npcTemplate, collider)
   const warningArea = getNpcWarningArea(npcTemplate)
   const interactionArea = getNpcInteractionArea(npcTemplate)
-  const iconWidth = npcTemplate.iconWidth ?? 56
-  const iconHeight = npcTemplate.iconHeight ?? 56
+  const iconWidth = Math.round((npcTemplate.iconWidth ?? 56) * NPC_ICON_SCALE)
+  const iconHeight = Math.round((npcTemplate.iconHeight ?? 56) * NPC_ICON_SCALE)
   const iconOffsetX = npcTemplate.iconOffsetX ?? 0
-  const iconOffsetY = npcTemplate.iconOffsetY ?? -144
-  const shouldShowIcon = !hideIcon && state !== 'out'
+  const iconOffsetY = (npcTemplate.iconOffsetY ?? -144) + 20
+  const shouldShowIcon = npcTemplate.showInteractionIcon !== false && !hideIcon && state !== 'out'
   const npcFill = colorToCss(npcTemplate.fillColor, '#51e052')
   const iconFill =
     state === 'interaction'

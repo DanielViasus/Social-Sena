@@ -66,6 +66,7 @@ type FacingPose = 'front-right' | 'front-left' | 'back-right' | 'back-left'
 
 interface WorldRuntimeState {
   now: number
+  roomStartedAt: number
   cameraX: number
   cameraY: number
   playersBySession: Record<string, AnimatedPlayerPosition>
@@ -222,6 +223,111 @@ function getAnimatedNpcFrame(
   const frameDuration = Math.max(80, frameDurationMs ?? 180)
   const frameIndex = Math.floor(now / frameDuration) % frames.length
   return frames[frameIndex]
+}
+
+function getPatrollingNpcPosition(
+  npcTemplate: RoomNpcTemplate,
+  now: number,
+  roomStartedAt: number,
+  world: RoomTemplate['world'],
+) {
+  const patrolArea = npcTemplate.patrolArea
+  const patrolSpeedPxPerSecond = npcTemplate.patrolSpeedPxPerSecond ?? 64
+
+  if (!patrolArea || patrolSpeedPxPerSecond <= 0) {
+    return {
+      x: npcTemplate.x,
+      y: npcTemplate.y,
+      flipX: false,
+    }
+  }
+
+  const minX = npcTemplate.width / 2
+  const maxX = world.width - npcTemplate.width / 2
+  const minY = npcTemplate.height
+  const maxY = world.height
+  const patrolCenterX = npcTemplate.x + patrolArea.offsetX
+  const patrolCenterY = npcTemplate.y + patrolArea.offsetY
+  const left = clamp(patrolCenterX - patrolArea.width / 2, minX, maxX)
+  const right = clamp(patrolCenterX + patrolArea.width / 2, minX, maxX)
+  const top = clamp(patrolCenterY - patrolArea.height / 2, minY, maxY)
+  const bottom = clamp(patrolCenterY + patrolArea.height / 2, minY, maxY)
+  const initialX = clamp(npcTemplate.x, left, right)
+  const initialY = clamp(npcTemplate.y, top, bottom)
+  const rawRoute = [
+    { x: initialX, y: initialY },
+    { x: right, y: initialY },
+    { x: right, y: bottom },
+    { x: left, y: bottom },
+    { x: left, y: top },
+    { x: right, y: top },
+    { x: initialX, y: top },
+    { x: initialX, y: initialY },
+  ]
+
+  const patrolRoute = rawRoute.filter((point, index) => {
+    if (index === 0) {
+      return true
+    }
+
+    const previousPoint = rawRoute[index - 1]
+    return point.x !== previousPoint.x || point.y !== previousPoint.y
+  })
+
+  if (patrolRoute.length < 2) {
+    return {
+      x: initialX,
+      y: initialY,
+      flipX: false,
+    }
+  }
+
+  const segments = patrolRoute
+    .slice(1)
+    .map((point, index) => {
+      const from = patrolRoute[index]
+      const to = point
+      const length = Math.hypot(to.x - from.x, to.y - from.y)
+
+      return { from, to, length }
+    })
+    .filter((segment) => segment.length > 0.001)
+
+  const totalDistance = segments.reduce((sum, segment) => sum + segment.length, 0)
+
+  if (totalDistance <= 0.001) {
+    return {
+      x: initialX,
+      y: initialY,
+      flipX: false,
+    }
+  }
+
+  let remainingDistance =
+    (((now - roomStartedAt) / 1000) * patrolSpeedPxPerSecond) % totalDistance
+
+  for (const segment of segments) {
+    if (remainingDistance <= segment.length) {
+      const travelRatio = segment.length <= 0.001 ? 0 : remainingDistance / segment.length
+      const deltaX = segment.to.x - segment.from.x
+      const deltaY = segment.to.y - segment.from.y
+
+      return {
+        x: segment.from.x + deltaX * travelRatio,
+        y: segment.from.y + deltaY * travelRatio,
+        flipX: deltaX < 0,
+      }
+    }
+
+    remainingDistance -= segment.length
+  }
+
+  const lastSegment = segments[segments.length - 1]
+  return {
+    x: lastSegment.to.x,
+    y: lastSegment.to.y,
+    flipX: lastSegment.to.x - lastSegment.from.x < 0,
+  }
 }
 
 function getAvatarFrame(player: Presence, now: number, facingPose: FacingPose) {
@@ -453,8 +559,10 @@ function ReactWorld({
 }: ReactWorldProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const roomRef = useRef(room)
+  const touchNpcIdsRef = useRef<Set<string>>(new Set())
   const runtimeRef = useRef<WorldRuntimeState>({
     now: performance.now(),
+    roomStartedAt: performance.now(),
     cameraX: 0,
     cameraY: 0,
     playersBySession: {},
@@ -492,6 +600,7 @@ function ReactWorld({
     if (!room) {
       const emptyRuntime: WorldRuntimeState = {
         now: performance.now(),
+        roomStartedAt: performance.now(),
         cameraX: 0,
         cameraY: 0,
         playersBySession: {},
@@ -516,6 +625,7 @@ function ReactWorld({
 
     const nextRuntime: WorldRuntimeState = {
       now: performance.now(),
+      roomStartedAt: performance.now(),
       cameraX: nextCamera.cameraX,
       cameraY: nextCamera.cameraY,
       playersBySession,
@@ -574,6 +684,7 @@ function ReactWorld({
 
       const nextState: WorldRuntimeState = {
         now,
+        roomStartedAt: previousState.roomStartedAt,
         cameraX: nextCameraX,
         cameraY: nextCameraY,
         playersBySession: nextPlayersBySession,
@@ -617,8 +728,22 @@ function ReactWorld({
 
   const npcViews = useMemo(() => {
     return (template.npcs ?? []).map((npcTemplate) => {
-      const warningBounds = getNpcAreaBounds(npcTemplate, getNpcWarningArea(npcTemplate))
-      const interactionBounds = getNpcAreaBounds(npcTemplate, getNpcInteractionArea(npcTemplate))
+      const patrolPosition = getPatrollingNpcPosition(
+        npcTemplate,
+        runtime.now,
+        runtime.roomStartedAt,
+        template.world,
+      )
+      const resolvedNpcTemplate =
+        npcTemplate.patrolArea || npcTemplate.patrolSpeedPxPerSecond
+          ? {
+              ...npcTemplate,
+              x: patrolPosition.x,
+              y: patrolPosition.y,
+            }
+          : npcTemplate
+      const warningBounds = getNpcAreaBounds(resolvedNpcTemplate, getNpcWarningArea(resolvedNpcTemplate))
+      const interactionBounds = getNpcAreaBounds(resolvedNpcTemplate, getNpcInteractionArea(resolvedNpcTemplate))
       const state: NpcInteractionState =
         currentPlayerBounds && overlapsRect(currentPlayerBounds, interactionBounds)
           ? 'interaction'
@@ -649,19 +774,21 @@ function ReactWorld({
         npcTemplate.iconFrameDurationMs,
       )
       const flipX =
-        state !== 'out' && currentPlayerView
-          ? npcTemplate.x > currentPlayerView.animatedPosition.x
-          : false
+        npcTemplate.patrolArea || npcTemplate.patrolSpeedPxPerSecond
+          ? patrolPosition.flipX
+          : state !== 'out' && currentPlayerView
+            ? resolvedNpcTemplate.x > currentPlayerView.animatedPosition.x
+            : false
 
       return {
-        npcTemplate,
+        npcTemplate: resolvedNpcTemplate,
         state,
         spriteFrame,
         iconFrame,
         flipX,
       }
     })
-  }, [currentPlayerBounds, runtime.now, template.npcs])
+  }, [currentPlayerBounds, currentPlayerView, runtime.now, runtime.roomStartedAt, template.npcs, template.world])
 
   const teleportViews = useMemo(() => {
     return (template.teleports ?? []).map((teleportTemplate) => {
@@ -705,7 +832,7 @@ function ReactWorld({
 
     const interactableCandidates = [
       ...npcViews
-        .filter((npcView) => npcView.state === 'interaction')
+        .filter((npcView) => npcView.state === 'interaction' && npcView.npcTemplate.interactionMode !== 'touch')
         .map((npcView) => ({
           template: npcView.npcTemplate as RoomInteractableTemplate,
           anchor: getNpcInteractionAnchor(npcView.npcTemplate),
@@ -736,6 +863,22 @@ function ReactWorld({
   useEffect(() => {
     onActiveInteractableChange?.(activeInteractable?.template ?? null)
   }, [activeInteractable, onActiveInteractableChange])
+
+  useEffect(() => {
+    const nextTouchedNpcIds = new Set<string>()
+
+    npcViews.forEach((npcView) => {
+      if (npcView.npcTemplate.interactionMode === 'touch' && npcView.state === 'interaction') {
+        nextTouchedNpcIds.add(npcView.npcTemplate.id)
+
+        if (interactionEnabled && onInteract && !touchNpcIdsRef.current.has(npcView.npcTemplate.id)) {
+          onInteract(npcView.npcTemplate)
+        }
+      }
+    })
+
+    touchNpcIdsRef.current = nextTouchedNpcIds
+  }, [interactionEnabled, npcViews, onInteract])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
