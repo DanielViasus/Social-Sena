@@ -50,6 +50,7 @@ export const NPC_SPRITES: Record<string, string> = {
 }
 
 const imagePreloadCache = new Map<string, Promise<void>>()
+const IMAGE_PRELOAD_TIMEOUT_MS = 2500
 
 export function getRoomBackgroundAsset(templateId: string) {
   return WORLD_BACKGROUND_BY_TEMPLATE_ID[templateId]
@@ -75,15 +76,38 @@ export function preloadImageAsset(src: string | null | undefined) {
 
   const preloadPromise = new Promise<void>((resolve) => {
     const image = new Image()
-    const finish = () => resolve()
+    let settled = false
+    let timeoutId: number | null = null
+    const finish = () => {
+      if (settled) {
+        return
+      }
+
+      settled = true
+      image.onload = null
+      image.onerror = null
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId)
+      }
+      resolve()
+    }
 
     image.decoding = 'async'
     image.onload = finish
     image.onerror = finish
     image.src = src
 
+    if (typeof window !== 'undefined') {
+      timeoutId = window.setTimeout(() => {
+        if (import.meta.env.DEV) {
+          console.warn('[scene-loading] Timed out preloading image, continuing anyway.', src)
+        }
+        finish()
+      }, IMAGE_PRELOAD_TIMEOUT_MS)
+    }
+
     if (image.complete) {
-      resolve()
+      finish()
     }
   })
 
@@ -165,9 +189,12 @@ function collectRoomAssetUrls(template: RoomTemplate) {
 
 export async function preloadRoomTemplateAssets(template: RoomTemplate) {
   const assetUrls = collectRoomAssetUrls(template)
-  const fontPromise = typeof document !== 'undefined' && 'fonts' in document
-    ? document.fonts.ready.then(() => undefined).catch(() => undefined)
-    : Promise.resolve()
+  const fontPromise =
+    typeof document !== 'undefined' &&
+    'fonts' in document &&
+    typeof document.fonts.ready?.then === 'function'
+      ? document.fonts.ready.then(() => undefined).catch(() => undefined)
+      : Promise.resolve()
 
   await Promise.all([
     fontPromise,

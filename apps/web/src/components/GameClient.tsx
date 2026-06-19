@@ -54,6 +54,7 @@ import { preloadImageAsset, preloadRoomTemplateAssets } from './world/worldAsset
 const SERVER_URL = import.meta.env.VITE_GAME_SERVER_URL ?? 'http://localhost:3001'
 const PLAYER_NAMES_VISIBILITY_STORAGE_KEY = 'social-sena-player-names-visible'
 const SCENE_LOADING_EXTRA_HOLD_MS = 1000
+const SCENE_LOADING_FAILSAFE_MS = 5500
 type PlayerIdentityMode = 'icons' | 'names'
 
 function parsePlayerIdentityMode(value: string | null): PlayerIdentityMode {
@@ -245,6 +246,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const activityNoticeTimeoutsRef = useRef<Map<string, number>>(new Map())
   const partyLeaderFollowPromptTimeoutRef = useRef<number | null>(null)
   const sceneLoadingHideTimeoutRef = useRef<number | null>(null)
+  const sceneLoadingFailsafeTimeoutRef = useRef<number | null>(null)
   const friendsRef = useRef<FriendSummary[]>([])
   const partyRef = useRef<PartySummary | null>(null)
   const speechTimeoutsRef = useRef<Map<string, number>>(new Map())
@@ -281,6 +283,15 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
     window.clearTimeout(timeoutId)
     sceneLoadingHideTimeoutRef.current = null
+  })
+  const clearSceneLoadingFailsafeTimeout = useEffectEvent(() => {
+    const timeoutId = sceneLoadingFailsafeTimeoutRef.current
+    if (timeoutId === null) {
+      return
+    }
+
+    window.clearTimeout(timeoutId)
+    sceneLoadingFailsafeTimeoutRef.current = null
   })
   if (!uiSoundControllerRef.current) {
     uiSoundControllerRef.current = createUiSoundController()
@@ -477,9 +488,11 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
     ambientMusicControllerRef.current?.updateSettings({
       musicEnabled: audioSettings.musicEnabled,
-      musicVolume: audioSettings.musicVolume,
+      musicVolume: sceneLoadingVisible
+        ? Math.min(audioSettings.musicVolume, 0.3)
+        : audioSettings.musicVolume,
     })
-  }, [audioSettings])
+  }, [audioSettings, sceneLoadingVisible])
 
   useEffect(() => {
     friendRequestPopupsRef.current = friendRequestPopups
@@ -1103,6 +1116,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       clearAllPartyInvitePopupTimeouts()
       clearAllActivityNoticeTimeouts()
       clearSceneLoadingHideTimeout()
+      clearSceneLoadingFailsafeTimeout()
       socketRef.current = null
       nextSocket.disconnect()
     }
@@ -1110,7 +1124,6 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     clearAllActivityNoticeTimeouts,
     clearAllFriendRequestPopupTimeouts,
     clearAllPartyInvitePopupTimeouts,
-    clearSceneLoadingHideTimeout,
     session.profile.userId,
   ])
 
@@ -1118,6 +1131,30 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     room?.players.find((player) => player.userId === session.profile.userId) ?? null
   const debugPositionX = currentPlayer ? Math.round(currentPlayer.position.x) : null
   const debugPositionY = currentPlayer ? Math.round(currentPlayer.position.y) : null
+
+  useEffect(() => {
+    clearSceneLoadingFailsafeTimeout()
+
+    if (!sceneLoadingVisible) {
+      return
+    }
+
+    sceneLoadingFailsafeTimeoutRef.current = window.setTimeout(() => {
+      sceneLoadingFailsafeTimeoutRef.current = null
+      pendingSceneLoadRef.current = null
+      clearSceneLoadingHideTimeout()
+      setSceneLoadingVisible(false)
+    }, SCENE_LOADING_FAILSAFE_MS)
+
+    return () => {
+      clearSceneLoadingFailsafeTimeout()
+    }
+  }, [
+    clearSceneLoadingFailsafeTimeout,
+    clearSceneLoadingHideTimeout,
+    sceneLoadingVisible,
+  ])
+
   const appliedSkinId = currentPlayer?.skinId ?? sessionProfileRef.current.skinId
   const appliedSkinPreset = resolveAvatarPreset(appliedSkinId)
   const appliedSkinColors = normalizeAvatarColorSelections(
@@ -1167,13 +1204,12 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     clearSceneLoadingHideTimeout()
     sceneLoadingHideTimeoutRef.current = window.setTimeout(() => {
       sceneLoadingHideTimeoutRef.current = null
-      window.requestAnimationFrame(() => {
-        if (pendingSceneLoadRef.current) {
-          return
-        }
+      if (pendingSceneLoadRef.current) {
+        return
+      }
 
-        setSceneLoadingVisible(false)
-      })
+      clearSceneLoadingFailsafeTimeout()
+      setSceneLoadingVisible(false)
     }, SCENE_LOADING_EXTRA_HOLD_MS)
   })
 
@@ -1181,12 +1217,14 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     const targetTemplate = getRoomTemplateById(templateId)
     if (!targetTemplate) {
       clearSceneLoadingHideTimeout()
+      clearSceneLoadingFailsafeTimeout()
       pendingSceneLoadRef.current = null
       setSceneLoadingVisible(false)
       return
     }
 
     clearSceneLoadingHideTimeout()
+    clearSceneLoadingFailsafeTimeout()
     const sequence = sceneLoadSequenceRef.current + 1
     sceneLoadSequenceRef.current = sequence
     pendingSceneLoadRef.current = {
@@ -1205,11 +1243,18 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       normalizeAvatarColorSelections(loadingPreset, currentProfile.skinColors),
     )
 
-    void Promise.all([
+    void Promise.allSettled([
       preloadRoomTemplateAssets(targetTemplate),
       preloadImageAsset(loadingSheetUrl),
       ...SCENE_LOADING_LAYER_ASSETS.map((assetUrl) => preloadImageAsset(assetUrl)),
-    ]).then(() => {
+    ]).then((results) => {
+      if (import.meta.env.DEV) {
+        const rejectedResults = results.filter((result) => result.status === 'rejected')
+        if (rejectedResults.length > 0) {
+          console.warn('[scene-loading] Some assets failed to preload, continuing anyway.', rejectedResults)
+        }
+      }
+
       const activePendingLoad = pendingSceneLoadRef.current
       if (!activePendingLoad || activePendingLoad.sequence !== sequence) {
         return

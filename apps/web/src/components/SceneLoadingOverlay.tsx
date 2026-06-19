@@ -22,6 +22,7 @@ const LOADING_COPY_FRAMES = [
 ] as const
 
 const LOADING_OVERLAY_FADE_MS = 300
+const LOADING_ASSET_PRELOAD_TIMEOUT_MS = 2500
 const SCENE_LOADING_LAYER_DEFINITIONS = [
   { key: 'sky', src: skyLayerUrl, className: 'scene-loading-layer--sky' },
   { key: 'mountains', src: mountainsLayerUrl, className: 'scene-loading-layer--mountains' },
@@ -33,15 +34,32 @@ export const SCENE_LOADING_LAYER_ASSETS = SCENE_LOADING_LAYER_DEFINITIONS.map((l
 function preloadLoadingImage(src: string) {
   return new Promise<void>((resolve) => {
     const image = new Image()
+    let settled = false
+    let timeoutId: number | null = null
     const finalize = () => {
+      if (settled) {
+        return
+      }
+
+      settled = true
       image.onload = null
       image.onerror = null
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId)
+      }
       resolve()
     }
 
     image.onload = finalize
     image.onerror = finalize
     image.src = src
+
+    timeoutId = window.setTimeout(() => {
+      if (import.meta.env.DEV) {
+        console.warn('[scene-loading] Timed out preloading loading-screen asset, continuing anyway.', src)
+      }
+      finalize()
+    }, LOADING_ASSET_PRELOAD_TIMEOUT_MS)
 
     if (image.complete) {
       finalize()
