@@ -646,11 +646,57 @@ button {
 .fullscreen-touch-prompt-body {
   flex: 1;
   min-height: 240px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.fullscreen-touch-prompt-copy {
+  width: min(440px, 100%);
+  display: grid;
+  gap: 14px;
+  text-align: center;
+  color: #eef5ff;
+}
+
+.fullscreen-touch-prompt-copy p {
+  margin: 0;
+  line-height: 1.7;
+}
+
+.fullscreen-touch-prompt-supporters {
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+}
+
+.fullscreen-touch-prompt-supporters strong {
+  font-size: 0.72rem;
+  color: #f9f3d9;
+}
+
+.fullscreen-touch-prompt-supporter-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.fullscreen-touch-prompt-supporter-chip {
+  padding: 10px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(227, 238, 255, 0.12);
+  color: #eef5ff;
+  font-size: 0.72rem;
 }
 
 .fullscreen-touch-prompt-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
+  gap: 12px;
   padding: 20px 24px 24px;
 }
 
@@ -1048,6 +1094,10 @@ button {
   font-size: 0.68rem;
   line-height: 1.6;
   text-align: center;
+}
+
+.secondary-action-button:disabled {
+  opacity: 0.42;
 }
 
 .secondary-action-button.is-active {
@@ -2675,6 +2725,13 @@ button {
   pointer-events: none;
 }
 
+.world-enemy {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+}
+
 .debug-object-total,
 .debug-object-collider,
 .debug-player-total,
@@ -2685,6 +2742,8 @@ button {
 .debug-npc-zref,
 .debug-npc-warning,
 .debug-npc-interaction,
+.debug-enemy-patrol-area,
+.debug-enemy-direct-interaction,
 .debug-teleport-total,
 .debug-teleport-collider,
 .debug-teleport-zref,
@@ -2746,6 +2805,34 @@ button {
 .debug-npc-interaction {
   border: 2px solid rgba(185, 126, 56, 0.95);
   background: rgba(185, 126, 56, 0.18);
+}
+
+.debug-enemy-patrol-area {
+  border: 2px solid rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.debug-enemy-direct-interaction {
+  border: 2px solid rgba(255, 124, 124, 0.95);
+  background: rgba(255, 124, 124, 0.14);
+}
+
+.react-world-enemy-sprite,
+.react-world-enemy-placeholder {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.react-world-enemy-placeholder {
+  background: rgba(255, 36, 36, 0.88);
+  border: 2px solid rgba(255, 180, 180, 0.95);
 }
 
 .debug-teleport-total {

@@ -1,4 +1,4 @@
-import type { RoomTemplate } from './rooms/types'
+import type { RoomEnemyState, RoomTemplate } from './rooms/types'
 
 export type Direction = 'up' | 'down' | 'left' | 'right'
 export type SkinColorSelections = Record<string, string>
@@ -179,6 +179,50 @@ export interface RoomState {
   maxUsers: number
   template: RoomTemplate
   players: Presence[]
+  enemies: RoomEnemyState[]
+}
+
+export interface RoomEnemiesStatePayload {
+  roomId: string
+  enemies: RoomEnemyState[]
+}
+
+export interface EnemyCombatParticipantSummary {
+  userId: string
+  displayName: string
+  skinId: string
+  skinColors: SkinColorSelections
+  level: number
+}
+
+export interface EnemyCombatEncounterStatePayload {
+  encounterId: string
+  roomId: string
+  templateId: string
+  enemyId: string
+  enemyLabel: string
+  enemyLevel: number
+  requestedByUserId: string
+  requestedByDisplayName: string
+  requestedByPosition: Position
+  participants: EnemyCombatParticipantSummary[]
+}
+
+export interface RoomEnemyCombatStatePayload {
+  roomId: string
+  encounters: EnemyCombatEncounterStatePayload[]
+}
+
+export interface EnemyCombatSupportInvitePayload {
+  encounterId: string
+  roomId: string
+  templateId: string
+  enemyId: string
+  enemyLabel: string
+  enemyLevel: number
+  requestedByUserId: string
+  requestedByDisplayName: string
+  requestedByPosition: Position
 }
 
 export interface ChatMessage {
@@ -274,6 +318,20 @@ export interface InviteToPartyPayload {
 export interface RespondPartyInvitePayload {
   inviteId: string
   action: 'accept' | 'reject'
+}
+
+export interface RequestEnemyCombatPayload {
+  roomId: string
+  enemyId: string
+}
+
+export interface RespondEnemyCombatSupportPayload {
+  encounterId: string
+  action: 'accept' | 'reject'
+}
+
+export interface FleeEnemyCombatPayload {
+  encounterId: string
 }
 
 export interface PartyLeaderFollowPromptPayload {

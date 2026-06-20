@@ -18,20 +18,29 @@ import {
   leavePartySchema,
   movementInputSchema,
   navigateToSchema,
+  requestEnemyCombatSchema,
   promotePartyLeaderSchema,
+  respondEnemyCombatSupportSchema,
   removeFriendSchema,
   respondPartyLeaderFollowSchema,
   respondPartyInviteSchema,
   respondFriendRequestSchema,
+  fleeEnemyCombatSchema,
   updateAudioSettingsSchema,
   updateSkinSchema,
   updateInventorySchema,
   type ActivityNoticePayload,
+  type EnemyCombatEncounterStatePayload,
+  type EnemyCombatParticipantSummary,
+  type EnemyCombatSupportInvitePayload,
   type PartyInviteSummary,
   type PartyLeaderFollowPromptPayload,
   type PartyOutgoingInviteSummary,
   type PartyStatePayload,
   type PartySummary,
+  type RoomEnemiesStatePayload,
+  type RoomEnemyCombatStatePayload,
+  type RoomEnemyState,
   type RoomTransitionRequestedPayload,
   setTypingStateSchema,
   stopNavigationSchema,
@@ -95,6 +104,30 @@ interface PendingPartyLeaderFollowRequest {
   timeoutId: ReturnType<typeof setTimeout>
 }
 
+interface ServerEnemyRuntimeState {
+  x: number
+  y: number
+  patrolTargetX: number
+  patrolTargetY: number
+  patrolStep: number
+  mode: RoomEnemyState['mode']
+  targetUserId: string | null
+}
+
+interface ActiveEnemyCombatEncounter {
+  encounterId: string
+  roomId: string
+  templateId: string
+  enemyId: string
+  enemyLabel: string
+  enemyLevel: number
+  requestedByUserId: string
+  requestedByDisplayName: string
+  requestedByPosition: Position
+  participantUserIds: string[]
+  declinedUserIds: Set<string>
+}
+
 const port = Number(process.env.PORT ?? 3001)
 const allowedOriginPatterns = (process.env.CORS_ALLOWED_ORIGINS ?? 'http://localhost:5173')
   .split(',')
@@ -103,6 +136,8 @@ const allowedOriginPatterns = (process.env.CORS_ALLOWED_ORIGINS ?? 'http://local
 
 const PLAYER_COLLIDER_WIDTH = 68
 const PLAYER_COLLIDER_HEIGHT = 24
+const ENEMY_SIZE = 128
+const ENEMY_HALF_SIZE = ENEMY_SIZE / 2
 const ROUTE_SAMPLE_STEP = 8
 const PATH_GRID_SIZE = 32
 const PATH_SEARCH_MAX_RADIUS = 6
@@ -158,10 +193,31 @@ const io = new Server(httpServer, {
 
 const sessions = new Map<string, SessionState>()
 const rooms = new Map<string, RoomState>()
+const roomEnemyRuntimes = new Map<string, Record<string, ServerEnemyRuntimeState>>()
+const activeEnemyCombatEncounters = new Map<string, ActiveEnemyCombatEncounter>()
+const activeEnemyCombatEncounterIdsByRoomEnemy = new Map<string, string>()
+const activeEnemyCombatEncounterIdsByUser = new Map<string, string>()
 const pendingPartyLeaderFollowRequests = new Map<string, PendingPartyLeaderFollowRequest>()
 const pendingPartyLeaderFollowRequestIdsByUser = new Map<string, string>()
 let lastSimulationTick = Date.now()
 const ROOM_INSTANCE_SEPARATOR = '::'
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max)
+}
+
+function createSeededRandom(seedText: string) {
+  let seed = 0
+
+  for (let index = 0; index < seedText.length; index += 1) {
+    seed = (seed * 31 + seedText.charCodeAt(index)) >>> 0
+  }
+
+  return () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0
+    return seed / 0x100000000
+  }
+}
 
 function getRoomInstanceNumber(roomId: string, templateId: string) {
   if (roomId === templateId) {
@@ -518,6 +574,197 @@ function emitRoomTransitionToUser(userId: string, payload: RoomTransitionRequest
   })
 }
 
+function buildEnemyCombatRoomEnemyKey(roomId: string, enemyId: string) {
+  return `${roomId}::${enemyId}`
+}
+
+function getActiveEnemyCombatEncounterForUser(userId: string) {
+  const encounterId = activeEnemyCombatEncounterIdsByUser.get(userId)
+  return encounterId ? activeEnemyCombatEncounters.get(encounterId) ?? null : null
+}
+
+function buildEnemyCombatParticipantSummary(userId: string): EnemyCombatParticipantSummary | null {
+  const presence = getPresenceForUser(userId)
+  const session = Array.from(sessions.values()).find((currentSession) => currentSession.profile.userId === userId) ?? null
+
+  if (!presence && !session) {
+    return null
+  }
+
+  return {
+    userId,
+    displayName: presence?.displayName ?? session?.profile.displayName ?? 'Jugador',
+    skinId: presence?.skinId ?? session?.profile.skinId ?? 'default',
+    skinColors: presence?.skinColors ?? session?.profile.skinColors ?? {},
+    level: presence?.level ?? session?.progress.level ?? 1,
+  }
+}
+
+function buildEnemyCombatEncounterStatePayload(
+  encounter: ActiveEnemyCombatEncounter,
+): EnemyCombatEncounterStatePayload {
+  return {
+    encounterId: encounter.encounterId,
+    roomId: encounter.roomId,
+    templateId: encounter.templateId,
+    enemyId: encounter.enemyId,
+    enemyLabel: encounter.enemyLabel,
+    enemyLevel: encounter.enemyLevel,
+    requestedByUserId: encounter.requestedByUserId,
+    requestedByDisplayName: encounter.requestedByDisplayName,
+    requestedByPosition: clonePosition(encounter.requestedByPosition),
+    participants: encounter.participantUserIds
+      .map((participantUserId) => buildEnemyCombatParticipantSummary(participantUserId))
+      .filter((participant): participant is EnemyCombatParticipantSummary => participant !== null),
+  }
+}
+
+function buildRoomEnemyCombatStatePayload(roomId: string): RoomEnemyCombatStatePayload {
+  const encounters = Array.from(activeEnemyCombatEncounters.values())
+    .filter((encounter) => encounter.roomId === roomId)
+    .map((encounter) => buildEnemyCombatEncounterStatePayload(encounter))
+
+  return {
+    roomId,
+    encounters,
+  }
+}
+
+function emitRoomEnemyCombatState(roomId: string) {
+  io.to(roomId).emit(serverEvents.roomEnemyCombatState, buildRoomEnemyCombatStatePayload(roomId))
+}
+
+function emitRoomEnemyCombatStateToSocket(socketId: string, roomId: string) {
+  io.to(socketId).emit(serverEvents.roomEnemyCombatState, buildRoomEnemyCombatStatePayload(roomId))
+}
+
+function buildEnemyCombatSupportInvitePayload(
+  encounter: ActiveEnemyCombatEncounter,
+): EnemyCombatSupportInvitePayload {
+  return {
+    encounterId: encounter.encounterId,
+    roomId: encounter.roomId,
+    templateId: encounter.templateId,
+    enemyId: encounter.enemyId,
+    enemyLabel: encounter.enemyLabel,
+    enemyLevel: encounter.enemyLevel,
+    requestedByUserId: encounter.requestedByUserId,
+    requestedByDisplayName: encounter.requestedByDisplayName,
+    requestedByPosition: clonePosition(encounter.requestedByPosition),
+  }
+}
+
+function emitEnemyCombatSupportInviteToUser(userId: string, encounter: ActiveEnemyCombatEncounter) {
+  const payload = buildEnemyCombatSupportInvitePayload(encounter)
+  getSocketIdsForUser(userId).forEach((socketId) => {
+    io.to(socketId).emit(serverEvents.enemyCombatSupportInviteReceived, payload)
+  })
+}
+
+function getEnemyCombatSpawnPosition(encounter: ActiveEnemyCombatEncounter) {
+  const requesterPresence = getPresenceForUser(encounter.requestedByUserId)
+  if (requesterPresence && requesterPresence.roomId === encounter.roomId) {
+    return clonePosition(requesterPresence.position)
+  }
+
+  return clonePosition(encounter.requestedByPosition)
+}
+
+function closeEnemyCombatEncounter(encounterId: string) {
+  const encounter = activeEnemyCombatEncounters.get(encounterId)
+  if (!encounter) {
+    return
+  }
+
+  activeEnemyCombatEncounters.delete(encounterId)
+  activeEnemyCombatEncounterIdsByRoomEnemy.delete(buildEnemyCombatRoomEnemyKey(encounter.roomId, encounter.enemyId))
+  encounter.participantUserIds.forEach((participantUserId) => {
+    if (activeEnemyCombatEncounterIdsByUser.get(participantUserId) === encounterId) {
+      activeEnemyCombatEncounterIdsByUser.delete(participantUserId)
+    }
+  })
+
+  if (rooms.has(encounter.roomId)) {
+    emitRoomEnemyCombatState(encounter.roomId)
+  }
+}
+
+function closeEnemyCombatEncountersForRoom(roomId: string) {
+  Array.from(activeEnemyCombatEncounters.values())
+    .filter((encounter) => encounter.roomId === roomId)
+    .forEach((encounter) => {
+      closeEnemyCombatEncounter(encounter.encounterId)
+    })
+}
+
+function removeUserFromEnemyCombatEncounter(userId: string, encounterId?: string) {
+  const resolvedEncounterId = encounterId ?? activeEnemyCombatEncounterIdsByUser.get(userId)
+  if (!resolvedEncounterId) {
+    return
+  }
+
+  const encounter = activeEnemyCombatEncounters.get(resolvedEncounterId)
+  activeEnemyCombatEncounterIdsByUser.delete(userId)
+
+  if (!encounter) {
+    return
+  }
+
+  const nextParticipantUserIds = encounter.participantUserIds.filter((participantUserId) => participantUserId !== userId)
+
+  if (nextParticipantUserIds.length === 0) {
+    closeEnemyCombatEncounter(encounter.encounterId)
+    return
+  }
+
+  encounter.participantUserIds = nextParticipantUserIds
+  emitRoomEnemyCombatState(encounter.roomId)
+}
+
+function resolveEnemyCombatFleeChance(enemyLevel: number) {
+  return Math.max(0.1, Math.min(1, 1 - enemyLevel * 0.1))
+}
+
+function teleportUserToEnemyCombatEncounter(userId: string, encounter: ActiveEnemyCombatEncounter) {
+  const socketId = getSocketIdsForUser(userId)[0]
+  const session = socketId ? sessions.get(socketId) : null
+  const spawnPosition = getEnemyCombatSpawnPosition(encounter)
+
+  if (!socketId || !session) {
+    return
+  }
+
+  if (session.roomId === encounter.roomId) {
+    const room = rooms.get(encounter.roomId)
+    const player = room?.players.find((presence) => presence.sessionId === socketId) ?? null
+
+    if (room && player) {
+      session.movementInput = {
+        up: false,
+        down: false,
+        left: false,
+        right: false,
+      }
+      session.keyboardControlling = false
+      player.position = clampPositionToRoom(room, spawnPosition)
+      stopPlayer(player)
+      void gameRepository.savePlayerState(userId, {
+        roomId: room.roomId,
+        position: clonePosition(player.position),
+      })
+      io.to(room.roomId).emit(serverEvents.playerMoved, player)
+      return
+    }
+  }
+
+  emitRoomTransitionToUser(userId, {
+    roomId: encounter.roomId,
+    templateId: encounter.templateId,
+    spawnPosition,
+    transition: 'teleport',
+  })
+}
+
 async function handlePartyLeaderFollowTimeout(requestId: string) {
   const pendingRequest = pendingPartyLeaderFollowRequests.get(requestId)
   if (!pendingRequest) {
@@ -705,6 +952,7 @@ function getOrCreateRoom(roomId: string, templateId: string): RoomState | null {
 
     existingRoom.template = latestTemplate
     existingRoom.name = latestTemplate.name
+    syncRoomEnemiesForTemplate(existingRoom)
     return existingRoom
   }
 
@@ -720,8 +968,10 @@ function getOrCreateRoom(roomId: string, templateId: string): RoomState | null {
     maxUsers: DEFAULT_ROOM_CAPACITY,
     template,
     players: [],
+    enemies: [],
   }
 
+  syncRoomEnemiesForTemplate(room)
   rooms.set(roomId, room)
   return room
 }
@@ -730,13 +980,19 @@ function pruneSessionPresenceAcrossRooms(sessionId: string) {
   const affectedRoomIds: string[] = []
 
   rooms.forEach((room, roomId) => {
+    const removedUserIds = room.players
+      .filter((player) => player.sessionId === sessionId)
+      .map((player) => player.userId)
     const nextPlayers = room.players.filter((player) => player.sessionId !== sessionId)
     if (nextPlayers.length === room.players.length) {
       return
     }
 
     room.players = nextPlayers
+    removedUserIds.forEach((userId) => removeUserFromEnemyCombatEncounter(userId))
     if (room.players.length === 0) {
+      closeEnemyCombatEncountersForRoom(roomId)
+      roomEnemyRuntimes.delete(roomId)
       rooms.delete(roomId)
       return
     }
@@ -785,6 +1041,137 @@ function clonePosition(position: Position): Position {
   return { x: position.x, y: position.y }
 }
 
+function moveTowardsPoint(from: Position, to: Position, maxDistance: number): Position {
+  const deltaX = to.x - from.x
+  const deltaY = to.y - from.y
+  const distance = Math.hypot(deltaX, deltaY)
+
+  if (distance <= 0.0001 || maxDistance <= 0) {
+    return clonePosition(from)
+  }
+
+  if (distance <= maxDistance) {
+    return clonePosition(to)
+  }
+
+  const ratio = maxDistance / distance
+  return {
+    x: from.x + deltaX * ratio,
+    y: from.y + deltaY * ratio,
+  }
+}
+
+function getEnemyPatrolAreaBounds(enemyTemplate: NonNullable<RoomState['template']['enemies']>[number]): RectBounds {
+  return {
+    left: enemyTemplate.posicion_relativa_X - enemyTemplate.ancho_de_patrullaje_ / 2,
+    right: enemyTemplate.posicion_relativa_X + enemyTemplate.ancho_de_patrullaje_ / 2,
+    top: enemyTemplate.posicion_relativa_Y - enemyTemplate.alto_de_patrullaje_ / 2,
+    bottom: enemyTemplate.posicion_relativa_Y + enemyTemplate.alto_de_patrullaje_ / 2,
+  }
+}
+
+function getEnemyMovementBounds(
+  room: RoomState,
+  enemyTemplate: NonNullable<RoomState['template']['enemies']>[number],
+): RectBounds & { centerX: number; centerY: number } {
+  const worldMinX = ENEMY_HALF_SIZE
+  const worldMaxX = room.template.world.width - ENEMY_HALF_SIZE
+  const worldMinY = ENEMY_HALF_SIZE
+  const worldMaxY = room.template.world.height - ENEMY_HALF_SIZE
+  const patrolAreaBounds = getEnemyPatrolAreaBounds(enemyTemplate)
+  const areaHalfWidth = Math.max(0, enemyTemplate.ancho_de_patrullaje_ / 2 - ENEMY_HALF_SIZE)
+  const areaHalfHeight = Math.max(0, enemyTemplate.alto_de_patrullaje_ / 2 - ENEMY_HALF_SIZE)
+  const centerX = clamp(
+    enemyTemplate.posicion_relativa_X,
+    patrolAreaBounds.left + ENEMY_HALF_SIZE,
+    patrolAreaBounds.right - ENEMY_HALF_SIZE,
+  )
+  const centerY = clamp(
+    enemyTemplate.posicion_relativa_Y,
+    patrolAreaBounds.top + ENEMY_HALF_SIZE,
+    patrolAreaBounds.bottom - ENEMY_HALF_SIZE,
+  )
+  const left = clamp(centerX - areaHalfWidth, worldMinX, worldMaxX)
+  const right = clamp(centerX + areaHalfWidth, worldMinX, worldMaxX)
+  const top = clamp(centerY - areaHalfHeight, worldMinY, worldMaxY)
+  const bottom = clamp(centerY + areaHalfHeight, worldMinY, worldMaxY)
+
+  return {
+    left,
+    right,
+    top,
+    bottom,
+    centerX: clamp(centerX, left, right),
+    centerY: clamp(centerY, top, bottom),
+  }
+}
+
+function getEnemyPatrolPoint(
+  room: RoomState,
+  enemyTemplate: NonNullable<RoomState['template']['enemies']>[number],
+  patrolStep: number,
+): Position {
+  const movementBounds = getEnemyMovementBounds(room, enemyTemplate)
+  const random = createSeededRandom(
+    `${room.roomId}:${enemyTemplate.id}:${enemyTemplate.posicion_relativa_X}:${enemyTemplate.posicion_relativa_Y}:${enemyTemplate.ancho_de_patrullaje_}:${enemyTemplate.alto_de_patrullaje_}:${patrolStep}`,
+  )
+
+  return {
+    x: movementBounds.left + (movementBounds.right - movementBounds.left) * random(),
+    y: movementBounds.top + (movementBounds.bottom - movementBounds.top) * random(),
+  }
+}
+
+function buildInitialEnemyState(
+  room: RoomState,
+  enemyTemplate: NonNullable<RoomState['template']['enemies']>[number],
+): RoomEnemyState {
+  const movementBounds = getEnemyMovementBounds(room, enemyTemplate)
+  return {
+    enemyId: enemyTemplate.id,
+    x: movementBounds.centerX,
+    y: movementBounds.centerY,
+    mode: 'patrol',
+    targetUserId: null,
+  }
+}
+
+function buildInitialEnemyRuntimeState(enemyState: RoomEnemyState): ServerEnemyRuntimeState {
+  return {
+    x: enemyState.x,
+    y: enemyState.y,
+    patrolTargetX: enemyState.x,
+    patrolTargetY: enemyState.y,
+    patrolStep: 0,
+    mode: enemyState.mode,
+    targetUserId: enemyState.targetUserId,
+  }
+}
+
+function syncRoomEnemiesForTemplate(room: RoomState) {
+  const enemyTemplates = room.template.enemies ?? []
+
+  if (enemyTemplates.length === 0) {
+    room.enemies = []
+    roomEnemyRuntimes.delete(room.roomId)
+    return
+  }
+
+  const currentEnemyStateById = new Map(room.enemies.map((enemyState) => [enemyState.enemyId, enemyState] as const))
+  const currentRuntimeById = roomEnemyRuntimes.get(room.roomId) ?? {}
+  const nextEnemies: RoomEnemyState[] = []
+  const nextRuntimeById: Record<string, ServerEnemyRuntimeState> = {}
+
+  enemyTemplates.forEach((enemyTemplate) => {
+    const enemyState = currentEnemyStateById.get(enemyTemplate.id) ?? buildInitialEnemyState(room, enemyTemplate)
+    nextEnemies.push(enemyState)
+    nextRuntimeById[enemyTemplate.id] = currentRuntimeById[enemyTemplate.id] ?? buildInitialEnemyRuntimeState(enemyState)
+  })
+
+  room.enemies = nextEnemies
+  roomEnemyRuntimes.set(room.roomId, nextRuntimeById)
+}
+
 function clampPositionToRoom(room: RoomState, position: Position): Position {
   return {
     x: Math.min(Math.max(position.x, PLAYER_COLLIDER_WIDTH / 2), room.template.world.width - PLAYER_COLLIDER_WIDTH / 2),
@@ -794,6 +1181,7 @@ function clampPositionToRoom(room: RoomState, position: Position): Position {
 
 async function removeSessionPresenceFromCurrentRoom(socket: Socket, session: SessionState) {
   if (!session.roomId) {
+    removeUserFromEnemyCombatEncounter(session.profile.userId)
     return null
   }
 
@@ -812,6 +1200,7 @@ async function removeSessionPresenceFromCurrentRoom(socket: Socket, session: Ses
   }
 
   room.players = room.players.filter((presence) => presence.sessionId !== socket.id)
+  removeUserFromEnemyCombatEncounter(session.profile.userId)
   socket.leave(room.roomId)
   io.to(room.roomId).emit(serverEvents.typingStateChanged, {
     roomId: room.roomId,
@@ -824,6 +1213,8 @@ async function removeSessionPresenceFromCurrentRoom(socket: Socket, session: Ses
   })
 
   if (room.players.length === 0) {
+    closeEnemyCombatEncountersForRoom(room.roomId)
+    roomEnemyRuntimes.delete(room.roomId)
     rooms.delete(room.roomId)
   }
 
@@ -867,6 +1258,7 @@ async function joinSessionToRoom(
     player: presence,
   })
   socket.emit(serverEvents.roomState, room)
+  emitRoomEnemyCombatStateToSocket(socket.id, room.roomId)
   socket.to(room.roomId).emit(serverEvents.playerJoined, presence)
 
   return presence
@@ -957,6 +1349,147 @@ function getNpcNavigationBoundsList(roomNpc: NonNullable<RoomState['template']['
 
 function overlapsRect(a: RectBounds, b: RectBounds) {
   return !(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom)
+}
+
+function getClosestEnemyChaseTarget(
+  room: RoomState,
+  enemyTemplate: NonNullable<RoomState['template']['enemies']>[number],
+  enemyRuntime: ServerEnemyRuntimeState,
+): Position & { userId: string } | null {
+  const patrolAreaBounds = getEnemyPatrolAreaBounds(enemyTemplate)
+  const movementBounds = getEnemyMovementBounds(room, enemyTemplate)
+  const candidates = room.players
+    .map((player) => ({
+      userId: player.userId,
+      position: player.position,
+      bounds: getPlayerColliderBounds(player.position),
+    }))
+    .filter((candidate) => overlapsRect(candidate.bounds, patrolAreaBounds))
+
+  if (candidates.length === 0) {
+    return null
+  }
+
+  return candidates
+    .sort((leftCandidate, rightCandidate) => {
+      const leftDistance = Math.hypot(leftCandidate.position.x - enemyRuntime.x, leftCandidate.position.y - enemyRuntime.y)
+      const rightDistance = Math.hypot(
+        rightCandidate.position.x - enemyRuntime.x,
+        rightCandidate.position.y - enemyRuntime.y,
+      )
+      return leftDistance - rightDistance
+    })
+    .map((candidate) => ({
+      userId: candidate.userId,
+      x: clamp(candidate.position.x, movementBounds.left, movementBounds.right),
+      y: clamp(candidate.position.y, movementBounds.top, movementBounds.bottom),
+    }))[0]
+}
+
+function didEnemyStateChange(previousState: RoomEnemyState, nextState: RoomEnemyState) {
+  return (
+    previousState.x !== nextState.x ||
+    previousState.y !== nextState.y ||
+    previousState.mode !== nextState.mode ||
+    previousState.targetUserId !== nextState.targetUserId
+  )
+}
+
+function simulateEnemies(room: RoomState, deltaSeconds: number): RoomEnemiesStatePayload | null {
+  const enemyTemplates = room.template.enemies ?? []
+  if (enemyTemplates.length === 0) {
+    return null
+  }
+
+  syncRoomEnemiesForTemplate(room)
+  const runtimeById = roomEnemyRuntimes.get(room.roomId)
+  if (!runtimeById) {
+    return null
+  }
+
+  let hasChanges = false
+  const nextEnemies = room.enemies.map((enemyState) => ({ ...enemyState }))
+
+  enemyTemplates.forEach((enemyTemplate, index) => {
+    const currentState = nextEnemies[index]
+    const enemyRuntime = runtimeById[enemyTemplate.id] ?? buildInitialEnemyRuntimeState(currentState)
+    const patrolSpeedPxPerSecond = Math.max(0, enemyTemplate.velocidad_de_patrullaje_ ?? 72)
+    const movementBounds = getEnemyMovementBounds(room, enemyTemplate)
+    const chaseTarget = getClosestEnemyChaseTarget(room, enemyTemplate, enemyRuntime)
+
+    if (chaseTarget) {
+      const nextPosition = moveTowardsPoint(enemyRuntime, chaseTarget, patrolSpeedPxPerSecond * deltaSeconds)
+      const nextState: RoomEnemyState = {
+        enemyId: enemyTemplate.id,
+        x: clamp(nextPosition.x, movementBounds.left, movementBounds.right),
+        y: clamp(nextPosition.y, movementBounds.top, movementBounds.bottom),
+        mode: 'chase',
+        targetUserId: chaseTarget.userId,
+      }
+
+      runtimeById[enemyTemplate.id] = {
+        ...enemyRuntime,
+        x: nextState.x,
+        y: nextState.y,
+        patrolTargetX: chaseTarget.x,
+        patrolTargetY: chaseTarget.y,
+        mode: nextState.mode,
+        targetUserId: nextState.targetUserId,
+      }
+
+      if (didEnemyStateChange(currentState, nextState)) {
+        hasChanges = true
+      }
+
+      nextEnemies[index] = nextState
+      return
+    }
+
+    const distanceToPatrolTarget = Math.hypot(enemyRuntime.patrolTargetX - enemyRuntime.x, enemyRuntime.patrolTargetY - enemyRuntime.y)
+    const shouldChooseNextPatrolTarget =
+      distanceToPatrolTarget <= Math.max(12, patrolSpeedPxPerSecond * deltaSeconds)
+    const nextPatrolStep = shouldChooseNextPatrolTarget ? enemyRuntime.patrolStep + 1 : enemyRuntime.patrolStep
+    const patrolTarget = shouldChooseNextPatrolTarget
+      ? getEnemyPatrolPoint(room, enemyTemplate, nextPatrolStep)
+      : {
+          x: enemyRuntime.patrolTargetX,
+          y: enemyRuntime.patrolTargetY,
+        }
+    const nextPosition = moveTowardsPoint(enemyRuntime, patrolTarget, patrolSpeedPxPerSecond * deltaSeconds)
+    const nextState: RoomEnemyState = {
+      enemyId: enemyTemplate.id,
+      x: clamp(nextPosition.x, movementBounds.left, movementBounds.right),
+      y: clamp(nextPosition.y, movementBounds.top, movementBounds.bottom),
+      mode: 'patrol',
+      targetUserId: null,
+    }
+
+    runtimeById[enemyTemplate.id] = {
+      x: nextState.x,
+      y: nextState.y,
+      patrolTargetX: patrolTarget.x,
+      patrolTargetY: patrolTarget.y,
+      patrolStep: nextPatrolStep,
+      mode: nextState.mode,
+      targetUserId: nextState.targetUserId,
+    }
+
+    if (didEnemyStateChange(currentState, nextState)) {
+      hasChanges = true
+    }
+
+    nextEnemies[index] = nextState
+  })
+
+  if (!hasChanges) {
+    return null
+  }
+
+  room.enemies = nextEnemies
+  return {
+    roomId: room.roomId,
+    enemies: nextEnemies,
+  }
 }
 
 function isBlockedByRoomObjects(room: RoomState, position: Position) {
@@ -1618,6 +2151,11 @@ function simulateMovement(deltaSeconds: number) {
       player.moving = true
       io.to(room.roomId).emit(serverEvents.playerMoved, player)
     })
+
+    const roomEnemiesStatePayload = simulateEnemies(room, deltaSeconds)
+    if (roomEnemiesStatePayload) {
+      io.to(room.roomId).emit(serverEvents.roomEnemiesState, roomEnemiesStatePayload)
+    }
   })
 }
 
@@ -2136,6 +2674,183 @@ io.on('connection', (socket) => {
     }
 
     callback?.({ ok: true })
+  })
+
+  socket.on(clientEvents.requestEnemyCombat, (rawPayload, callback) => {
+    const parsed = requestEnemyCombatSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session?.roomId) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible iniciar el combate.',
+      })
+      return
+    }
+
+    const room = rooms.get(session.roomId)
+    const player = room?.players.find((presence) => presence.sessionId === socket.id) ?? null
+    const enemyTemplate = room?.template.enemies?.find((enemy) => enemy.id === parsed.data.enemyId) ?? null
+
+    if (!room || !player || parsed.data.roomId !== room.roomId || !enemyTemplate) {
+      callback?.({
+        ok: false,
+        message: 'El enemigo ya no esta disponible para combatir.',
+      })
+      return
+    }
+
+    const currentEncounterForUser = getActiveEnemyCombatEncounterForUser(session.profile.userId)
+    const roomEnemyKey = buildEnemyCombatRoomEnemyKey(room.roomId, enemyTemplate.id)
+    const existingEncounterId = activeEnemyCombatEncounterIdsByRoomEnemy.get(roomEnemyKey)
+    const existingEncounter = existingEncounterId
+      ? activeEnemyCombatEncounters.get(existingEncounterId) ?? null
+      : null
+
+    if (
+      currentEncounterForUser &&
+      (!existingEncounter || currentEncounterForUser.encounterId !== existingEncounter.encounterId)
+    ) {
+      callback?.({
+        ok: false,
+        message: 'Ya participas en otro combate activo.',
+      })
+      return
+    }
+
+    if (existingEncounter) {
+      if (existingEncounter.participantUserIds.includes(session.profile.userId)) {
+        emitRoomEnemyCombatState(room.roomId)
+        callback?.({ ok: true })
+        return
+      }
+
+      if (!existingEncounter.declinedUserIds.has(session.profile.userId)) {
+        emitEnemyCombatSupportInviteToUser(session.profile.userId, existingEncounter)
+      }
+
+      callback?.({
+        ok: true,
+        message: 'Ya existe un combate activo con ese rival.',
+      })
+      return
+    }
+
+    const encounter: ActiveEnemyCombatEncounter = {
+      encounterId: randomUUID(),
+      roomId: room.roomId,
+      templateId: room.templateId,
+      enemyId: enemyTemplate.id,
+      enemyLabel: enemyTemplate.label ?? 'Rival',
+      enemyLevel: Math.max(0, Math.floor(enemyTemplate.nivel_enemigo_ ?? 0)),
+      requestedByUserId: session.profile.userId,
+      requestedByDisplayName: session.profile.displayName,
+      requestedByPosition: clonePosition(player.position),
+      participantUserIds: [session.profile.userId],
+      declinedUserIds: new Set<string>(),
+    }
+
+    activeEnemyCombatEncounters.set(encounter.encounterId, encounter)
+    activeEnemyCombatEncounterIdsByRoomEnemy.set(roomEnemyKey, encounter.encounterId)
+    activeEnemyCombatEncounterIdsByUser.set(session.profile.userId, encounter.encounterId)
+
+    emitRoomEnemyCombatState(room.roomId)
+
+    Array.from(new Set(room.players.map((presence) => presence.userId)))
+      .filter((userId) => userId !== session.profile.userId)
+      .forEach((userId) => {
+        emitEnemyCombatSupportInviteToUser(userId, encounter)
+      })
+
+    callback?.({ ok: true })
+  })
+
+  socket.on(clientEvents.respondEnemyCombatSupport, (rawPayload, callback) => {
+    const parsed = respondEnemyCombatSupportSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session?.roomId) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible responder a la ayuda de combate.',
+      })
+      return
+    }
+
+    const encounter = activeEnemyCombatEncounters.get(parsed.data.encounterId)
+    if (!encounter) {
+      callback?.({
+        ok: false,
+        message: 'La solicitud de apoyo al combate ya no esta disponible.',
+      })
+      return
+    }
+
+    if (parsed.data.action === 'reject') {
+      encounter.declinedUserIds.add(session.profile.userId)
+      callback?.({ ok: true })
+      return
+    }
+
+    const currentEncounterForUser = getActiveEnemyCombatEncounterForUser(session.profile.userId)
+    if (currentEncounterForUser && currentEncounterForUser.encounterId !== encounter.encounterId) {
+      callback?.({
+        ok: false,
+        message: 'Ya participas en otro combate activo.',
+      })
+      return
+    }
+
+    if (session.roomId !== encounter.roomId) {
+      callback?.({
+        ok: false,
+        message: 'Debes permanecer en la misma sala para unirte a este combate.',
+      })
+      return
+    }
+
+    if (!encounter.participantUserIds.includes(session.profile.userId)) {
+      encounter.participantUserIds.push(session.profile.userId)
+    }
+    encounter.declinedUserIds.delete(session.profile.userId)
+    activeEnemyCombatEncounterIdsByUser.set(session.profile.userId, encounter.encounterId)
+
+    teleportUserToEnemyCombatEncounter(session.profile.userId, encounter)
+    emitRoomEnemyCombatState(encounter.roomId)
+    callback?.({ ok: true })
+  })
+
+  socket.on(clientEvents.fleeEnemyCombat, (rawPayload, callback) => {
+    const parsed = fleeEnemyCombatSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible huir del combate.',
+      })
+      return
+    }
+
+    const encounter = activeEnemyCombatEncounters.get(parsed.data.encounterId)
+    if (!encounter || !encounter.participantUserIds.includes(session.profile.userId)) {
+      callback?.({
+        ok: false,
+        message: 'Ese combate ya no se encuentra activo.',
+      })
+      return
+    }
+
+    const escaped = Math.random() <= resolveEnemyCombatFleeChance(encounter.enemyLevel)
+    if (escaped) {
+      removeUserFromEnemyCombatEncounter(session.profile.userId, encounter.encounterId)
+    }
+
+    callback?.({
+      ok: true,
+      escaped,
+      message: escaped ? 'Lograste huir del combate.' : 'No lograste escapar del rival.',
+    })
   })
 
   socket.on(clientEvents.respondPartyLeaderFollow, async (rawPayload, callback) => {

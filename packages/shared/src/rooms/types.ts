@@ -103,6 +103,31 @@ export interface RoomTeleportTemplate extends RoomInteractableBaseTemplate {
   teleportTarget: RoomTeleportTargetTemplate
 }
 
+export interface RoomEnemyTemplate {
+  entityType: 'enemy'
+  id: string
+  label?: string
+  posicion_relativa_X: number
+  posicion_relativa_Y: number
+  ancho_de_patrullaje_: number
+  alto_de_patrullaje_: number
+  velocidad_de_patrullaje_?: number
+  nivel_enemigo_?: number
+  ancho_area_interaccion_directa_?: number
+  alto_area_interaccion_directa_?: number
+  spriteAssetId?: string
+}
+
+export type RoomEnemyMode = 'patrol' | 'chase'
+
+export interface RoomEnemyState {
+  enemyId: string
+  x: number
+  y: number
+  mode: RoomEnemyMode
+  targetUserId: string | null
+}
+
 export type RoomInteractableTemplate = RoomNpcTemplate | RoomTeleportTemplate
 
 export interface RoomCameraTemplate {
@@ -132,4 +157,5 @@ export interface RoomTemplate {
   objects: RoomObjectTemplate[]
   npcs?: RoomNpcTemplate[]
   teleports?: RoomTeleportTemplate[]
+  enemies?: RoomEnemyTemplate[]
 }

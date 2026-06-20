@@ -10,6 +10,9 @@ import {
   type AudioSettings,
   type ChatMessage,
   type ConnectionAcceptedPayload,
+  type EnemyCombatEncounterStatePayload,
+  type EnemyCombatParticipantSummary,
+  type EnemyCombatSupportInvitePayload,
   type FriendRequestSummary,
   type FriendSummary,
   type PartyInviteSummary,
@@ -19,6 +22,9 @@ import {
   type PartySummary,
   type Position,
   type Presence,
+  type RoomEnemyTemplate,
+  type RoomEnemyCombatStatePayload,
+  type RoomEnemiesStatePayload,
   type RoomInteractableTemplate,
   type RoomState,
   type SkinColorSelections,
@@ -55,6 +61,7 @@ const SERVER_URL = import.meta.env.VITE_GAME_SERVER_URL ?? 'http://localhost:300
 const PLAYER_NAMES_VISIBILITY_STORAGE_KEY = 'social-sena-player-names-visible'
 const SCENE_LOADING_EXTRA_HOLD_MS = 1000
 const SCENE_LOADING_FAILSAFE_MS = 5500
+const ENEMY_ESCAPE_INTERACTION_COOLDOWN_MS = 3000
 type PlayerIdentityMode = 'icons' | 'names'
 
 function parsePlayerIdentityMode(value: string | null): PlayerIdentityMode {
@@ -85,10 +92,22 @@ interface ActiveDialogueState {
   lineIndex: number
 }
 
-interface ActiveTouchNpcPromptState {
-  npcId: string
-  title: string
-}
+type ActiveTouchPromptState =
+  | {
+      kind: 'npc'
+      npcId: string
+      title: string
+    }
+  | {
+      kind: 'enemy'
+      encounterId: string
+      enemyId: string
+      title: string
+      enemyLevel: number
+      fleeChance: number
+      requestedByDisplayName: string
+      participants: EnemyCombatParticipantSummary[]
+    }
 
 interface FriendRequestPopupState extends FriendRequestSummary {
   expiresAt: number
@@ -96,6 +115,7 @@ interface FriendRequestPopupState extends FriendRequestSummary {
 
 type PartyInvitePopupState = PartyInviteSummary
 type PartyLeaderFollowPromptState = PartyLeaderFollowPromptPayload
+type EnemyCombatSupportInviteState = EnemyCombatSupportInvitePayload
 
 interface ActivityNoticeState {
   id: string
@@ -119,6 +139,24 @@ function areAudioSettingsEqual(left: AudioSettings, right: AudioSettings) {
 
 function resolveLevelSubtitle(level: number | null | undefined) {
   return `Nivel ${Math.max(1, Math.floor(level ?? 1))}`
+}
+
+function resolveEnemyFleeChance(enemyLevel: number) {
+  return Math.max(0.1, Math.min(1, 1 - enemyLevel * 0.1))
+}
+
+function buildEnemyCombatPromptState(encounter: EnemyCombatEncounterStatePayload): ActiveTouchPromptState {
+  const enemyLevel = Math.max(0, Math.floor(encounter.enemyLevel))
+  return {
+    kind: 'enemy',
+    encounterId: encounter.encounterId,
+    enemyId: encounter.enemyId,
+    title: encounter.enemyLabel || 'Rival',
+    enemyLevel,
+    fleeChance: resolveEnemyFleeChance(enemyLevel),
+    requestedByDisplayName: encounter.requestedByDisplayName,
+    participants: encounter.participants,
+  }
 }
 
 function MenuAvatarPreview({
@@ -200,17 +238,20 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const [friendRequestPopups, setFriendRequestPopups] = useState<FriendRequestPopupState[]>([])
   const [partyInvitePopups, setPartyInvitePopups] = useState<PartyInvitePopupState[]>([])
   const [partyLeaderFollowPrompt, setPartyLeaderFollowPrompt] = useState<PartyLeaderFollowPromptState | null>(null)
+  const [enemyCombatSupportInvites, setEnemyCombatSupportInvites] = useState<EnemyCombatSupportInviteState[]>([])
   const [activityNotices, setActivityNotices] = useState<ActivityNoticeState[]>([])
   const [addingFriendUserId, setAddingFriendUserId] = useState<string | null>(null)
   const [respondingFriendRequestId, setRespondingFriendRequestId] = useState<string | null>(null)
   const [removingFriendUserId, setRemovingFriendUserId] = useState<string | null>(null)
   const [invitingPartyUserId, setInvitingPartyUserId] = useState<string | null>(null)
   const [respondingPartyInviteId, setRespondingPartyInviteId] = useState<string | null>(null)
+  const [respondingEnemyCombatInviteId, setRespondingEnemyCombatInviteId] = useState<string | null>(null)
   const [respondingPartyLeaderFollow, setRespondingPartyLeaderFollow] = useState(false)
   const [promotingPartyLeaderUserId, setPromotingPartyLeaderUserId] = useState<string | null>(null)
   const [leavingParty, setLeavingParty] = useState(false)
   const [activeDialogue, setActiveDialogue] = useState<ActiveDialogueState | null>(null)
-  const [activeTouchNpcPrompt, setActiveTouchNpcPrompt] = useState<ActiveTouchNpcPromptState | null>(null)
+  const [activeTouchPrompt, setActiveTouchPrompt] = useState<ActiveTouchPromptState | null>(null)
+  const [blockedEnemyInteractionIds, setBlockedEnemyInteractionIds] = useState<string[]>([])
   const [dialogueVisibleChars, setDialogueVisibleChars] = useState(0)
   const [npcInteractionLocked, setNpcInteractionLocked] = useState(false)
   const [mobileInteractionEnabled, setMobileInteractionEnabled] = useState(false)
@@ -244,6 +285,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const partyInvitePopupTimeoutsRef = useRef<Map<string, number>>(new Map())
   const partyInvitePopupsRef = useRef<PartyInvitePopupState[]>([])
   const activityNoticeTimeoutsRef = useRef<Map<string, number>>(new Map())
+  const enemyInteractionCooldownTimeoutsRef = useRef<Map<string, number>>(new Map())
   const partyLeaderFollowPromptTimeoutRef = useRef<number | null>(null)
   const sceneLoadingHideTimeoutRef = useRef<number | null>(null)
   const sceneLoadingFailsafeTimeoutRef = useRef<number | null>(null)
@@ -707,6 +749,14 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   }, [])
 
   useEffect(() => {
+    const enemyCooldownTimeouts = enemyInteractionCooldownTimeoutsRef.current
+    return () => {
+      enemyCooldownTimeouts.forEach((timeoutId) => window.clearTimeout(timeoutId))
+      enemyCooldownTimeouts.clear()
+    }
+  }, [])
+
+  useEffect(() => {
     return () => {
       if (partyInviteStateRefreshTimeoutRef.current) {
         window.clearTimeout(partyInviteStateRefreshTimeoutRef.current)
@@ -852,11 +902,14 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       setParty(null)
       setIncomingPartyInvites([])
       setOutgoingPartyInvites([])
+      setEnemyCombatSupportInvites([])
       setActivityNotices([])
       friendRequestPopupsRef.current = []
       setFriendRequestPopups([])
       partyInvitePopupsRef.current = []
       setPartyInvitePopups([])
+      setRespondingEnemyCombatInviteId(null)
+      setActiveTouchPrompt(null)
       friendsRef.current = []
       partyRef.current = null
       dismissedFriendRequestIdsRef.current.clear()
@@ -883,11 +936,14 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       setParty(null)
       setIncomingPartyInvites([])
       setOutgoingPartyInvites([])
+      setEnemyCombatSupportInvites([])
       setActivityNotices([])
       friendRequestPopupsRef.current = []
       setFriendRequestPopups([])
       partyInvitePopupsRef.current = []
       setPartyInvitePopups([])
+      setRespondingEnemyCombatInviteId(null)
+      setActiveTouchPrompt(null)
       friendsRef.current = []
       partyRef.current = null
       dismissedFriendRequestIdsRef.current.clear()
@@ -1008,6 +1064,15 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       )
     })
 
+    nextSocket.on(serverEvents.enemyCombatSupportInviteReceived, (invite: EnemyCombatSupportInvitePayload) => {
+      void playUiSound('friend-request')
+      setEnemyCombatSupportInvites((currentValue) =>
+        currentValue.some((currentInvite) => currentInvite.encounterId === invite.encounterId)
+          ? currentValue
+          : [invite, ...currentValue],
+      )
+    })
+
     nextSocket.on(serverEvents.partyLeaderFollowRequested, (prompt: PartyLeaderFollowPromptPayload) => {
       void playUiSound('friend-request')
       setRespondingPartyLeaderFollow(false)
@@ -1048,6 +1113,57 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       if (!pendingSceneLoad && nextRoom.templateId === routeTemplate.id) {
         setSceneLoadingVisible(false)
       }
+    })
+
+    nextSocket.on(serverEvents.roomEnemiesState, (payload: RoomEnemiesStatePayload) => {
+      setRoom((currentRoom) => {
+        if (!currentRoom || currentRoom.roomId !== payload.roomId) {
+          return currentRoom
+        }
+
+        return {
+          ...currentRoom,
+          enemies: payload.enemies,
+        }
+      })
+    })
+
+    nextSocket.on(serverEvents.roomEnemyCombatState, (payload: RoomEnemyCombatStatePayload) => {
+      const currentUserId = sessionProfileRef.current.userId
+      const activeEncounter =
+        payload.encounters.find((encounter) =>
+          encounter.participants.some((participant) => participant.userId === currentUserId),
+        ) ?? null
+
+      setEnemyCombatSupportInvites((currentValue) =>
+        currentValue.filter((currentInvite) => {
+          const encounter = payload.encounters.find(
+            (candidateEncounter) => candidateEncounter.encounterId === currentInvite.encounterId,
+          )
+          if (!encounter) {
+            return false
+          }
+
+          return !encounter.participants.some((participant) => participant.userId === currentUserId)
+        }),
+      )
+
+      setActiveTouchPrompt((currentValue) => {
+        if (!activeEncounter) {
+          return currentValue?.kind === 'enemy' ? null : currentValue
+        }
+
+        const nextPrompt = buildEnemyCombatPromptState(activeEncounter)
+        if (currentValue?.kind === 'npc') {
+          return nextPrompt
+        }
+
+        if (currentValue?.kind === 'enemy' && currentValue.encounterId === activeEncounter.encounterId) {
+          return nextPrompt
+        }
+
+        return nextPrompt
+      })
     })
 
     nextSocket.on(serverEvents.playerJoined, (player: Presence) => {
@@ -1183,7 +1299,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     : ''
   const isDialogueLineComplete = dialogueVisibleChars >= currentDialogueLine.length
   const quickChatShortcutDisabled =
-    chatOpen || Boolean(activeDialogue) || Boolean(activeTouchNpcPrompt) || initialSkinSetupOpen || skinEditorOpen
+    chatOpen || Boolean(activeDialogue) || Boolean(activeTouchPrompt) || initialSkinSetupOpen || skinEditorOpen
   const playerIdentityShortcutLabel =
     playerIdentityMode === 'icons' ? 'siglas' : 'nombres'
   const quickChatShortcutLabel = chatOpen
@@ -1305,9 +1421,31 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
   })
 
-  const closeActiveTouchNpcPrompt = useEffectEvent(() => {
+  const closeActiveTouchPrompt = useEffectEvent(() => {
     void playUiSound('panel-close')
-    setActiveTouchNpcPrompt(null)
+    setActiveTouchPrompt(null)
+  })
+
+  const clearEnemyInteractionCooldown = useEffectEvent((enemyId: string) => {
+    const timeoutId = enemyInteractionCooldownTimeoutsRef.current.get(enemyId)
+    if (timeoutId) {
+      window.clearTimeout(timeoutId)
+      enemyInteractionCooldownTimeoutsRef.current.delete(enemyId)
+    }
+  })
+
+  const blockEnemyInteractionFor = useEffectEvent((enemyId: string, cooldownMs: number) => {
+    clearEnemyInteractionCooldown(enemyId)
+    setBlockedEnemyInteractionIds((currentValue) =>
+      currentValue.includes(enemyId) ? currentValue : [...currentValue, enemyId],
+    )
+
+    const timeoutId = window.setTimeout(() => {
+      enemyInteractionCooldownTimeoutsRef.current.delete(enemyId)
+      setBlockedEnemyInteractionIds((currentValue) => currentValue.filter((currentEnemyId) => currentEnemyId !== enemyId))
+    }, cooldownMs)
+
+    enemyInteractionCooldownTimeoutsRef.current.set(enemyId, timeoutId)
   })
 
   const clearFriendRequestPopupTimeout = useEffectEvent((requestId: string) => {
@@ -1387,6 +1525,12 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     if (requestStateRefresh) {
       socketRef.current?.emit(clientEvents.requestPartyState)
     }
+  })
+
+  const dismissEnemyCombatSupportInvite = useEffectEvent((encounterId: string) => {
+    setEnemyCombatSupportInvites((currentValue) =>
+      currentValue.filter((currentInvite) => currentInvite.encounterId !== encounterId),
+    )
   })
 
   useEffect(() => {
@@ -1598,6 +1742,34 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       }
     })
   })
+
+  const handleRespondToEnemyCombatSupportInvite = useEffectEvent(
+    (encounterId: string, action: 'accept' | 'reject') => {
+      const socket = socketRef.current
+      if (!socket || respondingEnemyCombatInviteId) {
+        return
+      }
+
+      void playUiSound(action === 'accept' ? 'confirm' : 'cancel')
+      setRespondingEnemyCombatInviteId(encounterId)
+      socket.emit(
+        clientEvents.respondEnemyCombatSupport,
+        { encounterId, action },
+        (response: { ok: boolean; message?: string }) => {
+          setRespondingEnemyCombatInviteId((currentValue) => (currentValue === encounterId ? null : currentValue))
+
+          if (!response.ok) {
+            if (response.message) {
+              enqueueActivityNotice('Aviso del sistema', response.message)
+            }
+            return
+          }
+
+          dismissEnemyCombatSupportInvite(encounterId)
+        },
+      )
+    },
+  )
 
   const handleRespondToPartyLeaderFollow = useEffectEvent((action: 'accept' | 'reject') => {
     const socket = socketRef.current
@@ -1962,7 +2134,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
   const handleNavigate = (target: Position) => {
     const socket = socketRef.current
-    if (!socket || !room || !connected || activeDialogue || activeTouchNpcPrompt || initialSkinSetupOpen) {
+    if (!socket || !room || !connected || activeDialogue || activeTouchPrompt || initialSkinSetupOpen) {
       return
     }
 
@@ -2021,8 +2193,38 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
   })
 
+  const handleEnemyTouchInteract = useEffectEvent((enemyTemplate: RoomEnemyTemplate) => {
+    const socket = socketRef.current
+    if (
+      !socket ||
+      !room ||
+      activeDialogue ||
+      activeTouchPrompt ||
+      npcInteractionLocked ||
+      skinEditorOpen ||
+      initialSkinSetupOpen
+    ) {
+      return
+    }
+
+    requestStopMovement()
+    void ensureAudioUnlocked()
+    socket.emit(
+      clientEvents.requestEnemyCombat,
+      {
+        roomId: room.roomId,
+        enemyId: enemyTemplate.id,
+      },
+      (response: { ok: boolean; message?: string }) => {
+        if (!response.ok && response.message) {
+          enqueueActivityNotice('Aviso del sistema', response.message)
+        }
+      },
+    )
+  })
+
   const handleWorldInteract = useEffectEvent((interactable: RoomInteractableTemplate) => {
-    if (activeDialogue || activeTouchNpcPrompt || npcInteractionLocked || skinEditorOpen || initialSkinSetupOpen) {
+    if (activeDialogue || activeTouchPrompt || npcInteractionLocked || skinEditorOpen || initialSkinSetupOpen) {
       return
     }
 
@@ -2041,7 +2243,8 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
     if (interactable.interactionMode === 'touch') {
       void playUiSound('panel-open')
-      setActiveTouchNpcPrompt({
+      setActiveTouchPrompt({
+        kind: 'npc',
         npcId: interactable.id,
         title: interactable.label ?? '',
       })
@@ -2067,13 +2270,49 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
   })
 
+  const handleEnemyFlee = useEffectEvent(() => {
+    if (!activeTouchPrompt || activeTouchPrompt.kind !== 'enemy') {
+      return
+    }
+
+    const socket = socketRef.current
+    if (!socket) {
+      return
+    }
+
+    void playUiSound('cancel')
+    socket.emit(
+      clientEvents.fleeEnemyCombat,
+      {
+        encounterId: activeTouchPrompt.encounterId,
+      },
+      (response: { ok: boolean; escaped?: boolean; message?: string }) => {
+        if (!response.ok) {
+          if (response.message) {
+            enqueueActivityNotice('Aviso del sistema', response.message)
+          }
+          return
+        }
+
+        if (response.escaped) {
+          blockEnemyInteractionFor(activeTouchPrompt.enemyId, ENEMY_ESCAPE_INTERACTION_COOLDOWN_MS)
+          setActiveTouchPrompt(null)
+          enqueueActivityNotice('Huida exitosa', response.message ?? 'Escapaste del rival.')
+          return
+        }
+
+        enqueueActivityNotice('Huida fallida', response.message ?? 'No lograste escapar del rival.')
+      },
+    )
+  })
+
   const handleInteractShortcut = useEffectEvent(() => {
     if (activeDialogue) {
       advanceDialogue()
       return
     }
 
-    if (activeInteractable && !activeTouchNpcPrompt && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen) {
+    if (activeInteractable && !activeTouchPrompt && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen) {
       handleWorldInteract(activeInteractable)
     }
   })
@@ -2089,7 +2328,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   })
 
   const toggleSkinEditor = useEffectEvent(() => {
-    if (activeDialogue || activeTouchNpcPrompt || initialSkinSetupOpen) {
+    if (activeDialogue || activeTouchPrompt || initialSkinSetupOpen) {
       return
     }
 
@@ -2098,7 +2337,9 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   })
 
   useEffect(() => {
-    setActiveTouchNpcPrompt(null)
+    setActiveTouchPrompt(null)
+    setEnemyCombatSupportInvites([])
+    setRespondingEnemyCombatInviteId(null)
   }, [room?.roomId])
 
   const handleCloseSkinEditor = useEffectEvent(() => {
@@ -2423,10 +2664,10 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       return
     }
 
-    if (chatOpen || activeDialogue || initialSkinSetupOpen || skinEditorOpen) {
+    if (chatOpen || activeDialogue || activeTouchPrompt || initialSkinSetupOpen || skinEditorOpen) {
       closeQuickChat(false)
     }
-  }, [activeDialogue, chatOpen, initialSkinSetupOpen, quickChatOpen, skinEditorOpen])
+  }, [activeDialogue, activeTouchPrompt, chatOpen, initialSkinSetupOpen, quickChatOpen, skinEditorOpen])
 
   useEffect(() => {
     const handleQuickChatShortcut = (event: KeyboardEvent) => {
@@ -2441,7 +2682,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
         tagName === 'textarea' ||
         target?.isContentEditable === true
 
-      if (isTyping || chatOpen || activeDialogue || initialSkinSetupOpen || skinEditorOpen) {
+      if (isTyping || chatOpen || activeDialogue || activeTouchPrompt || initialSkinSetupOpen || skinEditorOpen) {
         return
       }
 
@@ -2451,7 +2692,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
     window.addEventListener('keydown', handleQuickChatShortcut)
     return () => window.removeEventListener('keydown', handleQuickChatShortcut)
-  }, [activeDialogue, chatOpen, initialSkinSetupOpen, skinEditorOpen])
+  }, [activeDialogue, activeTouchPrompt, chatOpen, initialSkinSetupOpen, skinEditorOpen])
 
   return (
     <main className="hud-layout">
@@ -2467,9 +2708,11 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
           typingByUserId={typingByUserId}
           typingIndicatorText={typingIndicatorText}
           onInteract={handleWorldInteract}
+          onEnemyTouchInteract={handleEnemyTouchInteract}
           onActiveInteractableChange={setActiveInteractable}
-          navigationEnabled={!activeDialogue && !activeTouchNpcPrompt && !skinEditorOpen && !initialSkinSetupOpen}
-          interactionEnabled={!activeDialogue && !activeTouchNpcPrompt && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen}
+          navigationEnabled={!activeDialogue && !activeTouchPrompt && !skinEditorOpen && !initialSkinSetupOpen}
+          interactionEnabled={!activeDialogue && !activeTouchPrompt && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen}
+          blockedEnemyInteractionIds={blockedEnemyInteractionIds}
           suppressInteractionIconForId={activeDialogue?.npcId ?? null}
           pointerInteractionEnabled={false}
         />
@@ -3058,6 +3301,44 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
             </section>
           ) : null}
 
+          {enemyCombatSupportInvites.length > 0 ? (
+            <section className="friend-request-popup-stack" aria-label="Apoyo disponible para combate">
+              {enemyCombatSupportInvites.map((invite) => (
+                <article key={invite.encounterId} className="friend-request-popup">
+                  <div className="friend-request-popup-copy">
+                    <strong>{invite.requestedByDisplayName}</strong>
+                    <span>{`inicio un combate contra ${invite.enemyLabel}. Puedes apoyar el combate.`}</span>
+                  </div>
+                  <div className="inline-actions">
+                    <button
+                      type="button"
+                      className="mini-action-button"
+                      onClick={() => handleRespondToEnemyCombatSupportInvite(invite.encounterId, 'accept')}
+                      disabled={respondingEnemyCombatInviteId === invite.encounterId}
+                    >
+                      {respondingEnemyCombatInviteId === invite.encounterId ? '...' : 'Apoyar'}
+                    </button>
+                    <button
+                      type="button"
+                      className="mini-action-button is-danger"
+                      onClick={() => handleRespondToEnemyCombatSupportInvite(invite.encounterId, 'reject')}
+                      disabled={respondingEnemyCombatInviteId === invite.encounterId}
+                    >
+                      Rechazar
+                    </button>
+                    <button
+                      type="button"
+                      className="mini-action-button is-ghost"
+                      onClick={() => dismissEnemyCombatSupportInvite(invite.encounterId)}
+                    >
+                      Luego
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </section>
+          ) : null}
+
           {partyLeaderFollowPrompt ? (
             <section className="friend-request-popup-stack" aria-label="Seguimiento del lider del grupo">
               <article className="friend-request-popup">
@@ -3152,7 +3433,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
             Chat
           </button>
 
-          {mobileInteractionEnabled && activeInteractable && !activeDialogue && !activeTouchNpcPrompt && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen ? (
+          {mobileInteractionEnabled && activeInteractable && !activeDialogue && !activeTouchPrompt && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen ? (
             <MobileNpcInteractButton onInteract={() => handleWorldInteract(activeInteractable)} />
           ) : null}
 
@@ -3298,25 +3579,67 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
             />
           ) : null}
 
-          {activeTouchNpcPrompt ? (
-            <section className="fullscreen-touch-prompt" aria-modal="true" role="dialog" aria-label="Evento rival">
+          {activeTouchPrompt ? (
+            <section
+              className="fullscreen-touch-prompt"
+              aria-modal="true"
+              role="dialog"
+              aria-label={activeTouchPrompt.kind === 'enemy' ? 'Encuentro rival' : 'Evento rival'}
+            >
               <div className="fullscreen-touch-prompt-backdrop" />
               <div className="fullscreen-touch-prompt-panel">
-                {activeTouchNpcPrompt.title ? (
+                {activeTouchPrompt.title ? (
                   <header className="fullscreen-touch-prompt-header">
-                    <h2>{activeTouchNpcPrompt.title}</h2>
+                    <h2>{activeTouchPrompt.title}</h2>
                   </header>
                 ) : null}
-                <div className="fullscreen-touch-prompt-body" />
-                <div className="fullscreen-touch-prompt-actions">
-                  <button
-                    type="button"
-                    className="secondary-action-button is-active"
-                    onClick={closeActiveTouchNpcPrompt}
-                  >
-                    Cerrar
-                  </button>
-                </div>
+                {activeTouchPrompt.kind === 'enemy' ? (
+                  <>
+                    <div className="fullscreen-touch-prompt-body">
+                      <div className="fullscreen-touch-prompt-copy">
+                        <p>Has entrado en el area de combate del rival.</p>
+                        <p>{`Solicitado por: ${activeTouchPrompt.requestedByDisplayName}`}</p>
+                        <p>{`Nivel enemigo: ${activeTouchPrompt.enemyLevel}`}</p>
+                        <p>{`Probabilidad de huida: ${Math.round(activeTouchPrompt.fleeChance * 100)}%`}</p>
+                        <div className="fullscreen-touch-prompt-supporters">
+                          <strong>Apoyo del combate</strong>
+                          <div className="fullscreen-touch-prompt-supporter-list">
+                            {activeTouchPrompt.participants.map((participant) => (
+                              <span key={participant.userId} className="fullscreen-touch-prompt-supporter-chip">
+                                {participant.displayName}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="fullscreen-touch-prompt-actions">
+                      <button type="button" className="secondary-action-button" disabled>
+                        Iniciar combate
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-action-button is-active"
+                        onClick={handleEnemyFlee}
+                      >
+                        Huir
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="fullscreen-touch-prompt-body" />
+                    <div className="fullscreen-touch-prompt-actions">
+                      <button
+                        type="button"
+                        className="secondary-action-button is-active"
+                        onClick={closeActiveTouchPrompt}
+                      >
+                        Cerrar
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             </section>
           ) : null}

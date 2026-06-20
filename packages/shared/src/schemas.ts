@@ -101,6 +101,20 @@ export const respondPartyInviteSchema = z.object({
   action: z.enum(['accept', 'reject']),
 })
 
+export const requestEnemyCombatSchema = z.object({
+  roomId: z.string().min(1),
+  enemyId: z.string().trim().min(1),
+})
+
+export const respondEnemyCombatSupportSchema = z.object({
+  encounterId: z.string().trim().min(1),
+  action: z.enum(['accept', 'reject']),
+})
+
+export const fleeEnemyCombatSchema = z.object({
+  encounterId: z.string().trim().min(1),
+})
+
 export const respondPartyLeaderFollowSchema = z.object({
   requestId: z.string().trim().min(1),
   action: z.enum(['accept', 'reject']),

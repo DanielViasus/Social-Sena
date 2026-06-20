@@ -184,6 +184,13 @@ function collectRoomAssetUrls(template: RoomTemplate) {
     })
   })
 
+  ;(template.enemies ?? []).forEach((enemyTemplate) => {
+    const spriteSrc = getWorldSpriteAsset(enemyTemplate.spriteAssetId)
+    if (spriteSrc) {
+      assetUrls.add(spriteSrc)
+    }
+  })
+
   return [...assetUrls]
 }
 

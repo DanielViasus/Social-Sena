@@ -21,6 +21,21 @@ export const mazmorraDemoTemplate: RoomTemplate = {
     marginY: 200,
   },
   objects: [],
+  enemies: [
+    {
+      entityType: 'enemy',
+      id: 'NPC_ENEMIGO',
+      label: 'Rival',
+      posicion_relativa_X: 2224,
+      posicion_relativa_Y: 468,
+      ancho_de_patrullaje_: 1000,
+      alto_de_patrullaje_: 1000,
+      velocidad_de_patrullaje_: 72,
+      nivel_enemigo_: 0,
+      ancho_area_interaccion_directa_: 300,
+      alto_area_interaccion_directa_: 300,
+    },
+  ],
   npcs: [
     {
       entityType: 'npc',

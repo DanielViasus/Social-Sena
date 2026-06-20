@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type {
   Position,
   Presence,
+  RoomEnemyTemplate,
   RoomInteractableTemplate,
   RoomNpcTemplate,
   RoomObjectTemplate,
@@ -38,6 +39,7 @@ import {
   getRoomBackgroundAsset,
   getWorldSpriteAsset,
 } from './world/worldAssetCatalog'
+import { Enemigo } from './world/Enemigo'
 
 interface ReactWorldProps {
   room: RoomState | null
@@ -50,9 +52,11 @@ interface ReactWorldProps {
   typingByUserId?: Record<string, boolean>
   typingIndicatorText?: string
   onInteract?: (interactable: RoomInteractableTemplate) => void
+  onEnemyTouchInteract?: (enemyTemplate: RoomEnemyTemplate) => void
   onActiveInteractableChange?: (interactable: RoomInteractableTemplate | null) => void
   navigationEnabled?: boolean
   interactionEnabled?: boolean
+  blockedEnemyInteractionIds?: string[]
   suppressInteractionIconForId?: string | null
   pointerInteractionEnabled?: boolean
 }
@@ -114,6 +118,14 @@ type RenderLayerItem =
       spriteFrame: WorldNpcFrameDefinition | null
       iconFrame: WorldNpcFrameDefinition | null
       flipX: boolean
+    }
+  | {
+      kind: 'enemy'
+      key: string
+      perspectiveY: number
+      enemyTemplate: RoomEnemyTemplate
+      displayX: number
+      displayY: number
     }
 
 function clamp(value: number, min: number, max: number) {
@@ -463,6 +475,11 @@ function getPerspectiveAwareRenderItems(
     iconFrame: WorldNpcFrameDefinition | null
     flipX: boolean
   }>,
+  enemyViews: Array<{
+    enemyTemplate: RoomEnemyTemplate
+    displayX: number
+    displayY: number
+  }>,
 ) {
   const objectItems: RenderLayerItem[] = template.objects.map((objectTemplate) => ({
     kind: 'object',
@@ -504,14 +521,24 @@ function getPerspectiveAwareRenderItems(
     flipX,
   }))
 
+  const enemyItems: RenderLayerItem[] = enemyViews.map(({ enemyTemplate, displayX, displayY }) => ({
+    kind: 'enemy',
+    key: enemyTemplate.id,
+    perspectiveY: displayY,
+    enemyTemplate,
+    displayX,
+    displayY,
+  }))
+
   const layerPriority: Record<RenderLayerItem['kind'], number> = {
     object: 0,
     teleport: 1,
     npc: 2,
-    player: 3,
+    enemy: 3,
+    player: 4,
   }
 
-  return [...objectItems, ...teleportItems, ...npcItems, ...playerItems].sort((left, right) => {
+  return [...objectItems, ...teleportItems, ...npcItems, ...enemyItems, ...playerItems].sort((left, right) => {
     if (left.perspectiveY !== right.perspectiveY) {
       return left.perspectiveY - right.perspectiveY
     }
@@ -540,6 +567,44 @@ function getTeleportInteractionAnchor(teleportTemplate: RoomTeleportTemplate) {
   }
 }
 
+function getEnemyDirectInteractionBounds(enemyTemplate: RoomEnemyTemplate, displayX: number, displayY: number) {
+  const width = enemyTemplate.ancho_area_interaccion_directa_ ?? 300
+  const height = enemyTemplate.alto_area_interaccion_directa_ ?? 300
+
+  return {
+    left: displayX - width / 2,
+    right: displayX + width / 2,
+    top: displayY - height / 2,
+    bottom: displayY + height / 2,
+  }
+}
+
+function getEnemyViews(room: RoomState | null, enemyTemplates: RoomEnemyTemplate[] | undefined) {
+  if (!room) {
+    return []
+  }
+
+  const enemyTemplateById = new Map((enemyTemplates ?? []).map((enemyTemplate) => [enemyTemplate.id, enemyTemplate] as const))
+
+  return room.enemies
+    .map((enemyState) => {
+      const enemyTemplate = enemyTemplateById.get(enemyState.enemyId)
+      if (!enemyTemplate) {
+        return null
+      }
+
+      return {
+        enemyTemplate,
+        displayX: enemyState.x,
+        displayY: enemyState.y,
+      }
+    })
+    .filter(
+      (enemyView): enemyView is { enemyTemplate: RoomEnemyTemplate; displayX: number; displayY: number } =>
+        enemyView !== null,
+    )
+}
+
 function ReactWorld({
   room,
   currentUserId,
@@ -551,15 +616,18 @@ function ReactWorld({
   typingByUserId = {},
   typingIndicatorText = '...',
   onInteract,
+  onEnemyTouchInteract,
   onActiveInteractableChange,
   navigationEnabled = true,
   interactionEnabled = true,
+  blockedEnemyInteractionIds = [],
   suppressInteractionIconForId = null,
   pointerInteractionEnabled = false,
 }: ReactWorldProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const roomRef = useRef(room)
   const touchNpcIdsRef = useRef<Set<string>>(new Set())
+  const touchEnemyIdsRef = useRef<Set<string>>(new Set())
   const runtimeRef = useRef<WorldRuntimeState>({
     now: performance.now(),
     roomStartedAt: performance.now(),
@@ -825,6 +893,14 @@ function ReactWorld({
     })
   }, [currentPlayerBounds, runtime.now, template.teleports])
 
+  const enemyViews = useMemo(() => {
+    return getEnemyViews(room, template.enemies)
+  }, [room, template.enemies])
+  const blockedEnemyInteractionIdSet = useMemo(
+    () => new Set(blockedEnemyInteractionIds),
+    [blockedEnemyInteractionIds],
+  )
+
   const activeInteractable = useMemo(() => {
     if (!currentPlayerView) {
       return null
@@ -881,6 +957,49 @@ function ReactWorld({
   }, [interactionEnabled, npcViews, onInteract])
 
   useEffect(() => {
+    const nextTouchedEnemyIds = new Set<string>()
+
+    if (!currentPlayerBounds) {
+      touchEnemyIdsRef.current = nextTouchedEnemyIds
+      return
+    }
+
+    let didTriggerTouchInteraction = false
+
+    enemyViews.forEach((enemyView) => {
+      const enemyId = enemyView.enemyTemplate.id
+
+      if (blockedEnemyInteractionIdSet.has(enemyId)) {
+        return
+      }
+
+      const directInteractionBounds = getEnemyDirectInteractionBounds(
+        enemyView.enemyTemplate,
+        enemyView.displayX,
+        enemyView.displayY,
+      )
+
+      if (!overlapsRect(currentPlayerBounds, directInteractionBounds)) {
+        return
+      }
+
+      nextTouchedEnemyIds.add(enemyId)
+
+      if (
+        interactionEnabled &&
+        onEnemyTouchInteract &&
+        !didTriggerTouchInteraction &&
+        !touchEnemyIdsRef.current.has(enemyId)
+      ) {
+        didTriggerTouchInteraction = true
+        onEnemyTouchInteract(enemyView.enemyTemplate)
+      }
+    })
+
+    touchEnemyIdsRef.current = nextTouchedEnemyIds
+  }, [blockedEnemyInteractionIdSet, currentPlayerBounds, enemyViews, interactionEnabled, onEnemyTouchInteract])
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.repeat || event.key.toLowerCase() !== 'e') {
         return
@@ -915,8 +1034,8 @@ function ReactWorld({
   }, [activeInteractable, interactionEnabled, onInteract])
 
   const renderItems = useMemo(
-    () => getPerspectiveAwareRenderItems(template, teleportViews, playerViews, npcViews),
-    [template, teleportViews, playerViews, npcViews],
+    () => getPerspectiveAwareRenderItems(template, teleportViews, playerViews, npcViews, enemyViews),
+    [template, teleportViews, playerViews, npcViews, enemyViews],
   )
   const backgroundAsset = getRoomBackgroundAsset(template.id)
 
@@ -1064,6 +1183,27 @@ function ReactWorld({
                       ? () => onInteract(item.npcTemplate)
                       : undefined
                   }
+                />
+              </div>
+            )
+          }
+
+          if (item.kind === 'enemy') {
+            return (
+              <div
+                key={item.key}
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  pointerEvents: 'none',
+                  zIndex: 20 + index,
+                }}
+              >
+                <Enemigo
+                  enemyTemplate={item.enemyTemplate}
+                  debugEnabled={debugEnabled}
+                  displayX={item.displayX}
+                  displayY={item.displayY}
                 />
               </div>
             )
