@@ -12,6 +12,7 @@ import tpCenterRoom1 from '../../assets/Decoration/Doors_tp/tp_center_room_1.svg
 import tpCenterRoom1Hover from '../../assets/Decoration/Doors_tp/tp_center_room_1_hover.svg'
 import tpRoom1909_1 from '../../assets/Decoration/Doors_tp/tp_room_1909_1.svg'
 import tpRoom1909_1Hover from '../../assets/Decoration/Doors_tp/tp_room_1909_1_hover.svg'
+import enemyTrainingDummySheet from '../../assets/enemies/maniqui_de_entrenamiento/MANIKI_DE_ENTRENAMIENTO.svg'
 import mageSheet from '../../assets/npc/mago/Mage.svg'
 import npcAlert0 from '../../assets/npc/icons/alert/ALERT_0.svg'
 import npcAlert1 from '../../assets/npc/icons/alert/ALERT_1.svg'
@@ -49,6 +50,10 @@ export const NPC_SPRITES: Record<string, string> = {
   'npc-interaction-e-1': npcInteractionE1,
 }
 
+export const ENEMY_SPRITES: Record<string, string> = {
+  'enemy-training-dummy-sheet': enemyTrainingDummySheet,
+}
+
 const imagePreloadCache = new Map<string, Promise<void>>()
 const IMAGE_PRELOAD_TIMEOUT_MS = 2500
 
@@ -62,6 +67,18 @@ export function getWorldSpriteAsset(assetId?: string) {
 
 export function getNpcSpriteAsset(assetId?: string) {
   return assetId ? NPC_SPRITES[assetId] : undefined
+}
+
+export function getEnemySpriteAsset(assetId?: string) {
+  return assetId ? ENEMY_SPRITES[assetId] : undefined
+}
+
+export function getEnemyOverlayAsset(assetId?: string) {
+  if (!assetId) {
+    return undefined
+  }
+
+  return WORLD_SPRITES[assetId] ?? NPC_SPRITES[assetId] ?? ENEMY_SPRITES[assetId]
 }
 
 export function preloadImageAsset(src: string | null | undefined) {
@@ -188,6 +205,16 @@ function collectRoomAssetUrls(template: RoomTemplate) {
     const spriteSrc = getWorldSpriteAsset(enemyTemplate.spriteAssetId)
     if (spriteSrc) {
       assetUrls.add(spriteSrc)
+    }
+
+    const spriteSheetSrc = getEnemySpriteAsset(enemyTemplate.spriteSheetAssetId)
+    if (spriteSheetSrc) {
+      assetUrls.add(spriteSheetSrc)
+    }
+
+    const iconSrc = getEnemyOverlayAsset(enemyTemplate.iconAssetId)
+    if (iconSrc) {
+      assetUrls.add(iconSrc)
     }
   })
 

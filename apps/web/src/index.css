@@ -449,10 +449,10 @@ button {
 }
 
 .hud-square-button {
-  min-width: 56px;
-  height: 56px;
+  min-width: 42px;
+  height: 42px;
   border: none;
-  border-radius: 12px;
+  border-radius: 10px;
   display: inline-grid;
   place-items: center;
   font-family: 'Space Grotesk', sans-serif;
@@ -464,28 +464,28 @@ button {
 .options-button {
   position: relative;
   background: #9cde71;
-  min-width: 96px;
-  padding: 0 12px;
+  min-width: 72px;
+  padding: 0 10px;
   font-family: 'Press Start 2P', monospace;
-  font-size: 0.72rem;
+  font-size: 0.58rem;
   line-height: 1;
   letter-spacing: 0.03em;
 }
 
 .options-button-badge {
   position: absolute;
-  top: -10px;
-  right: -10px;
-  min-width: 24px;
-  height: 24px;
-  padding: 0 6px;
+  top: -8px;
+  right: -8px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
   border-radius: 999px;
   display: inline-grid;
   place-items: center;
   background: #ff6f61;
   color: #fff9f6;
   font-family: 'Press Start 2P', monospace;
-  font-size: 0.55rem;
+  font-size: 0.46rem;
   line-height: 1;
   box-shadow: 0 8px 18px rgba(143, 33, 24, 0.38);
 }
@@ -494,7 +494,7 @@ button {
   position: absolute;
   right: 28px;
   bottom: calc(28px + env(safe-area-inset-bottom));
-  width: 172px;
+  width: 136px;
   background: #ff0000;
   color: #fff2f2;
 }
@@ -607,7 +607,8 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 32px;
+  padding: 28px;
+  pointer-events: auto;
 }
 
 .fullscreen-touch-prompt-backdrop {
@@ -621,9 +622,9 @@ button {
 .fullscreen-touch-prompt-panel {
   position: relative;
   z-index: 1;
-  width: min(900px, 100%);
-  min-height: min(520px, calc(100dvh - 96px));
-  border-radius: 24px;
+  width: min(760px, 100%);
+  min-height: min(442px, calc(100dvh - 96px));
+  border-radius: 20px;
   border: 2px solid rgba(227, 238, 255, 0.12);
   background: rgba(11, 19, 31, 0.94);
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.46);
@@ -632,8 +633,19 @@ button {
   overflow: hidden;
 }
 
+.fullscreen-touch-prompt-panel.is-enemy {
+  width: min(1380px, calc(100vw - 36px));
+  min-height: min(760px, calc(100dvh - 44px));
+  border-radius: 28px;
+  border: 4px solid #1f1a1b;
+  background: #2d2a2b;
+  box-shadow:
+    0 0 0 4px rgba(255, 255, 255, 0.04),
+    0 28px 90px rgba(0, 0, 0, 0.54);
+}
+
 .fullscreen-touch-prompt-header {
-  padding: 20px 24px 0;
+  padding: 18px 20px 0;
 }
 
 .fullscreen-touch-prompt-header h2 {
@@ -645,17 +657,17 @@ button {
 
 .fullscreen-touch-prompt-body {
   flex: 1;
-  min-height: 240px;
+  min-height: 204px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: 20px;
 }
 
 .fullscreen-touch-prompt-copy {
-  width: min(440px, 100%);
+  width: min(400px, 100%);
   display: grid;
-  gap: 14px;
+  gap: 12px;
   text-align: center;
   color: #eef5ff;
 }
@@ -667,7 +679,7 @@ button {
 
 .fullscreen-touch-prompt-supporters {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   justify-items: center;
 }
 
@@ -680,24 +692,372 @@ button {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .fullscreen-touch-prompt-supporter-chip {
-  padding: 10px 12px;
+  padding: 8px 10px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(227, 238, 255, 0.12);
   color: #eef5ff;
-  font-size: 0.72rem;
+  font-size: 0.64rem;
 }
 
 .fullscreen-touch-prompt-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
+  gap: 10px;
+  padding: 18px 20px 20px;
+}
+
+.combat-banner-shell {
+  position: relative;
+  display: grid;
+  grid-template-rows: 130px minmax(330px, 1fr) 150px;
+  min-height: inherit;
+  height: 100%;
+}
+
+.combat-banner-close-button {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 2;
+  width: 58px;
+  height: 58px;
+  border: 3px solid #1d1919;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #f7b378 0%, #d87e56 100%);
+  color: #fff8ec;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.8rem;
+  line-height: 1;
+  box-shadow:
+    inset 0 -4px 0 rgba(85, 31, 14, 0.34),
+    0 10px 18px rgba(0, 0, 0, 0.28);
+}
+
+.combat-banner-close-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+  filter: grayscale(0.18);
+  box-shadow: inset 0 -4px 0 rgba(26, 22, 21, 0.22);
+}
+
+.combat-banner-topband,
+.combat-banner-bottomband {
+  background: linear-gradient(180deg, #3c3939 0%, #353232 100%);
+}
+
+.combat-banner-topband {
+  display: grid;
+  align-content: center;
+  gap: 14px;
+  padding: 24px 32px 22px;
+  border-bottom: 4px solid rgba(17, 15, 15, 0.64);
+}
+
+.combat-banner-kicker {
+  margin: 0;
+  color: #f4c57f;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.combat-banner-heading {
+  display: grid;
+  gap: 10px;
+}
+
+.combat-banner-heading h2 {
+  margin: 0;
+  color: #fff6eb;
+  font-family: 'Press Start 2P', monospace;
+  font-size: clamp(1rem, 2vw, 1.45rem);
+  line-height: 1.35;
+}
+
+.combat-banner-heading p {
+  margin: 0;
+  color: #eee4d6;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.98rem;
+}
+
+.combat-banner-helper-copy {
+  color: #ffd9b1;
+  font-size: 0.86rem;
+}
+
+.combat-banner-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 88px minmax(0, 1fr);
+  align-items: center;
+  gap: 18px;
+  padding: 28px 22px 34px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 12%),
+    #958b8f;
+}
+
+.combat-banner-side {
+  min-height: 100%;
+  display: grid;
+  align-content: start;
+  gap: 18px;
+}
+
+.combat-banner-side.is-enemy {
+  justify-items: end;
+}
+
+.combat-banner-side-header {
+  display: inline-flex;
+  align-items: center;
   gap: 12px;
-  padding: 20px 24px 24px;
+  justify-self: start;
+  padding: 10px 14px;
+  border: 3px solid #1e1b1b;
+  border-radius: 16px;
+  background: rgba(44, 37, 37, 0.72);
+  color: #fff5e8;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.58rem;
+}
+
+.combat-banner-side-header strong {
+  display: inline-grid;
+  place-items: center;
+  min-width: 34px;
+  height: 34px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #f0b67a;
+  color: #462a18;
+  font-size: 0.62rem;
+}
+
+.combat-banner-side-header.is-enemy {
+  justify-self: end;
+}
+
+.combat-banner-roster {
+  display: grid;
+  gap: 16px;
+}
+
+.combat-banner-roster.is-allies {
+  grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+}
+
+.combat-banner-roster.is-enemy {
+  grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+  justify-content: stretch;
+}
+
+.combat-banner-versus {
+  display: grid;
+  place-items: center;
+  align-self: stretch;
+}
+
+.combat-banner-versus span {
+  display: grid;
+  place-items: center;
+  width: 74px;
+  height: 74px;
+  border-radius: 999px;
+  border: 3px solid #1e1a1b;
+  background: #f4e5d3;
+  color: #473732;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.88rem;
+  box-shadow: 0 10px 18px rgba(0, 0, 0, 0.16);
+}
+
+.combat-banner-character-card {
+  display: grid;
+  width: min(100%, 160px);
+  min-height: 208px;
+  justify-self: center;
+  justify-items: center;
+  align-content: start;
+  gap: 12px;
+  padding: 14px 12px 10px;
+  border: 3px solid #242020;
+  border-radius: 20px;
+  background: rgba(52, 45, 45, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.combat-banner-character-card.is-enemy {
+  background: rgba(67, 52, 46, 0.22);
+}
+
+.combat-banner-character-stage {
+  width: 100%;
+  min-height: 126px;
+  display: grid;
+  place-items: center;
+}
+
+.combat-banner-character-stage.is-enemy {
+  min-height: 126px;
+}
+
+.combat-banner-character-sprite-frame {
+  position: relative;
+  overflow: hidden;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.combat-banner-character-sheet {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: block;
+  max-width: none;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.combat-banner-character-static,
+.combat-banner-character-fallback {
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.combat-banner-character-fallback {
+  border: 3px solid #351717;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #ff7366 0%, #b53b32 100%);
+}
+
+.combat-banner-character-meta {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  text-align: center;
+}
+
+.combat-banner-character-meta strong {
+  color: #fff7ef;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.56rem;
+  line-height: 1.5;
+}
+
+.combat-banner-character-meta span,
+.combat-banner-character-meta em {
+  color: #efe2d2;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.88rem;
+  font-style: normal;
+}
+
+.combat-banner-character-meta.is-enemy span {
+  color: #ffd5b7;
+}
+
+.combat-banner-bottomband {
+  display: grid;
+  place-items: center;
+  padding: 22px 28px 28px;
+  border-top: 4px solid rgba(17, 15, 15, 0.64);
+}
+
+.combat-banner-start-button {
+  min-width: min(340px, 100%);
+  padding: 22px 26px;
+  border: 3px solid #191616;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #f5f1ec 0%, #ddd8d1 100%);
+  color: #3e3533;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  text-align: center;
+  box-shadow:
+    inset 0 -6px 0 rgba(71, 56, 49, 0.15),
+    0 14px 26px rgba(0, 0, 0, 0.22);
+}
+
+.combat-banner-start-button:hover {
+  transform: translateY(-1px);
+}
+
+.combat-banner-start-button:active {
+  transform: translateY(1px);
+}
+
+@media (max-width: 920px) {
+  .fullscreen-touch-prompt-panel.is-enemy {
+    width: min(100%, calc(100vw - 20px));
+    min-height: calc(100dvh - 20px);
+    border-radius: 20px;
+  }
+
+  .combat-banner-shell {
+    grid-template-rows: auto 1fr auto;
+  }
+
+  .combat-banner-topband {
+    padding: 22px 18px 18px;
+  }
+
+  .combat-banner-stage {
+    grid-template-columns: 1fr;
+    gap: 20px;
+    padding: 22px 16px 24px;
+  }
+
+  .combat-banner-side,
+  .combat-banner-side.is-enemy,
+  .combat-banner-side-header,
+  .combat-banner-side-header.is-enemy {
+    justify-items: center;
+    justify-self: stretch;
+  }
+
+  .combat-banner-roster.is-allies,
+  .combat-banner-roster.is-enemy {
+    grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+    justify-content: stretch;
+  }
+
+  .combat-banner-versus span {
+    width: 60px;
+    height: 60px;
+    font-size: 0.72rem;
+  }
+
+  .combat-banner-close-button {
+    top: 14px;
+    right: 14px;
+    width: 50px;
+    height: 50px;
+    font-size: 0.68rem;
+  }
+
+  .combat-banner-bottomband {
+    padding: 18px 16px 22px;
+  }
+
+  .combat-banner-start-button {
+    width: 100%;
+    min-width: 0;
+    font-size: 0.66rem;
+  }
 }
 
 .dropdown-panel {
@@ -710,6 +1070,73 @@ button {
   border: 1px solid rgba(215, 230, 255, 0.08);
   box-shadow: 0 26px 48px rgba(2, 8, 16, 0.34);
   color: #f0f5ff;
+}
+
+.options-menu-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 999990;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  pointer-events: auto;
+}
+
+.options-menu-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  padding: 0;
+  background:
+    radial-gradient(circle at top, rgba(39, 61, 97, 0.22), transparent 46%),
+    rgba(2, 7, 15, 0.74);
+}
+
+.dropdown-panel.options-panel {
+  position: relative;
+  z-index: 1;
+  width: min(720px, calc(100vw - 48px));
+  max-height: min(78dvh, 720px);
+  margin-top: 0;
+  border-radius: 22px;
+  display: flex;
+  flex-direction: column;
+}
+
+.options-panel .dropdown-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px 10px;
+}
+
+.options-panel-heading {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.options-panel-close {
+  flex: 0 0 auto;
+  min-width: 54px;
+  height: 34px;
+  border: 1px solid rgba(215, 230, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #dce6f6;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.5rem;
+  line-height: 1;
+}
+
+.options-panel .dropdown-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  gap: 12px;
+  padding: 0 20px 20px;
 }
 
 .dropdown-header {
@@ -764,7 +1191,7 @@ button {
 .dropdown-section summary {
   list-style: none;
   cursor: pointer;
-  padding: 12px 14px;
+  padding: 10px 12px;
   font-size: 0.82rem;
   color: #dce6f6;
   font-weight: 700;
@@ -785,19 +1212,19 @@ button {
 }
 
 .dropdown-section-body {
-  padding: 0 10px 10px;
+  padding: 0 8px 8px;
 }
 
 .dropdown-stats {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .dropdown-stat {
   display: grid;
   gap: 4px;
-  padding: 12px 14px;
+  padding: 10px 12px;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.04);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
@@ -829,7 +1256,7 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 9px 12px;
+  padding: 8px 10px;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.04);
 }
@@ -888,8 +1315,8 @@ button {
 .friend-status-pill {
   flex: 0 0 auto;
   border-radius: 999px;
-  padding: 7px 10px;
-  font-size: 0.64rem;
+  padding: 6px 8px;
+  font-size: 0.54rem;
   line-height: 1.2;
 }
 
@@ -961,14 +1388,14 @@ button {
 
 .audio-settings-panel {
   display: grid;
-  gap: 14px;
+  gap: 12px;
 }
 
 .audio-toggle-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
 }
 
 .audio-toggle-copy {
@@ -989,14 +1416,14 @@ button {
 
 .audio-toggle-button {
   flex: 0 0 auto;
-  min-width: 92px;
+  min-width: 70px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 999px;
-  padding: 8px 12px;
+  padding: 6px 10px;
   background: rgba(255, 255, 255, 0.06);
   color: #dce6f6;
   font-family: 'Press Start 2P', monospace;
-  font-size: 0.58rem;
+  font-size: 0.5rem;
   line-height: 1.2;
 }
 
@@ -1008,7 +1435,7 @@ button {
 
 .audio-slider-row {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .audio-slider-header {
@@ -1074,25 +1501,25 @@ button {
 
 .dropdown-actions {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .inline-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 6px;
 }
 
 .secondary-action-button {
   border: none;
   border-radius: 12px;
-  padding: 12px 14px;
+  padding: 9px 10px;
   background: rgba(255, 255, 255, 0.08);
   color: #f4f7ff;
   font-family: 'Press Start 2P', monospace;
-  font-size: 0.68rem;
-  line-height: 1.6;
+  font-size: 0.54rem;
+  line-height: 1.45;
   text-align: center;
 }
 
@@ -1251,8 +1678,8 @@ button {
   right: 28px;
   top: calc(96px + env(safe-area-inset-top));
   display: grid;
-  gap: 12px;
-  width: min(340px, calc(100vw - 40px));
+  gap: 10px;
+  width: min(290px, calc(100vw - 40px));
 }
 
 .activity-notice-stack {
@@ -1260,15 +1687,15 @@ button {
   left: 28px;
   top: calc(96px + env(safe-area-inset-top));
   display: grid;
-  gap: 12px;
-  width: min(340px, calc(100vw - 40px));
+  gap: 10px;
+  width: min(290px, calc(100vw - 40px));
 }
 
 .friend-request-popup {
   display: grid;
   gap: 10px;
-  padding: 14px 16px;
-  border-radius: 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
   background: rgba(13, 24, 39, 0.95);
   border: 1px solid rgba(255, 214, 102, 0.18);
   color: #f4f8ff;
@@ -1281,9 +1708,9 @@ button {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px;
-  border-radius: 16px;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
   background: rgba(13, 24, 39, 0.95);
   border: 1px solid rgba(102, 209, 255, 0.2);
   color: #f4f8ff;
@@ -1297,12 +1724,12 @@ button {
 }
 
 .activity-notice-copy strong {
-  font-size: 0.84rem;
+  font-size: 0.76rem;
 }
 
 .activity-notice-copy span {
   color: #9fb2cb;
-  font-size: 0.82rem;
+  font-size: 0.74rem;
   line-height: 1.45;
 }
 
@@ -1354,7 +1781,7 @@ button {
 
 .friend-request-popup-copy span {
   color: #9fb2cb;
-  font-size: 0.82rem;
+  font-size: 0.74rem;
   line-height: 1.45;
 }
 
@@ -1395,13 +1822,13 @@ button {
   position: absolute;
   right: 28px;
   bottom: 102px;
-  width: min(400px, calc(100vw - 40px));
-  height: min(520px, calc(100vh - 160px));
+  width: min(340px, calc(100vw - 40px));
+  height: min(442px, calc(100vh - 160px));
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
-  gap: 16px;
-  padding: 18px;
-  border-radius: 20px;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 18px;
   background: rgba(13, 24, 39, 0.96);
   border: 1px solid rgba(215, 230, 255, 0.1);
   box-shadow: 0 28px 48px rgba(2, 8, 16, 0.38);
@@ -1411,14 +1838,14 @@ button {
   position: absolute;
   right: 28px;
   bottom: 102px;
-  width: min(400px, calc(100vw - 40px));
+  width: min(340px, calc(100vw - 40px));
 }
 
 .quick-chat-form {
   display: grid;
   gap: 8px;
-  padding: 14px 16px;
-  border-radius: 18px;
+  padding: 12px 14px;
+  border-radius: 16px;
   background: rgba(13, 24, 39, 0.96);
   border: 1px solid rgba(215, 230, 255, 0.14);
   box-shadow: 0 22px 44px rgba(2, 8, 16, 0.34);
@@ -1428,7 +1855,7 @@ button {
   width: 100%;
   border: 1px solid rgba(215, 230, 255, 0.12);
   border-radius: 14px;
-  padding: 14px 16px;
+  padding: 12px 14px;
   background: rgba(18, 30, 48, 0.92);
   color: #eef5ff;
 }
@@ -1560,21 +1987,25 @@ button {
 
   .chat-button {
     bottom: 18px;
-    width: 148px;
+    width: 118px;
   }
 
   .options-button {
-    min-width: 82px;
-    font-size: 0.64rem;
+    min-width: 64px;
+    font-size: 0.52rem;
+  }
+
+  .options-menu-modal {
+    padding: 18px;
   }
 
   .dropdown-panel.options-panel {
-    width: min(360px, calc(100vw - 24px));
-    max-height: calc(100dvh - 92px - env(safe-area-inset-top));
+    width: min(680px, calc(100vw - 24px));
+    max-height: calc(100dvh - 36px);
   }
 
-  .dropdown-body {
-    max-height: calc(100dvh - 170px - env(safe-area-inset-top));
+  .options-panel .dropdown-body {
+    padding: 0 16px 16px;
   }
 
   .chat-bubble-stack {
@@ -1587,23 +2018,23 @@ button {
 
   .friend-request-popup-stack {
     top: calc(84px + env(safe-area-inset-top));
-    width: min(320px, calc(100vw - 24px));
+    width: min(290px, calc(100vw - 24px));
   }
 
   .activity-notice-stack {
     top: calc(84px + env(safe-area-inset-top));
-    width: min(320px, calc(100vw - 24px));
+    width: min(290px, calc(100vw - 24px));
   }
 
   .chat-panel-floating {
     bottom: 88px;
-    height: min(480px, calc(100vh - 132px));
+    height: min(420px, calc(100vh - 132px));
   }
 
   .quick-chat-bar {
     right: 18px;
     bottom: 88px;
-    width: min(400px, calc(100vw - 24px));
+    width: min(340px, calc(100vw - 24px));
   }
 
   .chat-form {
@@ -1626,17 +2057,23 @@ button {
 
 @media (max-width: 640px) {
   .dropdown-panel.options-panel {
-    width: calc(100vw - 24px);
+    width: calc(100vw - 20px);
+    max-height: calc(100dvh - 20px);
     border-radius: 16px;
   }
 
-  .dropdown-header {
+  .options-panel .dropdown-header {
     padding: 14px 16px 10px;
   }
 
-  .dropdown-body {
+  .options-panel .dropdown-body {
     gap: 12px;
     padding: 0 16px 16px;
+  }
+
+  .options-panel-close {
+    min-width: 48px;
+    height: 32px;
   }
 
   .dropdown-stats {
@@ -2732,6 +3169,23 @@ button {
   pointer-events: none;
 }
 
+.react-world-combat-placeholder {
+  position: absolute;
+  width: 136px;
+  height: 136px;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(154, 95, 242, 0.96), rgba(113, 56, 201, 0.98));
+  border: 4px solid rgba(227, 210, 255, 0.92);
+  box-shadow:
+    0 0 0 4px rgba(84, 28, 156, 0.46),
+    0 18px 34px rgba(53, 12, 104, 0.34);
+  pointer-events: none;
+}
+
 .debug-object-total,
 .debug-object-collider,
 .debug-player-total,
@@ -2818,7 +3272,9 @@ button {
 }
 
 .react-world-enemy-sprite,
-.react-world-enemy-placeholder {
+.react-world-enemy-placeholder,
+.react-world-enemy-icon,
+.react-world-enemy-icon-placeholder {
   position: absolute;
   left: 0;
   top: 0;
@@ -2828,6 +3284,28 @@ button {
   image-rendering: crisp-edges;
   user-select: none;
   -webkit-user-drag: none;
+}
+
+.react-world-enemy-spritesheet {
+  position: absolute;
+  display: block;
+  max-width: none;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.react-world-enemy-icon {
+  object-fit: contain;
+  z-index: 2;
+}
+
+.react-world-enemy-icon-placeholder {
+  background: rgba(255, 48, 48, 0.88);
+  border: 2px solid rgba(255, 180, 180, 0.95);
+  border-radius: 10px;
+  z-index: 2;
 }
 
 .react-world-enemy-placeholder {

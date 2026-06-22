@@ -112,6 +112,7 @@ interface ServerEnemyRuntimeState {
   patrolStep: number
   mode: RoomEnemyState['mode']
   targetUserId: string | null
+  idleUntilMs: number
 }
 
 interface ActiveEnemyCombatEncounter {
@@ -1122,6 +1123,18 @@ function getEnemyPatrolPoint(
   }
 }
 
+function getEnemyPatrolIdleDurationMs(
+  room: RoomState,
+  enemyTemplate: NonNullable<RoomState['template']['enemies']>[number],
+  patrolStep: number,
+) {
+  const random = createSeededRandom(
+    `${room.roomId}:${enemyTemplate.id}:${enemyTemplate.posicion_relativa_X}:${enemyTemplate.posicion_relativa_Y}:idle:${patrolStep}`,
+  )
+
+  return 850 + Math.round(random() * 850)
+}
+
 function buildInitialEnemyState(
   room: RoomState,
   enemyTemplate: NonNullable<RoomState['template']['enemies']>[number],
@@ -1136,15 +1149,23 @@ function buildInitialEnemyState(
   }
 }
 
-function buildInitialEnemyRuntimeState(enemyState: RoomEnemyState): ServerEnemyRuntimeState {
+function buildInitialEnemyRuntimeState(
+  room: RoomState,
+  enemyTemplate: NonNullable<RoomState['template']['enemies']>[number],
+  enemyState: RoomEnemyState,
+): ServerEnemyRuntimeState {
+  const initialPatrolStep = 1
+  const initialPatrolTarget = getEnemyPatrolPoint(room, enemyTemplate, initialPatrolStep)
+
   return {
     x: enemyState.x,
     y: enemyState.y,
-    patrolTargetX: enemyState.x,
-    patrolTargetY: enemyState.y,
-    patrolStep: 0,
+    patrolTargetX: initialPatrolTarget.x,
+    patrolTargetY: initialPatrolTarget.y,
+    patrolStep: initialPatrolStep,
     mode: enemyState.mode,
     targetUserId: enemyState.targetUserId,
+    idleUntilMs: Date.now() + getEnemyPatrolIdleDurationMs(room, enemyTemplate, initialPatrolStep),
   }
 }
 
@@ -1165,7 +1186,8 @@ function syncRoomEnemiesForTemplate(room: RoomState) {
   enemyTemplates.forEach((enemyTemplate) => {
     const enemyState = currentEnemyStateById.get(enemyTemplate.id) ?? buildInitialEnemyState(room, enemyTemplate)
     nextEnemies.push(enemyState)
-    nextRuntimeById[enemyTemplate.id] = currentRuntimeById[enemyTemplate.id] ?? buildInitialEnemyRuntimeState(enemyState)
+    nextRuntimeById[enemyTemplate.id] =
+      currentRuntimeById[enemyTemplate.id] ?? buildInitialEnemyRuntimeState(room, enemyTemplate, enemyState)
   })
 
   room.enemies = nextEnemies
@@ -1409,16 +1431,20 @@ function simulateEnemies(room: RoomState, deltaSeconds: number): RoomEnemiesStat
 
   let hasChanges = false
   const nextEnemies = room.enemies.map((enemyState) => ({ ...enemyState }))
+  const nowMs = Date.now()
 
   enemyTemplates.forEach((enemyTemplate, index) => {
     const currentState = nextEnemies[index]
-    const enemyRuntime = runtimeById[enemyTemplate.id] ?? buildInitialEnemyRuntimeState(currentState)
-    const patrolSpeedPxPerSecond = Math.max(0, enemyTemplate.velocidad_de_patrullaje_ ?? 72)
+    const enemyRuntime =
+      runtimeById[enemyTemplate.id] ?? buildInitialEnemyRuntimeState(room, enemyTemplate, currentState)
+    const baseMovementSpeedPxPerSecond = Math.max(0, enemyTemplate.velocidad_de_patrullaje_ ?? 72)
+    const patrolSpeedPxPerSecond = baseMovementSpeedPxPerSecond * 0.8
+    const chaseSpeedPxPerSecond = baseMovementSpeedPxPerSecond * 1.2
     const movementBounds = getEnemyMovementBounds(room, enemyTemplate)
     const chaseTarget = getClosestEnemyChaseTarget(room, enemyTemplate, enemyRuntime)
 
     if (chaseTarget) {
-      const nextPosition = moveTowardsPoint(enemyRuntime, chaseTarget, patrolSpeedPxPerSecond * deltaSeconds)
+      const nextPosition = moveTowardsPoint(enemyRuntime, chaseTarget, chaseSpeedPxPerSecond * deltaSeconds)
       const nextState: RoomEnemyState = {
         enemyId: enemyTemplate.id,
         x: clamp(nextPosition.x, movementBounds.left, movementBounds.right),
@@ -1435,6 +1461,7 @@ function simulateEnemies(room: RoomState, deltaSeconds: number): RoomEnemiesStat
         patrolTargetY: chaseTarget.y,
         mode: nextState.mode,
         targetUserId: nextState.targetUserId,
+        idleUntilMs: 0,
       }
 
       if (didEnemyStateChange(currentState, nextState)) {
@@ -1445,16 +1472,43 @@ function simulateEnemies(room: RoomState, deltaSeconds: number): RoomEnemiesStat
       return
     }
 
+    if (enemyRuntime.idleUntilMs > nowMs) {
+      runtimeById[enemyTemplate.id] = {
+        ...enemyRuntime,
+        x: currentState.x,
+        y: currentState.y,
+        mode: 'patrol',
+        targetUserId: null,
+      }
+
+      return
+    }
+
     const distanceToPatrolTarget = Math.hypot(enemyRuntime.patrolTargetX - enemyRuntime.x, enemyRuntime.patrolTargetY - enemyRuntime.y)
-    const shouldChooseNextPatrolTarget =
-      distanceToPatrolTarget <= Math.max(12, patrolSpeedPxPerSecond * deltaSeconds)
-    const nextPatrolStep = shouldChooseNextPatrolTarget ? enemyRuntime.patrolStep + 1 : enemyRuntime.patrolStep
-    const patrolTarget = shouldChooseNextPatrolTarget
-      ? getEnemyPatrolPoint(room, enemyTemplate, nextPatrolStep)
-      : {
-          x: enemyRuntime.patrolTargetX,
-          y: enemyRuntime.patrolTargetY,
-        }
+    const reachedPatrolTarget = distanceToPatrolTarget <= Math.max(12, patrolSpeedPxPerSecond * deltaSeconds)
+
+    if (reachedPatrolTarget) {
+      const nextPatrolStep = enemyRuntime.patrolStep + 1
+      const nextPatrolTarget = getEnemyPatrolPoint(room, enemyTemplate, nextPatrolStep)
+
+      runtimeById[enemyTemplate.id] = {
+        x: currentState.x,
+        y: currentState.y,
+        patrolTargetX: nextPatrolTarget.x,
+        patrolTargetY: nextPatrolTarget.y,
+        patrolStep: nextPatrolStep,
+        mode: 'patrol',
+        targetUserId: null,
+        idleUntilMs: nowMs + getEnemyPatrolIdleDurationMs(room, enemyTemplate, nextPatrolStep),
+      }
+
+      return
+    }
+
+    const patrolTarget = {
+      x: enemyRuntime.patrolTargetX,
+      y: enemyRuntime.patrolTargetY,
+    }
     const nextPosition = moveTowardsPoint(enemyRuntime, patrolTarget, patrolSpeedPxPerSecond * deltaSeconds)
     const nextState: RoomEnemyState = {
       enemyId: enemyTemplate.id,
@@ -1469,9 +1523,10 @@ function simulateEnemies(room: RoomState, deltaSeconds: number): RoomEnemiesStat
       y: nextState.y,
       patrolTargetX: patrolTarget.x,
       patrolTargetY: patrolTarget.y,
-      patrolStep: nextPatrolStep,
+      patrolStep: enemyRuntime.patrolStep,
       mode: nextState.mode,
       targetUserId: nextState.targetUserId,
+      idleUntilMs: 0,
     }
 
     if (didEnemyStateChange(currentState, nextState)) {
@@ -2825,6 +2880,11 @@ io.on('connection', (socket) => {
     const session = sessions.get(socket.id)
 
     if (!parsed.success || !session) {
+      console.info('[COMBATE] Solicitud de huida rechazada por payload o sesion invalida.', {
+        socketId: socket.id,
+        rawPayload,
+        hasSession: Boolean(session),
+      })
       callback?.({
         ok: false,
         message: 'No fue posible huir del combate.',
@@ -2834,6 +2894,13 @@ io.on('connection', (socket) => {
 
     const encounter = activeEnemyCombatEncounters.get(parsed.data.encounterId)
     if (!encounter || !encounter.participantUserIds.includes(session.profile.userId)) {
+      console.info('[COMBATE] Solicitud de huida rechazada porque el combate no existe o el usuario no participa.', {
+        socketId: socket.id,
+        userId: session.profile.userId,
+        encounterId: parsed.data.encounterId,
+        encounterExists: Boolean(encounter),
+        participantUserIds: encounter?.participantUserIds ?? [],
+      })
       callback?.({
         ok: false,
         message: 'Ese combate ya no se encuentra activo.',
@@ -2842,6 +2909,17 @@ io.on('connection', (socket) => {
     }
 
     const escaped = Math.random() <= resolveEnemyCombatFleeChance(encounter.enemyLevel)
+    console.info('[COMBATE] Resolviendo huida del combate.', {
+      socketId: socket.id,
+      userId: session.profile.userId,
+      encounterId: encounter.encounterId,
+      enemyId: encounter.enemyId,
+      enemyLevel: encounter.enemyLevel,
+      fleeChance: resolveEnemyCombatFleeChance(encounter.enemyLevel),
+      escaped,
+      participantsBefore: [...encounter.participantUserIds],
+    })
+
     if (escaped) {
       removeUserFromEnemyCombatEncounter(session.profile.userId, encounter.encounterId)
     }

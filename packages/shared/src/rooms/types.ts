@@ -116,6 +116,18 @@ export interface RoomEnemyTemplate {
   ancho_area_interaccion_directa_?: number
   alto_area_interaccion_directa_?: number
   spriteAssetId?: string
+  spriteSheetAssetId?: string
+  spriteSheetWidth?: number
+  spriteSheetHeight?: number
+  spriteFrameWidth?: number
+  spriteFrameHeight?: number
+  spriteFrames?: RoomSpriteFrameTemplate[]
+  spriteFrameDurationMs?: number
+  iconAssetId?: string
+  iconOffsetX?: number
+  iconOffsetY?: number
+  iconWidth?: number
+  iconHeight?: number
 }
 
 export type RoomEnemyMode = 'patrol' | 'chase'

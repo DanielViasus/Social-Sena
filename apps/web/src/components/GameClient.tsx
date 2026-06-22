@@ -55,7 +55,12 @@ import SkinEditorOverlay from './skins/SkinEditorOverlay'
 import { availableRoomRoutes, resolveRoomTemplateFromPath } from '../rooms/registry'
 import { createUiSoundController, type UiSoundName } from '../audio/chiptuneSounds'
 import { createAmbientMusicController } from '../audio/chiptuneMusic'
-import { preloadImageAsset, preloadRoomTemplateAssets } from './world/worldAssetCatalog'
+import {
+  getEnemyOverlayAsset,
+  getEnemySpriteAsset,
+  preloadImageAsset,
+  preloadRoomTemplateAssets,
+} from './world/worldAssetCatalog'
 
 const SERVER_URL = import.meta.env.VITE_GAME_SERVER_URL ?? 'http://localhost:3001'
 const PLAYER_NAMES_VISIBILITY_STORAGE_KEY = 'social-sena-player-names-visible'
@@ -105,6 +110,7 @@ type ActiveTouchPromptState =
       title: string
       enemyLevel: number
       fleeChance: number
+      requestedByUserId: string
       requestedByDisplayName: string
       participants: EnemyCombatParticipantSummary[]
     }
@@ -154,9 +160,30 @@ function buildEnemyCombatPromptState(encounter: EnemyCombatEncounterStatePayload
     title: encounter.enemyLabel || 'Rival',
     enemyLevel,
     fleeChance: resolveEnemyFleeChance(enemyLevel),
+    requestedByUserId: encounter.requestedByUserId,
     requestedByDisplayName: encounter.requestedByDisplayName,
     participants: encounter.participants,
   }
+}
+
+function useLoopingPreviewFrame(frameCount: number, durationMs: number) {
+  const [frameIndex, setFrameIndex] = useState(0)
+
+  useEffect(() => {
+    setFrameIndex(0)
+
+    if (frameCount <= 1) {
+      return
+    }
+
+    const intervalId = window.setInterval(() => {
+      setFrameIndex((currentValue) => (currentValue + 1) % frameCount)
+    }, Math.max(80, durationMs))
+
+    return () => window.clearInterval(intervalId)
+  }, [durationMs, frameCount])
+
+  return frameIndex
 }
 
 function MenuAvatarPreview({
@@ -200,6 +227,135 @@ function MenuAvatarPreview({
   )
 }
 
+function CombatParticipantPreview({
+  participant,
+  isRequester,
+}: {
+  participant: EnemyCombatParticipantSummary
+  isRequester: boolean
+}) {
+  const preset = resolveAvatarPreset(participant.skinId)
+  const idleFrameIndex = useLoopingPreviewFrame(preset.idleFrames.length, 240)
+  const frame = preset.idleFrames[idleFrameIndex] ?? preset.idleFrames[0]
+  const sheetUrl = resolveAvatarSheetUrl(preset, participant.skinColors)
+  const size = 88
+  const scale = size / preset.frameWidth
+
+  return (
+    <article className="combat-banner-character-card">
+      <div className="combat-banner-character-stage">
+        <div
+          className="combat-banner-character-sprite-frame"
+          style={{
+            width: `${size}px`,
+            height: `${size}px`,
+          }}
+        >
+          <img
+            src={sheetUrl}
+            alt={participant.displayName}
+            draggable={false}
+            className="combat-banner-character-sheet"
+            style={{
+              width: `${preset.sheetWidth * scale}px`,
+              height: `${preset.sheetHeight * scale}px`,
+              left: `${-frame.column * preset.frameWidth * scale}px`,
+              top: `${-frame.row * preset.frameHeight * scale}px`,
+            }}
+          />
+        </div>
+      </div>
+      <div className="combat-banner-character-meta">
+        <strong>{participant.displayName}</strong>
+        <span>{resolveLevelSubtitle(participant.level)}</span>
+        {isRequester ? <em>Inicio el combate</em> : null}
+      </div>
+    </article>
+  )
+}
+
+function CombatEnemyPreview({
+  enemyTemplate,
+  label,
+  enemyLevel,
+}: {
+  enemyTemplate: RoomEnemyTemplate | null
+  label: string
+  enemyLevel: number
+}) {
+  const spriteSheetUrl = getEnemySpriteAsset(enemyTemplate?.spriteSheetAssetId)
+  const spriteUrl = getEnemyOverlayAsset(enemyTemplate?.spriteAssetId)
+  const frameWidth = enemyTemplate?.spriteFrameWidth ?? 128
+  const frameHeight = enemyTemplate?.spriteFrameHeight ?? 128
+  const sheetWidth = enemyTemplate?.spriteSheetWidth ?? frameWidth
+  const sheetHeight = enemyTemplate?.spriteSheetHeight ?? frameHeight
+  const idleFrames = (enemyTemplate?.spriteFrames ?? [])
+    .filter((frame) => frame.row === 0)
+    .sort((leftFrame, rightFrame) => leftFrame.column - rightFrame.column)
+  const idleFrameIndex = useLoopingPreviewFrame(
+    idleFrames.length,
+    Math.max(80, enemyTemplate?.spriteFrameDurationMs ?? 240),
+  )
+  const activeIdleFrame = idleFrames[idleFrameIndex] ?? idleFrames[0] ?? null
+  const size = 88
+  const scale = size / frameWidth
+
+  return (
+    <article className="combat-banner-character-card is-enemy">
+      <div className="combat-banner-character-stage is-enemy">
+        {spriteSheetUrl ? (
+          <div
+            className="combat-banner-character-sprite-frame is-enemy"
+            style={{
+              width: `${size}px`,
+              height: `${size}px`,
+              transform: 'scaleX(-1)',
+            }}
+          >
+            <img
+              src={spriteSheetUrl}
+              alt={label}
+              draggable={false}
+              className="combat-banner-character-sheet"
+              style={{
+                width: `${sheetWidth * scale}px`,
+                height: `${sheetHeight * scale}px`,
+                left: `${-((activeIdleFrame?.column ?? 0) * frameWidth * scale)}px`,
+                top: `${-((activeIdleFrame?.row ?? 0) * frameHeight * scale)}px`,
+              }}
+            />
+          </div>
+        ) : spriteUrl ? (
+          <img
+            src={spriteUrl}
+            alt={label}
+            draggable={false}
+            className="combat-banner-character-static is-enemy"
+            style={{
+              width: `${size}px`,
+              height: `${size}px`,
+              transform: 'scaleX(-1)',
+            }}
+          />
+        ) : (
+          <div
+            className="combat-banner-character-fallback is-enemy"
+            aria-hidden="true"
+            style={{
+              width: `${size}px`,
+              height: `${size}px`,
+            }}
+          />
+        )}
+      </div>
+      <div className="combat-banner-character-meta is-enemy">
+        <strong>{label}</strong>
+        <span>{`Nivel ${enemyLevel}`}</span>
+      </div>
+    </article>
+  )
+}
+
 function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const MAX_HEADLINE_SPEECH_CHARS = 30
   const FRIEND_REQUEST_POPUP_DURATION_MS = 8000
@@ -239,6 +395,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const [partyInvitePopups, setPartyInvitePopups] = useState<PartyInvitePopupState[]>([])
   const [partyLeaderFollowPrompt, setPartyLeaderFollowPrompt] = useState<PartyLeaderFollowPromptState | null>(null)
   const [enemyCombatSupportInvites, setEnemyCombatSupportInvites] = useState<EnemyCombatSupportInviteState[]>([])
+  const [roomEnemyCombatEncounters, setRoomEnemyCombatEncounters] = useState<EnemyCombatEncounterStatePayload[]>([])
   const [activityNotices, setActivityNotices] = useState<ActivityNoticeState[]>([])
   const [addingFriendUserId, setAddingFriendUserId] = useState<string | null>(null)
   const [respondingFriendRequestId, setRespondingFriendRequestId] = useState<string | null>(null)
@@ -342,6 +499,12 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     ambientMusicControllerRef.current = createAmbientMusicController()
   }
   const activeTemplate = resolveRoomTemplateFromPath(pathname)
+  const canRetreatFromActiveEnemyCombat =
+    activeTouchPrompt?.kind === 'enemy' && activeTouchPrompt.requestedByUserId === session.profile.userId
+  const activeCombatEnemyTemplate =
+    activeTouchPrompt?.kind === 'enemy'
+      ? (activeTemplate.enemies ?? []).find((enemyTemplate) => enemyTemplate.id === activeTouchPrompt.enemyId) ?? null
+      : null
   const playerInitial = session.profile.displayName.slice(0, 1).toUpperCase()
   const typingIndicatorText = ['.', '..', '...'][typingIndicatorFrame] ?? '...'
   const availableSkins = getAvailableAvatarPresets()
@@ -896,6 +1059,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       setQuickChatOpen(false)
       setActiveSpeechByUserId({})
       setTypingByUserId({})
+      setRoomEnemyCombatEncounters([])
       setFriends([])
       setIncomingFriendRequests([])
       setOutgoingFriendRequestUserIds([])
@@ -930,6 +1094,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       setConnected(false)
       setQuickChatOpen(false)
       setTypingByUserId({})
+      setRoomEnemyCombatEncounters([])
       setFriends([])
       setIncomingFriendRequests([])
       setOutgoingFriendRequestUserIds([])
@@ -1129,6 +1294,8 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
 
     nextSocket.on(serverEvents.roomEnemyCombatState, (payload: RoomEnemyCombatStatePayload) => {
+      setRoomEnemyCombatEncounters(payload.encounters)
+
       const currentUserId = sessionProfileRef.current.userId
       const activeEncounter =
         payload.encounters.find((encounter) =>
@@ -1409,6 +1576,57 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     void playUiSound(optionsOpen ? 'menu-close' : 'menu-open')
     setOptionsOpen((isOpen) => !isOpen)
   })
+
+  const closeOptionsMenu = useEffectEvent(() => {
+    if (!optionsOpen) {
+      return
+    }
+
+    void playUiSound('menu-close')
+    setOptionsOpen(false)
+  })
+
+  const openSkinEditorFromMenu = useEffectEvent(() => {
+    setOptionsOpen(false)
+    toggleSkinEditor()
+  })
+
+  useEffect(() => {
+    const handleEscapeMenuShortcut = (event: KeyboardEvent) => {
+      if (event.repeat || event.key !== 'Escape') {
+        return
+      }
+
+      const target = event.target as HTMLElement | null
+      const tagName = target?.tagName?.toLowerCase()
+      const isTyping =
+        tagName === 'input' ||
+        tagName === 'textarea' ||
+        target?.isContentEditable === true
+
+      if (isTyping) {
+        return
+      }
+
+      if (optionsOpen) {
+        event.preventDefault()
+        void playUiSound('menu-close')
+        setOptionsOpen(false)
+        return
+      }
+
+      if (activeDialogue || activeTouchPrompt || initialSkinSetupOpen || skinEditorOpen) {
+        return
+      }
+
+      event.preventDefault()
+      void playUiSound('menu-open')
+      setOptionsOpen(true)
+    }
+
+    window.addEventListener('keydown', handleEscapeMenuShortcut)
+    return () => window.removeEventListener('keydown', handleEscapeMenuShortcut)
+  }, [activeDialogue, activeTouchPrompt, initialSkinSetupOpen, optionsOpen, skinEditorOpen])
 
   const requestStopMovement = useEffectEvent(() => {
     const socket = socketRef.current
@@ -2272,13 +2490,29 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
   const handleEnemyFlee = useEffectEvent(() => {
     if (!activeTouchPrompt || activeTouchPrompt.kind !== 'enemy') {
+      console.info('[COMBATE] Se intento huir, pero no hay un combate enemigo activo en la interfaz.')
+      return
+    }
+
+    if (activeTouchPrompt.requestedByUserId !== session.profile.userId) {
+      enqueueActivityNotice('Combate bloqueado', 'Solo quien inicio el combate puede retirarse del enfrentamiento.')
       return
     }
 
     const socket = socketRef.current
     if (!socket) {
+      console.info('[COMBATE] Se intento huir, pero no existe socket activo.')
       return
     }
+
+    console.info('[COMBATE] Boton Huir presionado.', {
+      encounterId: activeTouchPrompt.encounterId,
+      enemyId: activeTouchPrompt.enemyId,
+      enemyLevel: activeTouchPrompt.enemyLevel,
+      fleeChance: activeTouchPrompt.fleeChance,
+      userId: session.profile.userId,
+      roomId: room?.roomId ?? null,
+    })
 
     void playUiSound('cancel')
     socket.emit(
@@ -2287,6 +2521,12 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
         encounterId: activeTouchPrompt.encounterId,
       },
       (response: { ok: boolean; escaped?: boolean; message?: string }) => {
+        console.info('[COMBATE] Respuesta del servidor al intentar huir.', {
+          encounterId: activeTouchPrompt.encounterId,
+          enemyId: activeTouchPrompt.enemyId,
+          response,
+        })
+
         if (!response.ok) {
           if (response.message) {
             enqueueActivityNotice('Aviso del sistema', response.message)
@@ -2304,6 +2544,20 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
         enqueueActivityNotice('Huida fallida', response.message ?? 'No lograste escapar del rival.')
       },
     )
+  })
+
+  const handleEnemyCombatStartPreview = useEffectEvent(() => {
+    if (!activeTouchPrompt || activeTouchPrompt.kind !== 'enemy') {
+      return
+    }
+
+    console.info('[COMBATE] Boton Iniciar combate presionado en la sala de espera.', {
+      encounterId: activeTouchPrompt.encounterId,
+      enemyId: activeTouchPrompt.enemyId,
+      participants: activeTouchPrompt.participants.map((participant) => participant.userId),
+    })
+    void playUiSound('confirm')
+    enqueueActivityNotice('Combate en preparacion', 'La logica de inicio del combate se conectara en el siguiente paso.')
   })
 
   const handleInteractShortcut = useEffectEvent(() => {
@@ -2340,6 +2594,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     setActiveTouchPrompt(null)
     setEnemyCombatSupportInvites([])
     setRespondingEnemyCombatInviteId(null)
+    setRoomEnemyCombatEncounters([])
   }, [room?.roomId])
 
   const handleCloseSkinEditor = useEffectEvent(() => {
@@ -2701,6 +2956,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
           room={room}
           currentUserId={session.profile.userId}
           template={activeTemplate}
+          enemyCombatEncounters={roomEnemyCombatEncounters}
           onNavigate={handleNavigate}
           debugEnabled={debugEnabled}
           playerIdentityMode={playerIdentityMode}
@@ -2743,6 +2999,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
               className="hud-square-button options-button"
               onClick={toggleOptionsMenu}
               aria-expanded={optionsOpen}
+              aria-haspopup="dialog"
               aria-label={
                 pendingFriendRequestCount > 0
                   ? `Abrir opciones de estado. Tienes ${pendingFriendRequestCount} solicitudes pendientes`
@@ -2758,264 +3015,159 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
             </button>
 
             {optionsOpen ? (
-              <section className="dropdown-panel options-panel">
-                <header className="dropdown-header">
-                  <h2>Menu</h2>
-                  <p className="dropdown-header-subtitle">Ajustes rapidos para tu sesion actual.</p>
-                </header>
-                <div className="dropdown-body">
-                  <div className="dropdown-stats">
-                    <article className="dropdown-stat">
-                      <span>Sala</span>
-                      <strong>/{activeTemplate.routeSegment}</strong>
-                    </article>
-                    <article className="dropdown-stat">
-                      <span>Jugadores</span>
-                      <strong>{activePlayers.length}</strong>
-                    </article>
-                  </div>
-                  
-                  <details className="dropdown-section" open>
-                    <summary>Personajes en la sala</summary>
-                    <div className="dropdown-section-body">
-                      <ul className="players-list players-list-rich">
-                        {activePlayers.length === 0 ? (
-                          <li>Sin jugadores visibles</li>
-                        ) : (
-                          activePlayers.map((player) => {
-                            const isCurrentPlayer = player.userId === session.profile.userId
-                            const isFriend = friendUserIds.has(player.userId)
-                            const isPartyMember = partyMemberUserIds.has(player.userId)
-                            const hasIncomingPartyInvite = incomingPartyInvites.some(
-                              (invite) => invite.fromUserId === player.userId,
-                            )
-                            const canInviteToParty =
-                              isFriend &&
-                              !isCurrentPlayer &&
-                              !isPartyMember &&
-                              !hasIncomingPartyInvite &&
-                              !outgoingPartyInviteUserIdSet.has(player.userId)
-
-                            return (
-                              <li
-                                key={player.sessionId}
-                                className={isCurrentPlayer ? 'is-current-player' : ''}
-                              >
-                                <div className="player-entry-main">
-                                  <MenuAvatarPreview
-                                    skinId={player.skinId}
-                                    skinColors={player.skinColors}
-                                    displayName={player.displayName}
-                                  />
-                                  <div className="player-entry-copy">
-                                    <strong>{player.displayName}</strong>
-                                    <small>{resolveLevelSubtitle(player.level)}</small>
-                                  </div>
-                                </div>
-                                <div className="inline-actions">
-                                  {isCurrentPlayer ? (
-                                    <span className="menu-inline-tag is-current">Tu personaje</span>
-                                  ) : isPartyMember ? (
-                                    <span className="menu-inline-tag is-current">
-                                      {party?.leaderUserId === player.userId ? 'Lider del grupo' : 'En tu grupo'}
-                                    </span>
-                                  ) : null}
-                                  {!isCurrentPlayer && isFriend && !isPartyMember ? (
-                                    <span className="menu-inline-tag is-friend">Amistad</span>
-                                  ) : null}
-                                  {!isCurrentPlayer && canInviteToParty ? (
-                                    <button
-                                      type="button"
-                                      className="mini-action-button"
-                                      onClick={() => handleInviteToParty(player.userId)}
-                                      disabled={invitingPartyUserId === player.userId}
-                                    >
-                                      {invitingPartyUserId === player.userId ? 'Invitando...' : 'Invitar'}
-                                    </button>
-                                  ) : null}
-                                  {!isCurrentPlayer && hasIncomingPartyInvite && !isPartyMember ? (
-                                    <span className="menu-inline-tag is-pending">Te invito</span>
-                                  ) : null}
-                                  {!isCurrentPlayer && outgoingPartyInviteUserIdSet.has(player.userId) && !isPartyMember ? (
-                                    <span className="menu-inline-tag is-pending">Invitacion enviada</span>
-                                  ) : null}
-                                  {!isCurrentPlayer && !isFriend && incomingFriendRequestUserIds.has(player.userId) ? (
-                                    <span className="menu-inline-tag is-pending">Te envio solicitud</span>
-                                  ) : null}
-                                  {!isCurrentPlayer && !isFriend && outgoingFriendRequestUserIdSet.has(player.userId) ? (
-                                    <span className="menu-inline-tag is-pending">Pendiente</span>
-                                  ) : null}
-                                  {!isCurrentPlayer &&
-                                  !isFriend &&
-                                  !incomingFriendRequestUserIds.has(player.userId) &&
-                                  !outgoingFriendRequestUserIdSet.has(player.userId) ? (
-                                    <button
-                                      type="button"
-                                      className="mini-action-button"
-                                      onClick={() => handleAddFriend(player.userId)}
-                                      disabled={addingFriendUserId === player.userId}
-                                    >
-                                      {addingFriendUserId === player.userId ? 'Enviando...' : 'Solicitar'}
-                                    </button>
-                                  ) : null}
-                                </div>
-                              </li>
-                            )
-                          })
-                        )}
-                      </ul>
+              <div className="options-menu-modal" role="presentation">
+                <button
+                  type="button"
+                  className="options-menu-backdrop"
+                  aria-label="Cerrar menu"
+                  onClick={closeOptionsMenu}
+                />
+                <section className="dropdown-panel options-panel" aria-modal="true" role="dialog" aria-label="Menu principal">
+                  <header className="dropdown-header">
+                    <div className="options-panel-heading">
+                      <h2>Menu</h2>
+                      <p className="dropdown-header-subtitle">Ajustes rapidos para tu sesion actual.</p>
                     </div>
-                  </details>
-                  <details className="dropdown-section" open={incomingFriendRequests.length > 0}>
-                    <summary>Solicitudes</summary>
-                    <div className="dropdown-section-body">
-                      {incomingFriendRequests.length === 0 ? (
-                        <p className="empty-state">No tienes solicitudes pendientes.</p>
-                      ) : (
+                    <button
+                      type="button"
+                      className="options-panel-close"
+                      onClick={closeOptionsMenu}
+                      aria-label="Cerrar menu"
+                    >
+                      Esc
+                    </button>
+                  </header>
+                  <div className="dropdown-body">
+                    <div className="dropdown-stats">
+                      <article className="dropdown-stat">
+                        <span>Sala</span>
+                        <strong>/{activeTemplate.routeSegment}</strong>
+                      </article>
+                      <article className="dropdown-stat">
+                        <span>Jugadores</span>
+                        <strong>{activePlayers.length}</strong>
+                      </article>
+                    </div>
+
+                    <details className="dropdown-section" open>
+                      <summary>Personajes en la sala</summary>
+                      <div className="dropdown-section-body">
                         <ul className="players-list players-list-rich">
-                          {incomingFriendRequests.map((request) => {
-                            const isBusy = respondingFriendRequestId === request.requestId
-
-                            return (
-                              <li key={request.requestId} className="is-request-entry">
-                                <div className="player-entry-main">
-                                  <MenuAvatarPreview
-                                    skinId={request.skinId}
-                                    skinColors={request.skinColors}
-                                    displayName={request.displayName}
-                                  />
-                                  <div className="player-entry-copy">
-                                    <strong>{request.displayName}</strong>
-                                    <small>{resolveLevelSubtitle(request.level)}</small>
-                                  </div>
-                                </div>
-                                <div className="inline-actions">
-                                  <button
-                                    type="button"
-                                    className="mini-action-button"
-                                    onClick={() => handleRespondToFriendRequest(request.requestId, 'accept')}
-                                    disabled={isBusy}
-                                  >
-                                    {isBusy ? '...' : 'Aceptar'}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="mini-action-button is-danger"
-                                    onClick={() => handleRespondToFriendRequest(request.requestId, 'reject')}
-                                    disabled={isBusy}
-                                  >
-                                    Rechazar
-                                  </button>
-                                </div>
-                              </li>
-                            )
-                          })}
-                        </ul>
-                      )}
-                    </div>
-                  </details>
-                  <details className="dropdown-section" open={Boolean(party) || incomingPartyInvites.length > 0}>
-                    <summary>Grupo</summary>
-                    <div className="dropdown-section-body">
-                      {!party ? (
-                        <p className="empty-state">
-                          {incomingPartyInvites.length > 0
-                            ? 'Tienes invitaciones pendientes para unirte a un grupo.'
-                            : 'Todavia no haces parte de ningun grupo.'}
-                        </p>
-                      ) : (
-                        <>
-                          <p className="dropdown-subtext">
-                            Lider actual: <strong>{partyLeaderDisplayName}</strong>
-                          </p>
-                          <ul className="players-list players-list-rich">
-                            {party.members.map((member) => {
-                              const isCurrentMember = member.userId === session.profile.userId
-                              const isLeaderMember = party.leaderUserId === member.userId
-                              const isPromoting = promotingPartyLeaderUserId === member.userId
+                          {activePlayers.length === 0 ? (
+                            <li>Sin jugadores visibles</li>
+                          ) : (
+                            activePlayers.map((player) => {
+                              const isCurrentPlayer = player.userId === session.profile.userId
+                              const isFriend = friendUserIds.has(player.userId)
+                              const isPartyMember = partyMemberUserIds.has(player.userId)
+                              const hasIncomingPartyInvite = incomingPartyInvites.some(
+                                (invite) => invite.fromUserId === player.userId,
+                              )
+                              const canInviteToParty =
+                                isFriend &&
+                                !isCurrentPlayer &&
+                                !isPartyMember &&
+                                !hasIncomingPartyInvite &&
+                                !outgoingPartyInviteUserIdSet.has(player.userId)
 
                               return (
-                                <li key={member.userId}>
+                                <li
+                                  key={player.sessionId}
+                                  className={isCurrentPlayer ? 'is-current-player' : ''}
+                                >
                                   <div className="player-entry-main">
                                     <MenuAvatarPreview
-                                      skinId={member.skinId}
-                                      skinColors={member.skinColors}
-                                      displayName={member.displayName}
+                                      skinId={player.skinId}
+                                      skinColors={player.skinColors}
+                                      displayName={player.displayName}
                                     />
                                     <div className="player-entry-copy">
-                                      <strong>{member.displayName}</strong>
-                                      <small>{resolveLevelSubtitle(member.level)}</small>
+                                      <strong>{player.displayName}</strong>
+                                      <small>{resolveLevelSubtitle(player.level)}</small>
                                     </div>
                                   </div>
                                   <div className="inline-actions">
-                                    <span className={`friend-status-pill ${member.isOnline ? 'is-online' : 'is-offline'}`}>
-                                      {member.isOnline ? 'Conectado' : 'Desconectado'}
-                                    </span>
-                                    {isLeaderMember ? (
-                                      <span className="menu-inline-tag is-current">Lider</span>
+                                    {isCurrentPlayer ? (
+                                      <span className="menu-inline-tag is-current">Tu personaje</span>
+                                    ) : isPartyMember ? (
+                                      <span className="menu-inline-tag is-current">
+                                        {party?.leaderUserId === player.userId ? 'Lider del grupo' : 'En tu grupo'}
+                                      </span>
                                     ) : null}
-                                    {isCurrentMember && !isLeaderMember ? (
-                                      <span className="menu-inline-tag is-friend">Miembro</span>
+                                    {!isCurrentPlayer && isFriend && !isPartyMember ? (
+                                      <span className="menu-inline-tag is-friend">Amistad</span>
                                     ) : null}
-                                    {isPartyLeader && !isCurrentMember ? (
+                                    {!isCurrentPlayer && canInviteToParty ? (
                                       <button
                                         type="button"
                                         className="mini-action-button"
-                                        onClick={() => handlePromotePartyLeader(member.userId)}
-                                        disabled={Boolean(promotingPartyLeaderUserId)}
+                                        onClick={() => handleInviteToParty(player.userId)}
+                                        disabled={invitingPartyUserId === player.userId}
                                       >
-                                        {isPromoting ? 'Promoviendo...' : 'Promover'}
+                                        {invitingPartyUserId === player.userId ? 'Invitando...' : 'Invitar'}
+                                      </button>
+                                    ) : null}
+                                    {!isCurrentPlayer && hasIncomingPartyInvite && !isPartyMember ? (
+                                      <span className="menu-inline-tag is-pending">Te invito</span>
+                                    ) : null}
+                                    {!isCurrentPlayer && outgoingPartyInviteUserIdSet.has(player.userId) && !isPartyMember ? (
+                                      <span className="menu-inline-tag is-pending">Invitacion enviada</span>
+                                    ) : null}
+                                    {!isCurrentPlayer && !isFriend && incomingFriendRequestUserIds.has(player.userId) ? (
+                                      <span className="menu-inline-tag is-pending">Te envio solicitud</span>
+                                    ) : null}
+                                    {!isCurrentPlayer && !isFriend && outgoingFriendRequestUserIdSet.has(player.userId) ? (
+                                      <span className="menu-inline-tag is-pending">Pendiente</span>
+                                    ) : null}
+                                    {!isCurrentPlayer &&
+                                    !isFriend &&
+                                    !incomingFriendRequestUserIds.has(player.userId) &&
+                                    !outgoingFriendRequestUserIdSet.has(player.userId) ? (
+                                      <button
+                                        type="button"
+                                        className="mini-action-button"
+                                        onClick={() => handleAddFriend(player.userId)}
+                                        disabled={addingFriendUserId === player.userId}
+                                      >
+                                        {addingFriendUserId === player.userId ? 'Enviando...' : 'Solicitar'}
                                       </button>
                                     ) : null}
                                   </div>
                                 </li>
                               )
-                            })}
-                          </ul>
-                          <div className="inline-actions">
-                            <button
-                              type="button"
-                              className="mini-action-button is-danger"
-                              onClick={handleLeaveParty}
-                              disabled={leavingParty}
-                            >
-                              {leavingParty
-                                ? 'Saliendo...'
-                                : party.members.length <= 1
-                                  ? 'Disolver grupo'
-                                  : isPartyLeader
-                                    ? 'Salir y ceder lider'
-                                    : 'Salir del grupo'}
-                            </button>
-                          </div>
-                        </>
-                      )}
-
-                      {incomingPartyInvites.length > 0 ? (
-                        <>
-                          <p className="dropdown-subtext">Invitaciones pendientes</p>
+                            })
+                          )}
+                        </ul>
+                      </div>
+                    </details>
+                    <details className="dropdown-section" open={incomingFriendRequests.length > 0}>
+                      <summary>Solicitudes</summary>
+                      <div className="dropdown-section-body">
+                        {incomingFriendRequests.length === 0 ? (
+                          <p className="empty-state">No tienes solicitudes pendientes.</p>
+                        ) : (
                           <ul className="players-list players-list-rich">
-                            {incomingPartyInvites.map((invite) => {
-                              const isBusy = respondingPartyInviteId === invite.inviteId
+                            {incomingFriendRequests.map((request) => {
+                              const isBusy = respondingFriendRequestId === request.requestId
 
                               return (
-                                <li key={invite.inviteId} className="is-request-entry">
+                                <li key={request.requestId} className="is-request-entry">
                                   <div className="player-entry-main">
                                     <MenuAvatarPreview
-                                      skinId={invite.skinId}
-                                      skinColors={invite.skinColors}
-                                      displayName={invite.displayName}
+                                      skinId={request.skinId}
+                                      skinColors={request.skinColors}
+                                      displayName={request.displayName}
                                     />
-                                  <div className="player-entry-copy">
-                                    <strong>{invite.displayName}</strong>
-                                    <small>{`${resolveLevelSubtitle(invite.level)} · Caduca en 1 minuto`}</small>
+                                    <div className="player-entry-copy">
+                                      <strong>{request.displayName}</strong>
+                                      <small>{resolveLevelSubtitle(request.level)}</small>
+                                    </div>
                                   </div>
-                                </div>
                                   <div className="inline-actions">
                                     <button
                                       type="button"
                                       className="mini-action-button"
-                                      onClick={() => handleRespondToPartyInvite(invite.inviteId, 'accept')}
+                                      onClick={() => handleRespondToFriendRequest(request.requestId, 'accept')}
                                       disabled={isBusy}
                                     >
                                       {isBusy ? '...' : 'Aceptar'}
@@ -3023,7 +3175,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                                     <button
                                       type="button"
                                       className="mini-action-button is-danger"
-                                      onClick={() => handleRespondToPartyInvite(invite.inviteId, 'reject')}
+                                      onClick={() => handleRespondToFriendRequest(request.requestId, 'reject')}
                                       disabled={isBusy}
                                     >
                                       Rechazar
@@ -3033,177 +3185,300 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                               )
                             })}
                           </ul>
-                        </>
-                      ) : null}
-                    </div>
-                  </details>
-                  <details className="dropdown-section" open={friends.length > 0}>
-                    <summary>Amistades</summary>
-                    <div className="dropdown-section-body">
-                      {friends.length === 0 ? (
-                        <p className="empty-state">Todavia no agregas amistades.</p>
-                      ) : (
-                        <ul className="players-list players-list-rich">
-                          {friends.map((friend) => {
-                            const isPartyMember = partyMemberUserIds.has(friend.userId)
-                            const hasIncomingPartyInvite = incomingPartyInvites.some(
-                              (invite) => invite.fromUserId === friend.userId,
-                            )
-                            const canInviteToParty =
-                              friend.isOnline &&
-                              !isPartyMember &&
-                              !hasIncomingPartyInvite &&
-                              !outgoingPartyInviteUserIdSet.has(friend.userId)
+                        )}
+                      </div>
+                    </details>
+                    <details className="dropdown-section" open={Boolean(party) || incomingPartyInvites.length > 0}>
+                      <summary>Grupo</summary>
+                      <div className="dropdown-section-body">
+                        {!party ? (
+                          <p className="empty-state">
+                            {incomingPartyInvites.length > 0
+                              ? 'Tienes invitaciones pendientes para unirte a un grupo.'
+                              : 'Todavia no haces parte de ningun grupo.'}
+                          </p>
+                        ) : (
+                          <>
+                            <p className="dropdown-subtext">
+                              Lider actual: <strong>{partyLeaderDisplayName}</strong>
+                            </p>
+                            <ul className="players-list players-list-rich">
+                              {party.members.map((member) => {
+                                const isCurrentMember = member.userId === session.profile.userId
+                                const isLeaderMember = party.leaderUserId === member.userId
+                                const isPromoting = promotingPartyLeaderUserId === member.userId
 
-                            return (
-                              <li key={friend.userId}>
-                                <div className="player-entry-main">
-                                  <MenuAvatarPreview
-                                    skinId={friend.skinId}
-                                    skinColors={friend.skinColors}
-                                    displayName={friend.displayName}
-                                  />
-                                  <div className="player-entry-copy">
-                                    <strong>{friend.displayName}</strong>
-                                    <small>{resolveLevelSubtitle(friend.level)}</small>
+                                return (
+                                  <li key={member.userId}>
+                                    <div className="player-entry-main">
+                                      <MenuAvatarPreview
+                                        skinId={member.skinId}
+                                        skinColors={member.skinColors}
+                                        displayName={member.displayName}
+                                      />
+                                      <div className="player-entry-copy">
+                                        <strong>{member.displayName}</strong>
+                                        <small>{resolveLevelSubtitle(member.level)}</small>
+                                      </div>
+                                    </div>
+                                    <div className="inline-actions">
+                                      <span className={`friend-status-pill ${member.isOnline ? 'is-online' : 'is-offline'}`}>
+                                        {member.isOnline ? 'Conectado' : 'Desconectado'}
+                                      </span>
+                                      {isLeaderMember ? (
+                                        <span className="menu-inline-tag is-current">Lider</span>
+                                      ) : null}
+                                      {isCurrentMember && !isLeaderMember ? (
+                                        <span className="menu-inline-tag is-friend">Miembro</span>
+                                      ) : null}
+                                      {isPartyLeader && !isCurrentMember ? (
+                                        <button
+                                          type="button"
+                                          className="mini-action-button"
+                                          onClick={() => handlePromotePartyLeader(member.userId)}
+                                          disabled={Boolean(promotingPartyLeaderUserId)}
+                                        >
+                                          {isPromoting ? 'Promoviendo...' : 'Promover'}
+                                        </button>
+                                      ) : null}
+                                    </div>
+                                  </li>
+                                )
+                              })}
+                            </ul>
+                            <div className="inline-actions">
+                              <button
+                                type="button"
+                                className="mini-action-button is-danger"
+                                onClick={handleLeaveParty}
+                                disabled={leavingParty}
+                              >
+                                {leavingParty
+                                  ? 'Saliendo...'
+                                  : party.members.length <= 1
+                                    ? 'Disolver grupo'
+                                    : isPartyLeader
+                                      ? 'Salir y ceder lider'
+                                      : 'Salir del grupo'}
+                              </button>
+                            </div>
+                          </>
+                        )}
+
+                        {incomingPartyInvites.length > 0 ? (
+                          <>
+                            <p className="dropdown-subtext">Invitaciones pendientes</p>
+                            <ul className="players-list players-list-rich">
+                              {incomingPartyInvites.map((invite) => {
+                                const isBusy = respondingPartyInviteId === invite.inviteId
+
+                                return (
+                                  <li key={invite.inviteId} className="is-request-entry">
+                                    <div className="player-entry-main">
+                                      <MenuAvatarPreview
+                                        skinId={invite.skinId}
+                                        skinColors={invite.skinColors}
+                                        displayName={invite.displayName}
+                                      />
+                                      <div className="player-entry-copy">
+                                        <strong>{invite.displayName}</strong>
+                                        <small>{`${resolveLevelSubtitle(invite.level)} · Caduca en 1 minuto`}</small>
+                                      </div>
+                                    </div>
+                                    <div className="inline-actions">
+                                      <button
+                                        type="button"
+                                        className="mini-action-button"
+                                        onClick={() => handleRespondToPartyInvite(invite.inviteId, 'accept')}
+                                        disabled={isBusy}
+                                      >
+                                        {isBusy ? '...' : 'Aceptar'}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="mini-action-button is-danger"
+                                        onClick={() => handleRespondToPartyInvite(invite.inviteId, 'reject')}
+                                        disabled={isBusy}
+                                      >
+                                        Rechazar
+                                      </button>
+                                    </div>
+                                  </li>
+                                )
+                              })}
+                            </ul>
+                          </>
+                        ) : null}
+                      </div>
+                    </details>
+                    <details className="dropdown-section" open={friends.length > 0}>
+                      <summary>Amistades</summary>
+                      <div className="dropdown-section-body">
+                        {friends.length === 0 ? (
+                          <p className="empty-state">Todavia no agregas amistades.</p>
+                        ) : (
+                          <ul className="players-list players-list-rich">
+                            {friends.map((friend) => {
+                              const isPartyMember = partyMemberUserIds.has(friend.userId)
+                              const hasIncomingPartyInvite = incomingPartyInvites.some(
+                                (invite) => invite.fromUserId === friend.userId,
+                              )
+                              const canInviteToParty =
+                                friend.isOnline &&
+                                !isPartyMember &&
+                                !hasIncomingPartyInvite &&
+                                !outgoingPartyInviteUserIdSet.has(friend.userId)
+
+                              return (
+                                <li key={friend.userId}>
+                                  <div className="player-entry-main">
+                                    <MenuAvatarPreview
+                                      skinId={friend.skinId}
+                                      skinColors={friend.skinColors}
+                                      displayName={friend.displayName}
+                                    />
+                                    <div className="player-entry-copy">
+                                      <strong>{friend.displayName}</strong>
+                                      <small>{resolveLevelSubtitle(friend.level)}</small>
+                                    </div>
                                   </div>
-                                </div>
-                                <div className="inline-actions">
-                                  <span className={`friend-status-pill ${friend.isOnline ? 'is-online' : 'is-offline'}`}>
-                                    {friend.isOnline ? 'Conectado' : 'Desconectado'}
-                                  </span>
-                                  {isPartyMember ? (
-                                    <span className="menu-inline-tag is-current">
-                                      {party?.leaderUserId === friend.userId ? 'Lider' : 'En tu grupo'}
+                                  <div className="inline-actions">
+                                    <span className={`friend-status-pill ${friend.isOnline ? 'is-online' : 'is-offline'}`}>
+                                      {friend.isOnline ? 'Conectado' : 'Desconectado'}
                                     </span>
-                                  ) : null}
-                                  {canInviteToParty ? (
+                                    {isPartyMember ? (
+                                      <span className="menu-inline-tag is-current">
+                                        {party?.leaderUserId === friend.userId ? 'Lider' : 'En tu grupo'}
+                                      </span>
+                                    ) : null}
+                                    {canInviteToParty ? (
+                                      <button
+                                        type="button"
+                                        className="mini-action-button"
+                                        onClick={() => handleInviteToParty(friend.userId)}
+                                        disabled={invitingPartyUserId === friend.userId}
+                                      >
+                                        {invitingPartyUserId === friend.userId ? 'Invitando...' : 'Invitar'}
+                                      </button>
+                                    ) : null}
+                                    {!isPartyMember && hasIncomingPartyInvite ? (
+                                      <span className="menu-inline-tag is-pending">Te invito</span>
+                                    ) : null}
+                                    {!isPartyMember && outgoingPartyInviteUserIdSet.has(friend.userId) ? (
+                                      <span className="menu-inline-tag is-pending">Invitacion enviada</span>
+                                    ) : null}
                                     <button
                                       type="button"
-                                      className="mini-action-button"
-                                      onClick={() => handleInviteToParty(friend.userId)}
-                                      disabled={invitingPartyUserId === friend.userId}
+                                      className="mini-action-button is-danger"
+                                      onClick={() => handleRemoveFriend(friend.userId)}
+                                      disabled={removingFriendUserId === friend.userId}
                                     >
-                                      {invitingPartyUserId === friend.userId ? 'Invitando...' : 'Invitar'}
+                                      {removingFriendUserId === friend.userId ? 'Quitando...' : 'Quitar'}
                                     </button>
-                                  ) : null}
-                                  {!isPartyMember && hasIncomingPartyInvite ? (
-                                    <span className="menu-inline-tag is-pending">Te invito</span>
-                                  ) : null}
-                                  {!isPartyMember && outgoingPartyInviteUserIdSet.has(friend.userId) ? (
-                                    <span className="menu-inline-tag is-pending">Invitacion enviada</span>
-                                  ) : null}
-                                  <button
-                                    type="button"
-                                    className="mini-action-button is-danger"
-                                    onClick={() => handleRemoveFriend(friend.userId)}
-                                    disabled={removingFriendUserId === friend.userId}
-                                  >
-                                    {removingFriendUserId === friend.userId ? 'Quitando...' : 'Quitar'}
-                                  </button>
-                                </div>
-                              </li>
-                            )
-                          })}
-                        </ul>
-                      )}
-                    </div>
-                  </details>
-
-                  <details className="dropdown-section" open>
-                    <summary>Ambiente sonoro</summary>
-                    <div className="dropdown-section-body">
-                      <div className="audio-settings-panel">
-                        <div className="audio-toggle-row">
-                          <div className="audio-toggle-copy">
-                            <strong>Tema mitico</strong>
-                            <span>Melodia 8-bit de aventura.</span>
-                          </div>
-                          <button
-                            type="button"
-                            className={`audio-toggle-button ${audioSettings.musicEnabled ? 'is-active' : ''}`}
-                            onClick={handleToggleMusic}
-                            aria-pressed={audioSettings.musicEnabled}
-                          >
-                            {audioSettings.musicEnabled ? 'Activo' : 'Silencio'}
-                          </button>
-                        </div>
-                        <label className="audio-slider-row">
-                          <div className="audio-slider-header">
-                            <span>Volumen del ambiente</span>
-                            <strong>{musicVolumePercent}%</strong>
-                          </div>
-                          <input
-                            className="audio-slider"
-                            type="range"
-                            min="0"
-                            max="100"
-                            step="1"
-                            value={musicVolumePercent}
-                            onChange={(event) => handleMusicVolumeChange(Number(event.target.value) / 100)}
-                            aria-label="Volumen de la musica ambiental"
-                          />
-                        </label>
-                        <div className="audio-toggle-row">
-                          <div className="audio-toggle-copy">
-                            <strong>Efectos pixel</strong>
-                            <span>Notificaciones, menu, chat y editor.</span>
-                          </div>
-                          <button
-                            type="button"
-                            className={`audio-toggle-button ${audioSettings.sfxEnabled ? 'is-active' : ''}`}
-                            onClick={handleToggleSfx}
-                            aria-pressed={audioSettings.sfxEnabled}
-                          >
-                            {audioSettings.sfxEnabled ? 'Activos' : 'Mute'}
-                          </button>
-                        </div>
-                        <label className="audio-slider-row">
-                          <div className="audio-slider-header">
-                            <span>Volumen de efectos</span>
-                            <strong>{sfxVolumePercent}%</strong>
-                          </div>
-                          <input
-                            className="audio-slider"
-                            type="range"
-                            min="0"
-                            max="100"
-                            step="1"
-                            value={sfxVolumePercent}
-                            onChange={(event) => handleSfxVolumeChange(Number(event.target.value) / 100)}
-                            aria-label="Volumen de efectos de interfaz"
-                          />
-                        </label>
-                        <p className="dropdown-subtext">
-                          Puedes bajar el volumen, silenciar por completo y dejar guardada tu mezcla para futuras sesiones.
-                        </p>
+                                  </div>
+                                </li>
+                              )
+                            })}
+                          </ul>
+                        )}
                       </div>
+                    </details>
+
+                    <details className="dropdown-section" open>
+                      <summary>Ambiente sonoro</summary>
+                      <div className="dropdown-section-body">
+                        <div className="audio-settings-panel">
+                          <div className="audio-toggle-row">
+                            <div className="audio-toggle-copy">
+                              <strong>Tema mitico</strong>
+                              <span>Melodia 8-bit de aventura.</span>
+                            </div>
+                            <button
+                              type="button"
+                              className={`audio-toggle-button ${audioSettings.musicEnabled ? 'is-active' : ''}`}
+                              onClick={handleToggleMusic}
+                              aria-pressed={audioSettings.musicEnabled}
+                            >
+                              {audioSettings.musicEnabled ? 'Activo' : 'Silencio'}
+                            </button>
+                          </div>
+                          <label className="audio-slider-row">
+                            <div className="audio-slider-header">
+                              <span>Volumen del ambiente</span>
+                              <strong>{musicVolumePercent}%</strong>
+                            </div>
+                            <input
+                              className="audio-slider"
+                              type="range"
+                              min="0"
+                              max="100"
+                              step="1"
+                              value={musicVolumePercent}
+                              onChange={(event) => handleMusicVolumeChange(Number(event.target.value) / 100)}
+                              aria-label="Volumen de la musica ambiental"
+                            />
+                          </label>
+                          <div className="audio-toggle-row">
+                            <div className="audio-toggle-copy">
+                              <strong>Efectos pixel</strong>
+                              <span>Notificaciones, menu, chat y editor.</span>
+                            </div>
+                            <button
+                              type="button"
+                              className={`audio-toggle-button ${audioSettings.sfxEnabled ? 'is-active' : ''}`}
+                              onClick={handleToggleSfx}
+                              aria-pressed={audioSettings.sfxEnabled}
+                            >
+                              {audioSettings.sfxEnabled ? 'Activos' : 'Mute'}
+                            </button>
+                          </div>
+                          <label className="audio-slider-row">
+                            <div className="audio-slider-header">
+                              <span>Volumen de efectos</span>
+                              <strong>{sfxVolumePercent}%</strong>
+                            </div>
+                            <input
+                              className="audio-slider"
+                              type="range"
+                              min="0"
+                              max="100"
+                              step="1"
+                              value={sfxVolumePercent}
+                              onChange={(event) => handleSfxVolumeChange(Number(event.target.value) / 100)}
+                              aria-label="Volumen de efectos de interfaz"
+                            />
+                          </label>
+                          <p className="dropdown-subtext">
+                            Puedes bajar el volumen, silenciar por completo y dejar guardada tu mezcla para futuras sesiones.
+                          </p>
+                        </div>
+                      </div>
+                    </details>
+                    <div className="dropdown-actions">
+                      <button
+                        type="button"
+                        className={`secondary-action-button ${playerIdentityMode === 'names' ? 'is-active' : ''}`}
+                        onClick={togglePlayerNames}
+                      >
+                        {`Identificadores: ${playerIdentityShortcutLabel}`}
+                      </button>
+                      <button
+                        type="button"
+                        className={`secondary-action-button ${debugEnabled ? 'is-active' : ''}`}
+                        onClick={toggleDebug}
+                      >
+                        {debugEnabled ? 'Ocultar coliders' : 'Mostrar coliders'}
+                      </button>
+                      <button type="button" className="secondary-action-button" onClick={openSkinEditorFromMenu}>
+                        Personalizar skin
+                      </button>
+                      <button type="button" className="secondary-action-button" onClick={onLogout}>
+                        Cerrar sesion
+                      </button>
                     </div>
-                  </details>
-                  <div className="dropdown-actions">
-                    <button
-                      type="button"
-                      className={`secondary-action-button ${playerIdentityMode === 'names' ? 'is-active' : ''}`}
-                      onClick={togglePlayerNames}
-                    >
-                      {`Identificadores: ${playerIdentityShortcutLabel}`}
-                    </button>
-                    <button
-                      type="button"
-                      className={`secondary-action-button ${debugEnabled ? 'is-active' : ''}`}
-                      onClick={toggleDebug}
-                    >
-                      {debugEnabled ? 'Ocultar coliders' : 'Mostrar coliders'}
-                    </button>
-                    <button type="button" className="secondary-action-button" onClick={toggleSkinEditor}>
-                      Personalizar skin
-                    </button>
-                    <button type="button" className="secondary-action-button" onClick={onLogout}>
-                      Cerrar sesion
-                    </button>
                   </div>
-                </div>
-              </section>
+                </section>
+              </div>
             ) : null}
           </div>
 
@@ -3455,6 +3730,10 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                   <span className="shortcut-key">M</span>
                   <span className="shortcut-label">skins</span>
                 </button>
+                <button type="button" className="shortcut-chip" onClick={toggleOptionsMenu}>
+                  <span className="shortcut-key">ESC</span>
+                  <span className="shortcut-label">{optionsOpen ? 'cerrar menu' : 'abrir menu'}</span>
+                </button>
                 <button
                   type="button"
                   className={`shortcut-chip ${quickChatShortcutDisabled ? 'is-disabled' : ''}`}
@@ -3587,45 +3866,86 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
               aria-label={activeTouchPrompt.kind === 'enemy' ? 'Encuentro rival' : 'Evento rival'}
             >
               <div className="fullscreen-touch-prompt-backdrop" />
-              <div className="fullscreen-touch-prompt-panel">
-                {activeTouchPrompt.title ? (
+              <div className={`fullscreen-touch-prompt-panel ${activeTouchPrompt.kind === 'enemy' ? 'is-enemy' : ''}`}>
+                {activeTouchPrompt.title && activeTouchPrompt.kind !== 'enemy' ? (
                   <header className="fullscreen-touch-prompt-header">
                     <h2>{activeTouchPrompt.title}</h2>
                   </header>
                 ) : null}
                 {activeTouchPrompt.kind === 'enemy' ? (
-                  <>
-                    <div className="fullscreen-touch-prompt-body">
-                      <div className="fullscreen-touch-prompt-copy">
-                        <p>Has entrado en el area de combate del rival.</p>
-                        <p>{`Solicitado por: ${activeTouchPrompt.requestedByDisplayName}`}</p>
-                        <p>{`Nivel enemigo: ${activeTouchPrompt.enemyLevel}`}</p>
-                        <p>{`Probabilidad de huida: ${Math.round(activeTouchPrompt.fleeChance * 100)}%`}</p>
-                        <div className="fullscreen-touch-prompt-supporters">
-                          <strong>Apoyo del combate</strong>
-                          <div className="fullscreen-touch-prompt-supporter-list">
-                            {activeTouchPrompt.participants.map((participant) => (
-                              <span key={participant.userId} className="fullscreen-touch-prompt-supporter-chip">
-                                {participant.displayName}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
+                  <div className="combat-banner-shell">
+                    <button
+                      type="button"
+                      className="combat-banner-close-button"
+                      aria-label="Huir del combate"
+                      onClick={handleEnemyFlee}
+                      disabled={!canRetreatFromActiveEnemyCombat}
+                      title={
+                        canRetreatFromActiveEnemyCombat
+                          ? 'Retirarse del combate'
+                          : 'Solo quien inicio el combate puede retirarse'
+                      }
+                    >
+                      X
+                    </button>
+
+                    <div className="combat-banner-topband">
+                      <p className="combat-banner-kicker">Sala de espera de combate</p>
+                      <div className="combat-banner-heading">
+                        <h2>{activeTouchPrompt.title}</h2>
+                        <p>{`Iniciado por ${activeTouchPrompt.requestedByDisplayName} · Huida ${Math.round(activeTouchPrompt.fleeChance * 100)}%`}</p>
+                        {!canRetreatFromActiveEnemyCombat ? (
+                          <p className="combat-banner-helper-copy">Solo el lider del combate puede retirarse.</p>
+                        ) : null}
                       </div>
                     </div>
-                    <div className="fullscreen-touch-prompt-actions">
-                      <button type="button" className="secondary-action-button" disabled>
-                        Iniciar combate
-                      </button>
+
+                    <div className="combat-banner-stage">
+                      <section className="combat-banner-side">
+                        <header className="combat-banner-side-header">
+                          <span>Aliados</span>
+                          <strong>{activeTouchPrompt.participants.length}</strong>
+                        </header>
+                        <div className="combat-banner-roster is-allies">
+                          {activeTouchPrompt.participants.map((participant) => (
+                            <CombatParticipantPreview
+                              key={participant.userId}
+                              participant={participant}
+                              isRequester={participant.userId === activeTouchPrompt.requestedByUserId}
+                            />
+                          ))}
+                        </div>
+                      </section>
+
+                      <div className="combat-banner-versus">
+                        <span>VS</span>
+                      </div>
+
+                      <section className="combat-banner-side is-enemy">
+                        <header className="combat-banner-side-header is-enemy">
+                          <span>Rival</span>
+                          <strong>{activeTouchPrompt.enemyLevel}</strong>
+                        </header>
+                        <div className="combat-banner-roster is-enemy">
+                          <CombatEnemyPreview
+                            enemyTemplate={activeCombatEnemyTemplate}
+                            label={activeTouchPrompt.title}
+                            enemyLevel={activeTouchPrompt.enemyLevel}
+                          />
+                        </div>
+                      </section>
+                    </div>
+
+                    <div className="combat-banner-bottomband">
                       <button
                         type="button"
-                        className="secondary-action-button is-active"
-                        onClick={handleEnemyFlee}
+                        className="combat-banner-start-button"
+                        onClick={handleEnemyCombatStartPreview}
                       >
-                        Huir
+                        Iniciar combate
                       </button>
                     </div>
-                  </>
+                  </div>
                 ) : (
                   <>
                     <div className="fullscreen-touch-prompt-body" />

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type {
+  EnemyCombatEncounterStatePayload,
   Position,
   Presence,
   RoomEnemyTemplate,
@@ -35,6 +36,7 @@ import {
   getTeleportWarningArea,
 } from './world/WorldTeleport'
 import {
+  getEnemySpriteAsset,
   getNpcSpriteAsset,
   getRoomBackgroundAsset,
   getWorldSpriteAsset,
@@ -45,6 +47,7 @@ interface ReactWorldProps {
   room: RoomState | null
   currentUserId: string
   template: RoomTemplate
+  enemyCombatEncounters?: EnemyCombatEncounterStatePayload[]
   onNavigate: (target: Position) => void
   debugEnabled: boolean
   playerIdentityMode?: 'icons' | 'names'
@@ -75,6 +78,8 @@ interface WorldRuntimeState {
   cameraY: number
   playersBySession: Record<string, AnimatedPlayerPosition>
   facingBySession: Record<string, FacingPose>
+  enemiesById: Record<string, AnimatedPlayerPosition>
+  enemyFacingById: Record<string, FacingPose>
 }
 
 interface ViewportSize {
@@ -124,6 +129,16 @@ type RenderLayerItem =
       key: string
       perspectiveY: number
       enemyTemplate: RoomEnemyTemplate
+      displayX: number
+      displayY: number
+      spriteFrame: WorldNpcFrameDefinition | null
+      flipX: boolean
+      showIcon: boolean
+    }
+  | {
+      kind: 'combat'
+      key: string
+      perspectiveY: number
       displayX: number
       displayY: number
     }
@@ -235,6 +250,54 @@ function getAnimatedNpcFrame(
   const frameDuration = Math.max(80, frameDurationMs ?? 180)
   const frameIndex = Math.floor(now / frameDuration) % frames.length
   return frames[frameIndex]
+}
+
+function getAnimatedEnemyFrame(
+  enemyTemplate: RoomEnemyTemplate,
+  now: number,
+  facingPose: FacingPose,
+  moving: boolean,
+): WorldNpcFrameDefinition | null {
+  const sheetUrl = getEnemySpriteAsset(enemyTemplate.spriteSheetAssetId)
+  const sheetFrameDefinitions = enemyTemplate.spriteFrames ?? []
+
+  if (
+    sheetUrl &&
+    typeof enemyTemplate.spriteSheetWidth === 'number' &&
+    typeof enemyTemplate.spriteSheetHeight === 'number' &&
+    typeof enemyTemplate.spriteFrameWidth === 'number' &&
+    typeof enemyTemplate.spriteFrameHeight === 'number' &&
+    sheetFrameDefinitions.length > 0
+  ) {
+    const useBack = facingPose === 'back-left' || facingPose === 'back-right'
+    const targetRow = moving ? (useBack ? 3 : 1) : useBack ? 2 : 0
+    const rowFrames = sheetFrameDefinitions
+      .filter((frame) => frame.row === targetRow)
+      .sort((leftFrame, rightFrame) => leftFrame.column - rightFrame.column)
+    const frames = rowFrames.length > 0 ? rowFrames : sheetFrameDefinitions
+    const frameDuration = Math.max(80, enemyTemplate.spriteFrameDurationMs ?? 180)
+    const frameIndex = Math.floor(now / frameDuration) % frames.length
+    const frame = frames[frameIndex]
+
+    return {
+      key: frame.key,
+      sheetUrl,
+      sheetWidth: enemyTemplate.spriteSheetWidth,
+      sheetHeight: enemyTemplate.spriteSheetHeight,
+      frameWidth: enemyTemplate.spriteFrameWidth,
+      frameHeight: enemyTemplate.spriteFrameHeight,
+      row: frame.row,
+      column: frame.column,
+    }
+  }
+
+  const spriteUrl = getWorldSpriteAsset(enemyTemplate.spriteAssetId)
+  return spriteUrl
+    ? {
+        key: enemyTemplate.spriteAssetId ?? enemyTemplate.id,
+        url: spriteUrl,
+      }
+    : null
 }
 
 function getPatrollingNpcPosition(
@@ -479,6 +542,14 @@ function getPerspectiveAwareRenderItems(
     enemyTemplate: RoomEnemyTemplate
     displayX: number
     displayY: number
+    spriteFrame: WorldNpcFrameDefinition | null
+    flipX: boolean
+    showIcon: boolean
+  }>,
+  combatViews: Array<{
+    encounterId: string
+    displayX: number
+    displayY: number
   }>,
 ) {
   const objectItems: RenderLayerItem[] = template.objects.map((objectTemplate) => ({
@@ -521,11 +592,22 @@ function getPerspectiveAwareRenderItems(
     flipX,
   }))
 
-  const enemyItems: RenderLayerItem[] = enemyViews.map(({ enemyTemplate, displayX, displayY }) => ({
+  const enemyItems: RenderLayerItem[] = enemyViews.map(({ enemyTemplate, displayX, displayY, spriteFrame, flipX, showIcon }) => ({
     kind: 'enemy',
     key: enemyTemplate.id,
     perspectiveY: displayY,
     enemyTemplate,
+    displayX,
+    displayY,
+    spriteFrame,
+    flipX,
+    showIcon,
+  }))
+
+  const combatItems: RenderLayerItem[] = combatViews.map(({ encounterId, displayX, displayY }) => ({
+    kind: 'combat',
+    key: encounterId,
+    perspectiveY: displayY,
     displayX,
     displayY,
   }))
@@ -535,10 +617,11 @@ function getPerspectiveAwareRenderItems(
     teleport: 1,
     npc: 2,
     enemy: 3,
-    player: 4,
+    combat: 4,
+    player: 5,
   }
 
-  return [...objectItems, ...teleportItems, ...npcItems, ...enemyItems, ...playerItems].sort((left, right) => {
+  return [...objectItems, ...teleportItems, ...npcItems, ...enemyItems, ...combatItems, ...playerItems].sort((left, right) => {
     if (left.perspectiveY !== right.perspectiveY) {
       return left.perspectiveY - right.perspectiveY
     }
@@ -579,7 +662,13 @@ function getEnemyDirectInteractionBounds(enemyTemplate: RoomEnemyTemplate, displ
   }
 }
 
-function getEnemyViews(room: RoomState | null, enemyTemplates: RoomEnemyTemplate[] | undefined) {
+function getEnemyViews(
+  room: RoomState | null,
+  enemyTemplates: RoomEnemyTemplate[] | undefined,
+  now: number,
+  enemiesById: Record<string, AnimatedPlayerPosition>,
+  enemyFacingById: Record<string, FacingPose>,
+) {
   if (!room) {
     return []
   }
@@ -593,22 +682,88 @@ function getEnemyViews(room: RoomState | null, enemyTemplates: RoomEnemyTemplate
         return null
       }
 
+      const animatedPosition = enemiesById[enemyState.enemyId] ?? {
+        x: enemyState.x,
+        y: enemyState.y,
+      }
+      const facingPose = enemyFacingById[enemyState.enemyId] ?? 'front-right'
+      const moving =
+        Math.hypot(enemyState.x - animatedPosition.x, enemyState.y - animatedPosition.y) > 0.45
+      const flipX = facingPose === 'front-left' || facingPose === 'back-left'
+
       return {
         enemyTemplate,
-        displayX: enemyState.x,
-        displayY: enemyState.y,
+        displayX: animatedPosition.x,
+        displayY: animatedPosition.y,
+        spriteFrame: getAnimatedEnemyFrame(enemyTemplate, now, facingPose, moving),
+        flipX,
+        showIcon: enemyState.mode === 'chase' && enemyState.targetUserId !== null,
       }
     })
     .filter(
-      (enemyView): enemyView is { enemyTemplate: RoomEnemyTemplate; displayX: number; displayY: number } =>
+      (enemyView): enemyView is {
+        enemyTemplate: RoomEnemyTemplate
+        displayX: number
+        displayY: number
+        spriteFrame: WorldNpcFrameDefinition | null
+        flipX: boolean
+        showIcon: boolean
+      } =>
         enemyView !== null,
     )
+}
+
+function getEnemyCombatOverlayState(
+  room: RoomState | null,
+  encounters: EnemyCombatEncounterStatePayload[],
+  animatedPlayersBySession: Record<string, AnimatedPlayerPosition>,
+) {
+  const hiddenPlayerUserIds = new Set<string>()
+  const hiddenEnemyIds = new Set<string>()
+
+  if (!room || encounters.length === 0) {
+    return {
+      hiddenPlayerUserIds,
+      hiddenEnemyIds,
+      combatViews: [] as Array<{ encounterId: string; displayX: number; displayY: number }>,
+    }
+  }
+
+  const playersByUserId = new Map(room.players.map((player) => [player.userId, player] as const))
+  const combatViews = encounters.map((encounter) => {
+    hiddenEnemyIds.add(encounter.enemyId)
+    encounter.participants.forEach((participant) => {
+      hiddenPlayerUserIds.add(participant.userId)
+    })
+
+    const anchorPlayer =
+      encounter.participants
+        .map((participant) => playersByUserId.get(participant.userId) ?? null)
+        .find((player): player is Presence => player !== null) ?? null
+
+    const anchorPosition = anchorPlayer
+      ? animatedPlayersBySession[anchorPlayer.sessionId] ?? anchorPlayer.position
+      : encounter.requestedByPosition
+
+    return {
+      encounterId: encounter.encounterId,
+      displayX: anchorPosition.x,
+      displayY: anchorPosition.y,
+    }
+  })
+
+  return {
+    hiddenPlayerUserIds,
+    hiddenEnemyIds,
+    combatViews,
+  }
 }
 
 function ReactWorld({
   room,
   currentUserId,
   template,
+  enemyCombatEncounters = [],
   onNavigate,
   debugEnabled,
   playerIdentityMode = 'icons',
@@ -635,6 +790,8 @@ function ReactWorld({
     cameraY: 0,
     playersBySession: {},
     facingBySession: {},
+    enemiesById: {},
+    enemyFacingById: {},
   })
   const [viewportSize, setViewportSize] = useState({ width: 1600, height: 900 })
   const [runtime, setRuntime] = useState<WorldRuntimeState>(runtimeRef.current)
@@ -673,6 +830,8 @@ function ReactWorld({
         cameraY: 0,
         playersBySession: {},
         facingBySession: {},
+        enemiesById: {},
+        enemyFacingById: {},
       }
 
       runtimeRef.current = emptyRuntime
@@ -686,6 +845,12 @@ function ReactWorld({
     const facingBySession = Object.fromEntries(
       room.players.map((player) => [player.sessionId, resolveFacingPose(player, 'front-right')] as const),
     )
+    const enemiesById = Object.fromEntries(
+      room.enemies.map((enemyState) => [enemyState.enemyId, { x: enemyState.x, y: enemyState.y }] as const),
+    )
+    const enemyFacingById = Object.fromEntries(
+      room.enemies.map((enemyState) => [enemyState.enemyId, 'front-right' satisfies FacingPose] as const),
+    )
     const currentPlayer = room.players.find((player) => player.userId === currentUserId) ?? null
     const nextCamera = currentPlayer
       ? resolveCameraPosition(currentPlayer.position, template, viewportSize)
@@ -698,6 +863,8 @@ function ReactWorld({
       cameraY: nextCamera.cameraY,
       playersBySession,
       facingBySession,
+      enemiesById,
+      enemyFacingById,
     }
 
     runtimeRef.current = nextRuntime
@@ -715,14 +882,26 @@ function ReactWorld({
       const previousState = runtimeRef.current
       const nextPlayersBySession: Record<string, AnimatedPlayerPosition> = { ...previousState.playersBySession }
       const nextFacingBySession: Record<string, FacingPose> = { ...previousState.facingBySession }
+      const nextEnemiesById: Record<string, AnimatedPlayerPosition> = { ...previousState.enemiesById }
+      const nextEnemyFacingById: Record<string, FacingPose> = { ...previousState.enemyFacingById }
       const targetPlayers = roomRef.current?.players ?? []
+      const targetEnemies = roomRef.current?.enemies ?? []
       const activeSessionIds = new Set(targetPlayers.map((player) => player.sessionId))
+      const activeEnemyIds = new Set(targetEnemies.map((enemyState) => enemyState.enemyId))
       const playerLerp = 1 - Math.exp(-delta / 120)
+      const enemyLerp = 1 - Math.exp(-delta / 140)
 
       Object.keys(nextPlayersBySession).forEach((sessionId) => {
         if (!activeSessionIds.has(sessionId)) {
           delete nextPlayersBySession[sessionId]
           delete nextFacingBySession[sessionId]
+        }
+      })
+
+      Object.keys(nextEnemiesById).forEach((enemyId) => {
+        if (!activeEnemyIds.has(enemyId)) {
+          delete nextEnemiesById[enemyId]
+          delete nextEnemyFacingById[enemyId]
         }
       })
 
@@ -735,6 +914,26 @@ function ReactWorld({
 
         const previousFacing = nextFacingBySession[player.sessionId] ?? 'front-right'
         nextFacingBySession[player.sessionId] = resolveFacingPose(player, previousFacing)
+      })
+
+      targetEnemies.forEach((enemyState) => {
+        const previousPosition = nextEnemiesById[enemyState.enemyId] ?? {
+          x: enemyState.x,
+          y: enemyState.y,
+        }
+        const deltaX = enemyState.x - previousPosition.x
+        const deltaY = enemyState.y - previousPosition.y
+
+        nextEnemiesById[enemyState.enemyId] = {
+          x: previousPosition.x + deltaX * enemyLerp,
+          y: previousPosition.y + deltaY * enemyLerp,
+        }
+
+        const previousFacing = nextEnemyFacingById[enemyState.enemyId] ?? 'front-right'
+        nextEnemyFacingById[enemyState.enemyId] =
+          Math.hypot(deltaX, deltaY) > 0.45
+            ? resolveFacingPoseFromVector(deltaX, deltaY)
+            : previousFacing
       })
 
       const currentPlayer = targetPlayers.find((player) => player.userId === currentUserId)
@@ -757,6 +956,8 @@ function ReactWorld({
         cameraY: nextCameraY,
         playersBySession: nextPlayersBySession,
         facingBySession: nextFacingBySession,
+        enemiesById: nextEnemiesById,
+        enemyFacingById: nextEnemyFacingById,
       }
 
       runtimeRef.current = nextState
@@ -784,9 +985,20 @@ function ReactWorld({
     })
   }, [currentUserId, room?.players, runtime.facingBySession, runtime.now, runtime.playersBySession])
 
+  const enemyCombatOverlayState = useMemo(
+    () => getEnemyCombatOverlayState(room, enemyCombatEncounters, runtime.playersBySession),
+    [enemyCombatEncounters, room, runtime.playersBySession],
+  )
+
+  const visiblePlayerViews = useMemo(
+    () =>
+      playerViews.filter((playerView) => !enemyCombatOverlayState.hiddenPlayerUserIds.has(playerView.player.userId)),
+    [enemyCombatOverlayState.hiddenPlayerUserIds, playerViews],
+  )
+
   const currentPlayerView = useMemo(
-    () => playerViews.find((playerView) => playerView.isSelf) ?? null,
-    [playerViews],
+    () => visiblePlayerViews.find((playerView) => playerView.isSelf) ?? null,
+    [visiblePlayerViews],
   )
 
   const currentPlayerBounds = useMemo(
@@ -894,8 +1106,23 @@ function ReactWorld({
   }, [currentPlayerBounds, runtime.now, template.teleports])
 
   const enemyViews = useMemo(() => {
-    return getEnemyViews(room, template.enemies)
-  }, [room, template.enemies])
+    return getEnemyViews(
+      room,
+      template.enemies,
+      runtime.now,
+      runtime.enemiesById,
+      runtime.enemyFacingById,
+    ).filter(
+      (enemyView) => !enemyCombatOverlayState.hiddenEnemyIds.has(enemyView.enemyTemplate.id),
+    )
+  }, [
+    enemyCombatOverlayState.hiddenEnemyIds,
+    room,
+    runtime.enemyFacingById,
+    runtime.enemiesById,
+    runtime.now,
+    template.enemies,
+  ])
   const blockedEnemyInteractionIdSet = useMemo(
     () => new Set(blockedEnemyInteractionIds),
     [blockedEnemyInteractionIds],
@@ -1034,8 +1261,16 @@ function ReactWorld({
   }, [activeInteractable, interactionEnabled, onInteract])
 
   const renderItems = useMemo(
-    () => getPerspectiveAwareRenderItems(template, teleportViews, playerViews, npcViews, enemyViews),
-    [template, teleportViews, playerViews, npcViews, enemyViews],
+    () =>
+      getPerspectiveAwareRenderItems(
+        template,
+        teleportViews,
+        visiblePlayerViews,
+        npcViews,
+        enemyViews,
+        enemyCombatOverlayState.combatViews,
+      ),
+    [enemyCombatOverlayState.combatViews, enemyViews, npcViews, template, teleportViews, visiblePlayerViews],
   )
   const backgroundAsset = getRoomBackgroundAsset(template.id)
 
@@ -1204,6 +1439,31 @@ function ReactWorld({
                   debugEnabled={debugEnabled}
                   displayX={item.displayX}
                   displayY={item.displayY}
+                  spriteFrame={item.spriteFrame}
+                  flipX={item.flipX}
+                  showIcon={item.showIcon}
+                />
+              </div>
+            )
+          }
+
+          if (item.kind === 'combat') {
+            return (
+              <div
+                key={item.key}
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  pointerEvents: 'none',
+                  zIndex: 20 + index,
+                }}
+              >
+                <div
+                  className="react-world-combat-placeholder"
+                  style={{
+                    left: `${item.displayX}px`,
+                    top: `${item.displayY}px`,
+                  }}
                 />
               </div>
             )
