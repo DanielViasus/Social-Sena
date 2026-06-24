@@ -35,6 +35,7 @@ import {
   getTeleportPerspectiveY,
   getTeleportWarningArea,
 } from './world/WorldTeleport'
+import { WorldCombatEncounter } from './world/WorldCombatEncounter'
 import {
   getEnemySpriteAsset,
   getNpcSpriteAsset,
@@ -54,15 +55,24 @@ interface ReactWorldProps {
   activeSpeechByUserId?: Record<string, string>
   typingByUserId?: Record<string, boolean>
   typingIndicatorText?: string
-  onInteract?: (interactable: RoomInteractableTemplate) => void
+  onInteract?: (interactable: WorldInteractableTarget) => void
   onEnemyTouchInteract?: (enemyTemplate: RoomEnemyTemplate) => void
-  onActiveInteractableChange?: (interactable: RoomInteractableTemplate | null) => void
+  onActiveInteractableChange?: (interactable: WorldInteractableTarget | null) => void
   navigationEnabled?: boolean
   interactionEnabled?: boolean
   blockedEnemyInteractionIds?: string[]
   suppressInteractionIconForId?: string | null
   pointerInteractionEnabled?: boolean
 }
+
+export interface CombatEncounterInteractable {
+  entityType: 'enemy-combat'
+  id: string
+  encounterId: string
+  label: string
+}
+
+export type WorldInteractableTarget = RoomInteractableTemplate | CombatEncounterInteractable
 
 interface AnimatedPlayerPosition {
   x: number
@@ -139,8 +149,25 @@ type RenderLayerItem =
       kind: 'combat'
       key: string
       perspectiveY: number
+      encounterId: string
+      label: string
+      state: NpcInteractionState
       displayX: number
       displayY: number
+      iconFrame: WorldNpcFrameDefinition | null
+      interactive: boolean
+      warningArea: {
+        offsetX: number
+        offsetY: number
+        width: number
+        height: number
+      }
+      interactionArea: {
+        offsetX: number
+        offsetY: number
+        width: number
+        height: number
+      }
     }
 
 function clamp(value: number, min: number, max: number) {
@@ -153,6 +180,38 @@ function colorToCss(value: number | undefined, fallback: string) {
   }
 
   return `#${value.toString(16).padStart(6, '0')}`
+}
+
+const COMBAT_WARNING_AREA = {
+  offsetX: 0,
+  offsetY: -8,
+  width: 260,
+  height: 220,
+}
+
+const COMBAT_INTERACTION_AREA = {
+  offsetX: 0,
+  offsetY: -8,
+  width: 258,
+  height: 222,
+}
+
+function getCombatEncounterAreaBounds(
+  displayX: number,
+  displayY: number,
+  area: {
+    offsetX: number
+    offsetY: number
+    width: number
+    height: number
+  },
+) {
+  return {
+    left: displayX + area.offsetX - area.width / 2,
+    right: displayX + area.offsetX + area.width / 2,
+    top: displayY + area.offsetY - area.height / 2,
+    bottom: displayY + area.offsetY + area.height / 2,
+  }
 }
 
 function resolveFacingPoseFromVector(deltaX: number, deltaY: number): FacingPose {
@@ -548,8 +607,24 @@ function getPerspectiveAwareRenderItems(
   }>,
   combatViews: Array<{
     encounterId: string
+    label: string
     displayX: number
     displayY: number
+    state: NpcInteractionState
+    iconFrame: WorldNpcFrameDefinition | null
+    interactive: boolean
+    warningArea: {
+      offsetX: number
+      offsetY: number
+      width: number
+      height: number
+    }
+    interactionArea: {
+      offsetX: number
+      offsetY: number
+      width: number
+      height: number
+    }
   }>,
 ) {
   const objectItems: RenderLayerItem[] = template.objects.map((objectTemplate) => ({
@@ -604,12 +679,19 @@ function getPerspectiveAwareRenderItems(
     showIcon,
   }))
 
-  const combatItems: RenderLayerItem[] = combatViews.map(({ encounterId, displayX, displayY }) => ({
+  const combatItems: RenderLayerItem[] = combatViews.map(({ encounterId, label, displayX, displayY, state, iconFrame, interactive, warningArea, interactionArea }) => ({
     kind: 'combat',
     key: encounterId,
     perspectiveY: displayY,
+    encounterId,
+    label,
+    state,
     displayX,
     displayY,
+    iconFrame,
+    interactive,
+    warningArea,
+    interactionArea,
   }))
 
   const layerPriority: Record<RenderLayerItem['kind'], number> = {
@@ -725,7 +807,11 @@ function getEnemyCombatOverlayState(
     return {
       hiddenPlayerUserIds,
       hiddenEnemyIds,
-      combatViews: [] as Array<{ encounterId: string; displayX: number; displayY: number }>,
+      combatViews: [] as Array<{
+        encounter: EnemyCombatEncounterStatePayload
+        displayX: number
+        displayY: number
+      }>,
     }
   }
 
@@ -746,7 +832,7 @@ function getEnemyCombatOverlayState(
       : encounter.requestedByPosition
 
     return {
-      encounterId: encounter.encounterId,
+      encounter,
       displayX: anchorPosition.x,
       displayY: anchorPosition.y,
     }
@@ -1006,6 +1092,54 @@ function ReactWorld({
     [currentPlayerView],
   )
 
+  const combatViews = useMemo(() => {
+    return enemyCombatOverlayState.combatViews.map(({ encounter, displayX, displayY }) => {
+      const joinable =
+        encounter.phase === 'lobby' &&
+        !encounter.participants.some((participant) => participant.userId === currentUserId)
+      const warningBounds = getCombatEncounterAreaBounds(displayX, displayY, COMBAT_WARNING_AREA)
+      const interactionBounds = getCombatEncounterAreaBounds(displayX, displayY, COMBAT_INTERACTION_AREA)
+      const state: NpcInteractionState =
+        joinable && currentPlayerBounds && overlapsRect(currentPlayerBounds, interactionBounds)
+          ? 'interaction'
+          : joinable && currentPlayerBounds && overlapsRect(currentPlayerBounds, warningBounds)
+            ? 'warning'
+            : 'out'
+      const iconFrame = joinable
+        ? getAnimatedNpcFrame(
+            state === 'interaction' ? ['npc-interaction-e-0', 'npc-interaction-e-1'] : ['npc-alert-0', 'npc-alert-1', 'npc-alert-2', 'npc-alert-3'],
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            runtime.now,
+            400,
+          )
+        : null
+
+      return {
+        encounterId: encounter.encounterId,
+        label: encounter.enemyLabel || 'Combate',
+        displayX,
+        displayY,
+        state,
+        iconFrame,
+        interactive: pointerInteractionEnabled && interactionEnabled && state === 'interaction',
+        warningArea: COMBAT_WARNING_AREA,
+        interactionArea: COMBAT_INTERACTION_AREA,
+      }
+    })
+  }, [
+    currentPlayerBounds,
+    currentUserId,
+    enemyCombatOverlayState.combatViews,
+    interactionEnabled,
+    pointerInteractionEnabled,
+    runtime.now,
+  ])
+
   const npcViews = useMemo(() => {
     return (template.npcs ?? []).map((npcTemplate) => {
       const patrolPosition = getPatrollingNpcPosition(
@@ -1137,14 +1271,28 @@ function ReactWorld({
       ...npcViews
         .filter((npcView) => npcView.state === 'interaction' && npcView.npcTemplate.interactionMode !== 'touch')
         .map((npcView) => ({
-          template: npcView.npcTemplate as RoomInteractableTemplate,
+          template: npcView.npcTemplate as WorldInteractableTarget,
           anchor: getNpcInteractionAnchor(npcView.npcTemplate),
         })),
       ...teleportViews
         .filter((teleportView) => teleportView.state === 'interaction')
         .map((teleportView) => ({
-          template: teleportView.teleportTemplate as RoomInteractableTemplate,
+          template: teleportView.teleportTemplate as WorldInteractableTarget,
           anchor: getTeleportInteractionAnchor(teleportView.teleportTemplate),
+        })),
+      ...combatViews
+        .filter((combatView) => combatView.state === 'interaction')
+        .map((combatView) => ({
+          template: {
+            entityType: 'enemy-combat',
+            id: combatView.encounterId,
+            encounterId: combatView.encounterId,
+            label: combatView.label,
+          } satisfies CombatEncounterInteractable,
+          anchor: {
+            x: combatView.displayX,
+            y: combatView.displayY,
+          },
         })),
     ]
 
@@ -1161,7 +1309,7 @@ function ReactWorld({
         return leftDistance - rightDistance
       })[0] ?? null
     )
-  }, [currentPlayerView, npcViews, teleportViews])
+  }, [combatViews, currentPlayerView, npcViews, teleportViews])
 
   useEffect(() => {
     onActiveInteractableChange?.(activeInteractable?.template ?? null)
@@ -1252,7 +1400,8 @@ function ReactWorld({
 
       console.info('[WORLD] Interaccion activada', {
         interactableId: activeInteractable.template.id,
-        interactionId: activeInteractable.template.interactionId ?? null,
+        interactionId:
+          'interactionId' in activeInteractable.template ? activeInteractable.template.interactionId ?? null : null,
       })
     }
 
@@ -1268,9 +1417,9 @@ function ReactWorld({
         visiblePlayerViews,
         npcViews,
         enemyViews,
-        enemyCombatOverlayState.combatViews,
+        combatViews,
       ),
-    [enemyCombatOverlayState.combatViews, enemyViews, npcViews, template, teleportViews, visiblePlayerViews],
+    [combatViews, enemyViews, npcViews, template, teleportViews, visiblePlayerViews],
   )
   const backgroundAsset = getRoomBackgroundAsset(template.id)
 
@@ -1454,16 +1603,30 @@ function ReactWorld({
                 style={{
                   position: 'absolute',
                   inset: 0,
-                  pointerEvents: 'none',
+                  pointerEvents: item.interactive ? 'auto' : 'none',
                   zIndex: 20 + index,
                 }}
               >
-                <div
-                  className="react-world-combat-placeholder"
-                  style={{
-                    left: `${item.displayX}px`,
-                    top: `${item.displayY}px`,
-                  }}
+                <WorldCombatEncounter
+                  displayX={item.displayX}
+                  displayY={item.displayY}
+                  state={item.state}
+                  iconFrame={item.iconFrame}
+                  interactive={item.interactive}
+                  debugEnabled={debugEnabled}
+                  warningArea={item.warningArea}
+                  interactionArea={item.interactionArea}
+                  onInteractClick={
+                    item.interactive && onInteract
+                      ? () =>
+                          onInteract({
+                            entityType: 'enemy-combat',
+                            id: item.encounterId,
+                            encounterId: item.encounterId,
+                            label: item.label,
+                          })
+                      : undefined
+                  }
                 />
               </div>
             )

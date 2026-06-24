@@ -1000,6 +1000,478 @@ button {
   transform: translateY(1px);
 }
 
+.pokemon-combat-shell {
+  min-height: 100%;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 18%),
+    #d6d4d4;
+}
+
+.pokemon-combat-stage {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 0;
+  background:
+    repeating-linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.14) 0,
+      rgba(255, 255, 255, 0.14) 16px,
+      rgba(91, 230, 213, 0.05) 16px,
+      rgba(91, 230, 213, 0.05) 32px
+    ),
+    linear-gradient(180deg, #57e0d8 0%, #8be8d3 18%, #d3ef81 44%, #a9e06b 62%, #76bf55 100%);
+}
+
+.pokemon-combat-stage::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0;
+  height: 54%;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), transparent 28%),
+    linear-gradient(180deg, rgba(92, 178, 66, 0.18), rgba(75, 146, 52, 0.22));
+  pointer-events: none;
+}
+
+.pokemon-combat-stage-header {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 24px 0;
+  color: #24453f;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.55rem;
+  text-transform: uppercase;
+}
+
+.pokemon-combat-battlefield {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  gap: 18px;
+  padding: 12px 36px 28px;
+}
+
+.pokemon-combat-enemy-zone,
+.pokemon-combat-ally-zone {
+  display: grid;
+  align-items: center;
+  gap: 18px;
+}
+
+.pokemon-combat-enemy-zone {
+  grid-template-columns: minmax(240px, 340px) minmax(0, 1fr);
+}
+
+.pokemon-combat-ally-zone {
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 360px);
+  align-items: end;
+}
+
+.pokemon-combat-status-card {
+  display: grid;
+  gap: 10px;
+  width: min(100%, 340px);
+  padding: 16px 18px 14px;
+  border: 4px solid #4c4b51;
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, #f8f8f8 0%, #e8e8e8 100%);
+  box-shadow:
+    inset 0 0 0 3px rgba(255, 255, 255, 0.5),
+    0 12px 20px rgba(0, 0, 0, 0.12);
+}
+
+.pokemon-combat-status-card.is-enemy {
+  justify-self: start;
+}
+
+.pokemon-combat-status-card.is-ally {
+  justify-self: end;
+}
+
+.pokemon-combat-status-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #36343b;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.62rem;
+  line-height: 1.5;
+}
+
+.pokemon-combat-status-topline strong {
+  font-weight: 400;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pokemon-combat-status-topline span {
+  flex-shrink: 0;
+}
+
+.pokemon-combat-status-bar-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 10px;
+  color: #d39a14;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.55rem;
+}
+
+.pokemon-combat-status-bar {
+  height: 12px;
+  border: 3px solid #3b3c40;
+  border-radius: 999px;
+  background: #d7d7d7;
+  overflow: hidden;
+}
+
+.pokemon-combat-status-bar-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(180deg, #49bd33 0%, #2f8e1f 100%);
+}
+
+.pokemon-combat-status-card p {
+  margin: 0;
+  color: #4f5662;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.92rem;
+}
+
+.pokemon-combat-team-health-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.pokemon-combat-team-health-row {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 2px solid rgba(76, 75, 81, 0.22);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.pokemon-combat-team-health-row.is-current {
+  border-color: rgba(179, 111, 42, 0.72);
+  background: rgba(255, 220, 162, 0.36);
+}
+
+.pokemon-combat-team-health-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pokemon-combat-team-health-name,
+.pokemon-combat-team-health-level {
+  color: #3d3940;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.44rem;
+  line-height: 1.5;
+}
+
+.pokemon-combat-team-health-name {
+  font-weight: 400;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pokemon-combat-team-health-level {
+  flex-shrink: 0;
+}
+
+.pokemon-combat-team-health-bar {
+  height: 10px;
+  border: 2px solid #3b3c40;
+  border-radius: 999px;
+  background: #d7d7d7;
+  overflow: hidden;
+}
+
+.pokemon-combat-team-health-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(180deg, #49bd33 0%, #2f8e1f 100%);
+}
+
+.pokemon-combat-platform {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 190px;
+}
+
+.pokemon-combat-platform::before {
+  content: '';
+  position: absolute;
+  inset: auto 50% 10px auto;
+  width: 250px;
+  height: 86px;
+  transform: translateX(50%);
+  border: 4px solid rgba(103, 126, 47, 0.86);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 30% 35%, rgba(255, 255, 255, 0.24), transparent 42%),
+    linear-gradient(180deg, #9ee15d 0%, #6bba37 100%);
+  box-shadow:
+    inset 0 -10px 0 rgba(67, 128, 39, 0.24),
+    0 14px 22px rgba(0, 0, 0, 0.16);
+}
+
+.pokemon-combat-platform.is-enemy {
+  justify-self: end;
+  padding-right: 44px;
+}
+
+.pokemon-combat-platform.is-ally {
+  justify-self: start;
+  padding-left: 38px;
+}
+
+.pokemon-combat-platform.is-ally::before {
+  width: 292px;
+  height: 92px;
+}
+
+.pokemon-combat-ally-formation {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: end;
+  justify-content: center;
+  min-width: 360px;
+  min-height: 220px;
+}
+
+.pokemon-combat-ally-squad {
+  display: flex;
+  align-items: end;
+  justify-content: center;
+}
+
+.pokemon-combat-ally-sprite-slot {
+  position: relative;
+  display: grid;
+  place-items: end;
+  margin-right: -42px;
+  transform: translateY(10px);
+  filter: saturate(0.94) brightness(0.98);
+}
+
+.pokemon-combat-ally-sprite-slot:last-child {
+  margin-right: 0;
+}
+
+.pokemon-combat-ally-sprite-slot.is-current {
+  z-index: 2;
+  transform: translateY(0);
+  filter: none;
+}
+
+.pokemon-combat-ally-sprite-slot:not(.is-current):nth-child(odd) {
+  transform: translateY(18px);
+}
+
+.pokemon-combat-ally-sprite-slot:not(.is-current):nth-child(even) {
+  transform: translateY(8px);
+}
+
+.pokemon-combat-sprite-frame {
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.pokemon-combat-sprite-frame.is-enemy {
+  transform: scaleX(-1);
+}
+
+.pokemon-combat-sprite-sheet {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: block;
+  max-width: none;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.pokemon-combat-static-sprite {
+  position: relative;
+  z-index: 1;
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.pokemon-combat-static-sprite.is-fallback {
+  border: 4px solid #4a1515;
+  border-radius: 20px;
+  background: linear-gradient(180deg, #ff7366 0%, #b53b32 100%);
+}
+
+.pokemon-combat-command-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  gap: 18px;
+  padding: 22px 24px 24px;
+  border-top: 4px solid #48464d;
+  background: linear-gradient(180deg, #67646a 0%, #4a474d 100%);
+}
+
+.pokemon-combat-dialogue-box {
+  display: grid;
+  gap: 12px;
+  min-height: 190px;
+  padding: 18px 20px;
+  border: 5px solid #47454a;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #fcfcfc 0%, #f0f0f0 100%);
+  box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.72);
+}
+
+.pokemon-combat-dialogue-title,
+.pokemon-combat-dialogue-copy,
+.pokemon-combat-dialogue-helper {
+  margin: 0;
+}
+
+.pokemon-combat-dialogue-title {
+  color: #323038;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.72rem;
+  line-height: 1.7;
+}
+
+.pokemon-combat-dialogue-copy,
+.pokemon-combat-dialogue-helper {
+  color: #505664;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.92rem;
+}
+
+.pokemon-combat-dialogue-helper {
+  color: #8a4c34;
+}
+
+.pokemon-combat-party-strip,
+.pokemon-combat-support-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.pokemon-combat-party-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  border: 3px solid #55545a;
+  border-radius: 999px;
+  background: #ece8e6;
+  color: #3c3a41;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.5rem;
+  line-height: 1.4;
+}
+
+.pokemon-combat-party-chip.is-active {
+  background: #ffdca2;
+  border-color: #b36f2a;
+  color: #5d3f22;
+}
+
+.pokemon-combat-support-card {
+  display: grid;
+  grid-template-columns: 54px auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 3px solid #55545a;
+  border-radius: 16px;
+  background: rgba(233, 233, 233, 0.92);
+}
+
+.pokemon-combat-support-card span {
+  color: #3a3840;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.46rem;
+  line-height: 1.5;
+}
+
+.pokemon-combat-command-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.pokemon-combat-command-button {
+  min-height: 86px;
+  padding: 14px 16px;
+  border: 4px solid #48464d;
+  border-radius: 18px;
+  color: #fffdf7;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  text-transform: uppercase;
+  box-shadow:
+    inset 0 -6px 0 rgba(0, 0, 0, 0.18),
+    0 12px 20px rgba(0, 0, 0, 0.18);
+}
+
+.pokemon-combat-command-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.pokemon-combat-command-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.pokemon-combat-command-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.pokemon-combat-command-button.is-fight {
+  background: linear-gradient(180deg, #e88a8c 0%, #d45563 100%);
+}
+
+.pokemon-combat-command-button.is-bag {
+  background: linear-gradient(180deg, #daaf64 0%, #ba7a2f 100%);
+}
+
+.pokemon-combat-command-button.is-party {
+  background: linear-gradient(180deg, #80bd5b 0%, #498836 100%);
+}
+
+.pokemon-combat-command-button.is-run {
+  background: linear-gradient(180deg, #5f8dd0 0%, #315fa6 100%);
+}
+
 @media (max-width: 920px) {
   .fullscreen-touch-prompt-panel.is-enemy {
     width: min(100%, calc(100vw - 20px));
@@ -1057,6 +1529,72 @@ button {
     width: 100%;
     min-width: 0;
     font-size: 0.66rem;
+  }
+
+  .pokemon-combat-stage-header {
+    justify-content: center;
+    text-align: center;
+    padding: 18px 16px 0;
+  }
+
+  .pokemon-combat-battlefield {
+    gap: 22px;
+    padding: 12px 16px 18px;
+  }
+
+  .pokemon-combat-enemy-zone,
+  .pokemon-combat-ally-zone {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .pokemon-combat-status-card.is-enemy,
+  .pokemon-combat-status-card.is-ally,
+  .pokemon-combat-platform.is-enemy,
+  .pokemon-combat-platform.is-ally {
+    justify-self: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .pokemon-combat-command-shell {
+    grid-template-columns: 1fr;
+    padding: 16px;
+  }
+
+  .pokemon-combat-dialogue-box {
+    min-height: 0;
+  }
+
+  .pokemon-combat-ally-formation,
+  .pokemon-combat-ally-squad {
+    justify-content: center;
+  }
+
+  .pokemon-combat-ally-formation {
+    min-width: 0;
+    min-height: 188px;
+  }
+
+  .pokemon-combat-ally-sprite-slot {
+    margin-right: -28px;
+  }
+
+  .pokemon-combat-ally-sprite-slot:not(.is-current):nth-child(odd) {
+    transform: translateY(8px);
+  }
+
+  .pokemon-combat-ally-sprite-slot:not(.is-current):nth-child(even) {
+    transform: translateY(2px);
+  }
+
+  .pokemon-combat-command-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .pokemon-combat-command-button {
+    min-height: 74px;
+    font-size: 0.64rem;
   }
 }
 
@@ -3169,6 +3707,27 @@ button {
   pointer-events: none;
 }
 
+.world-combat {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.world-combat.is-interactive {
+  pointer-events: auto;
+}
+
+.world-combat-hitbox {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
 .react-world-combat-placeholder {
   position: absolute;
   width: 136px;
@@ -3186,6 +3745,23 @@ button {
   pointer-events: none;
 }
 
+.debug-combat-warning,
+.debug-combat-interaction {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.debug-combat-warning {
+  border: 2px dashed rgba(255, 217, 59, 0.9);
+  background: rgba(255, 217, 59, 0.14);
+}
+
+.debug-combat-interaction {
+  border: 2px solid rgba(138, 227, 88, 0.92);
+  background: rgba(138, 227, 88, 0.16);
+}
+
 .debug-object-total,
 .debug-object-collider,
 .debug-player-total,
@@ -3196,6 +3772,8 @@ button {
 .debug-npc-zref,
 .debug-npc-warning,
 .debug-npc-interaction,
+.debug-combat-warning,
+.debug-combat-interaction,
 .debug-enemy-patrol-area,
 .debug-enemy-direct-interaction,
 .debug-teleport-total,

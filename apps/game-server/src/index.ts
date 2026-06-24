@@ -19,6 +19,7 @@ import {
   movementInputSchema,
   navigateToSchema,
   requestEnemyCombatSchema,
+  startEnemyCombatSchema,
   promotePartyLeaderSchema,
   respondEnemyCombatSupportSchema,
   removeFriendSchema,
@@ -31,6 +32,7 @@ import {
   updateInventorySchema,
   type ActivityNoticePayload,
   type EnemyCombatEncounterStatePayload,
+  type EnemyCombatPhase,
   type EnemyCombatParticipantSummary,
   type EnemyCombatSupportInvitePayload,
   type PartyInviteSummary,
@@ -122,6 +124,9 @@ interface ActiveEnemyCombatEncounter {
   enemyId: string
   enemyLabel: string
   enemyLevel: number
+  phase: EnemyCombatPhase
+  combatLeaderUserId: string
+  combatLeaderDisplayName: string
   requestedByUserId: string
   requestedByDisplayName: string
   requestedByPosition: Position
@@ -584,6 +589,16 @@ function getActiveEnemyCombatEncounterForUser(userId: string) {
   return encounterId ? activeEnemyCombatEncounters.get(encounterId) ?? null : null
 }
 
+function isCombatLeaderParticipating(encounter: ActiveEnemyCombatEncounter) {
+  return encounter.participantUserIds.includes(encounter.combatLeaderUserId)
+}
+
+function canUserControlEnemyCombatEncounter(encounter: ActiveEnemyCombatEncounter, userId: string) {
+  return isCombatLeaderParticipating(encounter)
+    ? encounter.combatLeaderUserId === userId
+    : encounter.participantUserIds.includes(userId)
+}
+
 function buildEnemyCombatParticipantSummary(userId: string): EnemyCombatParticipantSummary | null {
   const presence = getPresenceForUser(userId)
   const session = Array.from(sessions.values()).find((currentSession) => currentSession.profile.userId === userId) ?? null
@@ -611,6 +626,9 @@ function buildEnemyCombatEncounterStatePayload(
     enemyId: encounter.enemyId,
     enemyLabel: encounter.enemyLabel,
     enemyLevel: encounter.enemyLevel,
+    phase: encounter.phase,
+    combatLeaderUserId: encounter.combatLeaderUserId,
+    combatLeaderDisplayName: encounter.combatLeaderDisplayName,
     requestedByUserId: encounter.requestedByUserId,
     requestedByDisplayName: encounter.requestedByDisplayName,
     requestedByPosition: clonePosition(encounter.requestedByPosition),
@@ -649,13 +667,45 @@ function buildEnemyCombatSupportInvitePayload(
     enemyId: encounter.enemyId,
     enemyLabel: encounter.enemyLabel,
     enemyLevel: encounter.enemyLevel,
+    combatLeaderUserId: encounter.combatLeaderUserId,
+    combatLeaderDisplayName: encounter.combatLeaderDisplayName,
     requestedByUserId: encounter.requestedByUserId,
     requestedByDisplayName: encounter.requestedByDisplayName,
     requestedByPosition: clonePosition(encounter.requestedByPosition),
   }
 }
 
+async function resolveEnemyCombatLeaderForUser(userId: string, roomId: string) {
+  const party = await buildPartyForUser(userId)
+  const fallbackParticipant = buildEnemyCombatParticipantSummary(userId)
+
+  if (party) {
+    const leaderPresence = getPresenceForUser(party.leaderUserId)
+    if (leaderPresence && leaderPresence.roomId === roomId) {
+      const leaderMember = party.members.find((member) => member.userId === party.leaderUserId) ?? null
+
+      return {
+        userId: party.leaderUserId,
+        displayName:
+          leaderMember?.displayName ??
+          leaderPresence.displayName ??
+          fallbackParticipant?.displayName ??
+          'Lider del grupo',
+      }
+    }
+  }
+
+  return {
+    userId,
+    displayName: fallbackParticipant?.displayName ?? 'Jugador',
+  }
+}
+
 function emitEnemyCombatSupportInviteToUser(userId: string, encounter: ActiveEnemyCombatEncounter) {
+  if (encounter.phase !== 'lobby') {
+    return
+  }
+
   const payload = buildEnemyCombatSupportInvitePayload(encounter)
   getSocketIdsForUser(userId).forEach((socketId) => {
     io.to(socketId).emit(serverEvents.enemyCombatSupportInviteReceived, payload)
@@ -708,6 +758,22 @@ function removeUserFromEnemyCombatEncounter(userId: string, encounterId?: string
   activeEnemyCombatEncounterIdsByUser.delete(userId)
 
   if (!encounter) {
+    return
+  }
+
+  if (encounter.combatLeaderUserId === userId) {
+    const remainingParticipantUserIds = encounter.participantUserIds.filter((participantUserId) => participantUserId !== userId)
+
+    closeEnemyCombatEncounter(encounter.encounterId)
+
+    if (remainingParticipantUserIds.length > 0) {
+      emitActivityNoticeToUserIds(
+        remainingParticipantUserIds,
+        'Combate cancelado',
+        'El lider del combate se retiro. Todos salieron del enfrentamiento.',
+      )
+    }
+
     return
   }
 
@@ -2780,6 +2846,14 @@ io.on('connection', (socket) => {
         return
       }
 
+      if (existingEncounter.phase !== 'lobby') {
+        callback?.({
+          ok: false,
+          message: 'Ese combate ya comenzo y no admite nuevos participantes.',
+        })
+        return
+      }
+
       if (!existingEncounter.declinedUserIds.has(session.profile.userId)) {
         emitEnemyCombatSupportInviteToUser(session.profile.userId, existingEncounter)
       }
@@ -2791,32 +2865,85 @@ io.on('connection', (socket) => {
       return
     }
 
-    const encounter: ActiveEnemyCombatEncounter = {
-      encounterId: randomUUID(),
-      roomId: room.roomId,
-      templateId: room.templateId,
-      enemyId: enemyTemplate.id,
-      enemyLabel: enemyTemplate.label ?? 'Rival',
-      enemyLevel: Math.max(0, Math.floor(enemyTemplate.nivel_enemigo_ ?? 0)),
-      requestedByUserId: session.profile.userId,
-      requestedByDisplayName: session.profile.displayName,
-      requestedByPosition: clonePosition(player.position),
-      participantUserIds: [session.profile.userId],
-      declinedUserIds: new Set<string>(),
+    void (async () => {
+      const combatLeader = await resolveEnemyCombatLeaderForUser(session.profile.userId, room.roomId)
+
+      const encounter: ActiveEnemyCombatEncounter = {
+        encounterId: randomUUID(),
+        roomId: room.roomId,
+        templateId: room.templateId,
+        enemyId: enemyTemplate.id,
+        enemyLabel: enemyTemplate.label ?? 'Rival',
+        enemyLevel: Math.max(0, Math.floor(enemyTemplate.nivel_enemigo_ ?? 0)),
+        phase: 'lobby',
+        combatLeaderUserId: combatLeader.userId,
+        combatLeaderDisplayName: combatLeader.displayName,
+        requestedByUserId: session.profile.userId,
+        requestedByDisplayName: session.profile.displayName,
+        requestedByPosition: clonePosition(player.position),
+        participantUserIds: [session.profile.userId],
+        declinedUserIds: new Set<string>(),
+      }
+
+      activeEnemyCombatEncounters.set(encounter.encounterId, encounter)
+      activeEnemyCombatEncounterIdsByRoomEnemy.set(roomEnemyKey, encounter.encounterId)
+      activeEnemyCombatEncounterIdsByUser.set(session.profile.userId, encounter.encounterId)
+
+      emitRoomEnemyCombatState(room.roomId)
+
+      Array.from(new Set(room.players.map((presence) => presence.userId)))
+        .filter((userId) => userId !== session.profile.userId)
+        .forEach((userId) => {
+          emitEnemyCombatSupportInviteToUser(userId, encounter)
+        })
+
+      callback?.({ ok: true })
+    })().catch((error) => {
+      console.error('[COMBATE] No fue posible resolver el lider del combate.', error)
+      callback?.({
+        ok: false,
+        message: 'No fue posible iniciar el combate.',
+      })
+    })
+  })
+
+  socket.on(clientEvents.startEnemyCombat, (rawPayload, callback) => {
+    const parsed = startEnemyCombatSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible comenzar el combate.',
+      })
+      return
     }
 
-    activeEnemyCombatEncounters.set(encounter.encounterId, encounter)
-    activeEnemyCombatEncounterIdsByRoomEnemy.set(roomEnemyKey, encounter.encounterId)
-    activeEnemyCombatEncounterIdsByUser.set(session.profile.userId, encounter.encounterId)
-
-    emitRoomEnemyCombatState(room.roomId)
-
-    Array.from(new Set(room.players.map((presence) => presence.userId)))
-      .filter((userId) => userId !== session.profile.userId)
-      .forEach((userId) => {
-        emitEnemyCombatSupportInviteToUser(userId, encounter)
+    const encounter = activeEnemyCombatEncounters.get(parsed.data.encounterId)
+    if (!encounter || !encounter.participantUserIds.includes(session.profile.userId)) {
+      callback?.({
+        ok: false,
+        message: 'Ese combate ya no esta disponible.',
       })
+      return
+    }
 
+    if (!canUserControlEnemyCombatEncounter(encounter, session.profile.userId)) {
+      callback?.({
+        ok: false,
+        message: `Solo ${encounter.combatLeaderDisplayName} puede iniciar el combate.`,
+      })
+      return
+    }
+
+    if (encounter.phase === 'battle') {
+      emitRoomEnemyCombatState(encounter.roomId)
+      callback?.({ ok: true })
+      return
+    }
+
+    encounter.phase = 'battle'
+    emitRoomEnemyCombatState(encounter.roomId)
     callback?.({ ok: true })
   })
 
@@ -2837,6 +2964,14 @@ io.on('connection', (socket) => {
       callback?.({
         ok: false,
         message: 'La solicitud de apoyo al combate ya no esta disponible.',
+      })
+      return
+    }
+
+    if (encounter.phase !== 'lobby') {
+      callback?.({
+        ok: false,
+        message: 'El combate ya comenzo y ya no acepta nuevos aliados.',
       })
       return
     }
@@ -2908,7 +3043,17 @@ io.on('connection', (socket) => {
       return
     }
 
-    const escaped = Math.random() <= resolveEnemyCombatFleeChance(encounter.enemyLevel)
+    if (!canUserControlEnemyCombatEncounter(encounter, session.profile.userId)) {
+      callback?.({
+        ok: false,
+        message: `Solo ${encounter.combatLeaderDisplayName} puede retirarse del combate.`,
+      })
+      return
+    }
+
+    const escaped =
+      canUserControlEnemyCombatEncounter(encounter, session.profile.userId) ||
+      Math.random() <= resolveEnemyCombatFleeChance(encounter.enemyLevel)
     console.info('[COMBATE] Resolviendo huida del combate.', {
       socketId: socket.id,
       userId: session.profile.userId,
@@ -2922,6 +3067,15 @@ io.on('connection', (socket) => {
 
     if (escaped) {
       removeUserFromEnemyCombatEncounter(session.profile.userId, encounter.encounterId)
+
+      callback?.({
+        ok: true,
+        escaped,
+        message: encounter.combatLeaderUserId === session.profile.userId
+          ? 'Te retiraste del combate y todo el grupo salio del enfrentamiento.'
+          : 'Lograste huir del combate.',
+      })
+      return
     }
 
     callback?.({

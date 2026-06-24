@@ -15,6 +15,7 @@ export const clientEvents = {
   inviteToParty: 'invite_to_party',
   respondPartyInvite: 'respond_party_invite',
   requestEnemyCombat: 'request_enemy_combat',
+  startEnemyCombat: 'start_enemy_combat',
   respondEnemyCombatSupport: 'respond_enemy_combat_support',
   fleeEnemyCombat: 'flee_enemy_combat',
   respondPartyLeaderFollow: 'respond_party_leader_follow',

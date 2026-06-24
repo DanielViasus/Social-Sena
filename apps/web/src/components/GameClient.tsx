@@ -25,7 +25,6 @@ import {
   type RoomEnemyTemplate,
   type RoomEnemyCombatStatePayload,
   type RoomEnemiesStatePayload,
-  type RoomInteractableTemplate,
   type RoomState,
   type SkinColorSelections,
   type SocialStatePayload,
@@ -46,7 +45,7 @@ import {
   type AvatarColorSelections,
 } from '../game/avatar/avatarSprites'
 import { createAvatarBubblePalette } from '../game/avatar/avatarUiColors'
-import ReactWorld from './ReactWorld'
+import ReactWorld, { type WorldInteractableTarget } from './ReactWorld'
 import SceneLoadingOverlay, { SCENE_LOADING_LAYER_ASSETS } from './SceneLoadingOverlay'
 import DialogueOverlay from './dialogue/DialogueOverlay'
 import MobileNpcInteractButton from './MobileNpcInteractButton'
@@ -66,7 +65,7 @@ const SERVER_URL = import.meta.env.VITE_GAME_SERVER_URL ?? 'http://localhost:300
 const PLAYER_NAMES_VISIBILITY_STORAGE_KEY = 'social-sena-player-names-visible'
 const SCENE_LOADING_EXTRA_HOLD_MS = 1000
 const SCENE_LOADING_FAILSAFE_MS = 5500
-const ENEMY_ESCAPE_INTERACTION_COOLDOWN_MS = 3000
+const ENEMY_ESCAPE_INTERACTION_COOLDOWN_MS = 4000
 type PlayerIdentityMode = 'icons' | 'names'
 
 function parsePlayerIdentityMode(value: string | null): PlayerIdentityMode {
@@ -109,7 +108,10 @@ type ActiveTouchPromptState =
       enemyId: string
       title: string
       enemyLevel: number
+      phase: 'lobby' | 'battle'
       fleeChance: number
+      combatLeaderUserId: string
+      combatLeaderDisplayName: string
       requestedByUserId: string
       requestedByDisplayName: string
       participants: EnemyCombatParticipantSummary[]
@@ -159,7 +161,10 @@ function buildEnemyCombatPromptState(encounter: EnemyCombatEncounterStatePayload
     enemyId: encounter.enemyId,
     title: encounter.enemyLabel || 'Rival',
     enemyLevel,
+    phase: encounter.phase,
     fleeChance: resolveEnemyFleeChance(enemyLevel),
+    combatLeaderUserId: encounter.combatLeaderUserId,
+    combatLeaderDisplayName: encounter.combatLeaderDisplayName,
     requestedByUserId: encounter.requestedByUserId,
     requestedByDisplayName: encounter.requestedByDisplayName,
     participants: encounter.participants,
@@ -356,6 +361,121 @@ function CombatEnemyPreview({
   )
 }
 
+function PokemonCombatParticipantSprite({
+  participant,
+  size,
+}: {
+  participant: EnemyCombatParticipantSummary
+  size: number
+}) {
+  const preset = resolveAvatarPreset(participant.skinId)
+  const previewFrames = preset.idleBackFrames?.length ? preset.idleBackFrames : preset.idleFrames
+  const frameIndex = useLoopingPreviewFrame(previewFrames.length, 260)
+  const frame = previewFrames[frameIndex] ?? previewFrames[0]
+  const sheetUrl = resolveAvatarSheetUrl(preset, participant.skinColors)
+  const scale = size / preset.frameWidth
+
+  return (
+    <div
+      className="pokemon-combat-sprite-frame"
+      style={{
+        width: `${size}px`,
+        height: `${size}px`,
+      }}
+    >
+      <img
+        src={sheetUrl}
+        alt={participant.displayName}
+        draggable={false}
+        className="pokemon-combat-sprite-sheet"
+        style={{
+          width: `${preset.sheetWidth * scale}px`,
+          height: `${preset.sheetHeight * scale}px`,
+          left: `${-frame.column * preset.frameWidth * scale}px`,
+          top: `${-frame.row * preset.frameHeight * scale}px`,
+        }}
+      />
+    </div>
+  )
+}
+
+function PokemonCombatEnemySprite({
+  enemyTemplate,
+  label,
+  size,
+}: {
+  enemyTemplate: RoomEnemyTemplate | null
+  label: string
+  size: number
+}) {
+  const spriteSheetUrl = getEnemySpriteAsset(enemyTemplate?.spriteSheetAssetId)
+  const spriteUrl = getEnemyOverlayAsset(enemyTemplate?.spriteAssetId)
+  const frameWidth = enemyTemplate?.spriteFrameWidth ?? 128
+  const frameHeight = enemyTemplate?.spriteFrameHeight ?? 128
+  const sheetWidth = enemyTemplate?.spriteSheetWidth ?? frameWidth
+  const sheetHeight = enemyTemplate?.spriteSheetHeight ?? frameHeight
+  const idleFrames = (enemyTemplate?.spriteFrames ?? [])
+    .filter((frame) => frame.row === 0)
+    .sort((leftFrame, rightFrame) => leftFrame.column - rightFrame.column)
+  const idleFrameIndex = useLoopingPreviewFrame(
+    idleFrames.length,
+    Math.max(120, enemyTemplate?.spriteFrameDurationMs ?? 280),
+  )
+  const activeIdleFrame = idleFrames[idleFrameIndex] ?? idleFrames[0] ?? null
+  const scale = size / frameWidth
+
+  if (spriteSheetUrl) {
+    return (
+      <div
+        className="pokemon-combat-sprite-frame is-enemy"
+        style={{
+          width: `${size}px`,
+          height: `${size}px`,
+        }}
+      >
+        <img
+          src={spriteSheetUrl}
+          alt={label}
+          draggable={false}
+          className="pokemon-combat-sprite-sheet"
+          style={{
+            width: `${sheetWidth * scale}px`,
+            height: `${sheetHeight * scale}px`,
+            left: `${-((activeIdleFrame?.column ?? 0) * frameWidth * scale)}px`,
+            top: `${-((activeIdleFrame?.row ?? 0) * frameHeight * scale)}px`,
+          }}
+        />
+      </div>
+    )
+  }
+
+  if (spriteUrl) {
+    return (
+      <img
+        src={spriteUrl}
+        alt={label}
+        draggable={false}
+        className="pokemon-combat-static-sprite"
+        style={{
+          width: `${size}px`,
+          height: `${size}px`,
+        }}
+      />
+    )
+  }
+
+  return (
+    <div
+      className="pokemon-combat-static-sprite is-fallback"
+      aria-hidden="true"
+      style={{
+        width: `${size}px`,
+        height: `${size}px`,
+      }}
+    />
+  )
+}
+
 function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const MAX_HEADLINE_SPEECH_CHARS = 30
   const FRIEND_REQUEST_POPUP_DURATION_MS = 8000
@@ -404,6 +524,8 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const [respondingPartyInviteId, setRespondingPartyInviteId] = useState<string | null>(null)
   const [respondingEnemyCombatInviteId, setRespondingEnemyCombatInviteId] = useState<string | null>(null)
   const [respondingPartyLeaderFollow, setRespondingPartyLeaderFollow] = useState(false)
+  const [startingEnemyCombatEncounterId, setStartingEnemyCombatEncounterId] = useState<string | null>(null)
+  const [fleeingEnemyCombatEncounterId, setFleeingEnemyCombatEncounterId] = useState<string | null>(null)
   const [promotingPartyLeaderUserId, setPromotingPartyLeaderUserId] = useState<string | null>(null)
   const [leavingParty, setLeavingParty] = useState(false)
   const [activeDialogue, setActiveDialogue] = useState<ActiveDialogueState | null>(null)
@@ -412,7 +534,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const [dialogueVisibleChars, setDialogueVisibleChars] = useState(0)
   const [npcInteractionLocked, setNpcInteractionLocked] = useState(false)
   const [mobileInteractionEnabled, setMobileInteractionEnabled] = useState(false)
-  const [activeInteractable, setActiveInteractable] = useState<RoomInteractableTemplate | null>(null)
+  const [activeInteractable, setActiveInteractable] = useState<WorldInteractableTarget | null>(null)
   const [sceneLoadingVisible, setSceneLoadingVisible] = useState(true)
   const [skinEditorOpen, setSkinEditorOpen] = useState(false)
   const [initialSkinSetupOpen, setInitialSkinSetupOpen] = useState(false)
@@ -431,6 +553,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   )
   const socketRef = useRef<Socket | null>(null)
   const roomRef = useRef<RoomState | null>(null)
+  const roomEnemyCombatEncountersRef = useRef<EnemyCombatEncounterStatePayload[]>([])
   const sessionRef = useRef(session)
   const sessionProfileRef = useRef(session.profile)
   const optionsMenuRef = useRef<HTMLDivElement | null>(null)
@@ -499,12 +622,47 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     ambientMusicControllerRef.current = createAmbientMusicController()
   }
   const activeTemplate = resolveRoomTemplateFromPath(pathname)
+  const isCombatLeaderParticipantPresent =
+    activeTouchPrompt?.kind === 'enemy'
+      ? activeTouchPrompt.participants.some((participant) => participant.userId === activeTouchPrompt.combatLeaderUserId)
+      : false
+  const canStartActiveEnemyCombat =
+    activeTouchPrompt?.kind === 'enemy' &&
+    (isCombatLeaderParticipantPresent
+      ? activeTouchPrompt.combatLeaderUserId === session.profile.userId
+      : activeTouchPrompt.participants.some((participant) => participant.userId === session.profile.userId))
+  const isSubmittingEnemyCombatStart =
+    activeTouchPrompt?.kind === 'enemy' && startingEnemyCombatEncounterId === activeTouchPrompt.encounterId
   const canRetreatFromActiveEnemyCombat =
-    activeTouchPrompt?.kind === 'enemy' && activeTouchPrompt.requestedByUserId === session.profile.userId
+    activeTouchPrompt?.kind === 'enemy' &&
+    (isCombatLeaderParticipantPresent
+      ? activeTouchPrompt.combatLeaderUserId === session.profile.userId
+      : activeTouchPrompt.participants.some((participant) => participant.userId === session.profile.userId))
+  const isSubmittingEnemyCombatFlee =
+    activeTouchPrompt?.kind === 'enemy' && fleeingEnemyCombatEncounterId === activeTouchPrompt.encounterId
   const activeCombatEnemyTemplate =
     activeTouchPrompt?.kind === 'enemy'
       ? (activeTemplate.enemies ?? []).find((enemyTemplate) => enemyTemplate.id === activeTouchPrompt.enemyId) ?? null
       : null
+  const activeCombatCurrentParticipant =
+    activeTouchPrompt?.kind === 'enemy'
+      ? activeTouchPrompt.participants.find((participant) => participant.userId === session.profile.userId) ??
+        activeTouchPrompt.participants[0] ??
+        null
+      : null
+  const activeCombatSupportParticipants =
+    activeTouchPrompt?.kind === 'enemy' && activeCombatCurrentParticipant
+      ? activeTouchPrompt.participants.filter((participant) => participant.userId !== activeCombatCurrentParticipant.userId)
+      : []
+  const activeCombatParticipantSpriteSize = 136
+  const activeCombatBattlefieldParticipants =
+    activeTouchPrompt?.kind === 'enemy' && activeCombatCurrentParticipant
+      ? [...activeCombatSupportParticipants, activeCombatCurrentParticipant]
+      : []
+  const activeCombatHealthParticipants =
+    activeTouchPrompt?.kind === 'enemy' && activeCombatCurrentParticipant
+      ? [activeCombatCurrentParticipant, ...activeCombatSupportParticipants]
+      : []
   const playerInitial = session.profile.displayName.slice(0, 1).toUpperCase()
   const typingIndicatorText = ['.', '..', '...'][typingIndicatorFrame] ?? '...'
   const availableSkins = getAvailableAvatarPresets()
@@ -1060,6 +1218,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       setActiveSpeechByUserId({})
       setTypingByUserId({})
       setRoomEnemyCombatEncounters([])
+      roomEnemyCombatEncountersRef.current = []
       setFriends([])
       setIncomingFriendRequests([])
       setOutgoingFriendRequestUserIds([])
@@ -1073,6 +1232,8 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       partyInvitePopupsRef.current = []
       setPartyInvitePopups([])
       setRespondingEnemyCombatInviteId(null)
+      setStartingEnemyCombatEncounterId(null)
+      setFleeingEnemyCombatEncounterId(null)
       setActiveTouchPrompt(null)
       friendsRef.current = []
       partyRef.current = null
@@ -1095,6 +1256,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       setQuickChatOpen(false)
       setTypingByUserId({})
       setRoomEnemyCombatEncounters([])
+      roomEnemyCombatEncountersRef.current = []
       setFriends([])
       setIncomingFriendRequests([])
       setOutgoingFriendRequestUserIds([])
@@ -1108,6 +1270,8 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       partyInvitePopupsRef.current = []
       setPartyInvitePopups([])
       setRespondingEnemyCombatInviteId(null)
+      setStartingEnemyCombatEncounterId(null)
+      setFleeingEnemyCombatEncounterId(null)
       setActiveTouchPrompt(null)
       friendsRef.current = []
       partyRef.current = null
@@ -1294,7 +1458,20 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
 
     nextSocket.on(serverEvents.roomEnemyCombatState, (payload: RoomEnemyCombatStatePayload) => {
+      const previousEncounters = roomEnemyCombatEncountersRef.current
+      const removedEncounterEnemyIds = previousEncounters
+        .filter(
+          (previousEncounter) =>
+            !payload.encounters.some((nextEncounter) => nextEncounter.encounterId === previousEncounter.encounterId),
+        )
+        .map((previousEncounter) => previousEncounter.enemyId)
+
+      roomEnemyCombatEncountersRef.current = payload.encounters
       setRoomEnemyCombatEncounters(payload.encounters)
+
+      removedEncounterEnemyIds.forEach((enemyId) => {
+        blockEnemyInteractionFor(enemyId, ENEMY_ESCAPE_INTERACTION_COOLDOWN_MS)
+      })
 
       const currentUserId = sessionProfileRef.current.userId
       const activeEncounter =
@@ -1302,12 +1479,25 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
           encounter.participants.some((participant) => participant.userId === currentUserId),
         ) ?? null
 
+      if (!activeEncounter) {
+        setStartingEnemyCombatEncounterId(null)
+        setFleeingEnemyCombatEncounterId(null)
+      } else if (activeEncounter.phase === 'battle') {
+        setStartingEnemyCombatEncounterId((currentValue) =>
+          currentValue === activeEncounter.encounterId ? null : currentValue,
+        )
+      }
+
       setEnemyCombatSupportInvites((currentValue) =>
         currentValue.filter((currentInvite) => {
           const encounter = payload.encounters.find(
             (candidateEncounter) => candidateEncounter.encounterId === currentInvite.encounterId,
           )
           if (!encounter) {
+            return false
+          }
+
+          if (encounter.phase !== 'lobby') {
             return false
           }
 
@@ -2441,12 +2631,18 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     )
   })
 
-  const handleWorldInteract = useEffectEvent((interactable: RoomInteractableTemplate) => {
+  const handleWorldInteract = useEffectEvent((interactable: WorldInteractableTarget) => {
     if (activeDialogue || activeTouchPrompt || npcInteractionLocked || skinEditorOpen || initialSkinSetupOpen) {
       return
     }
 
     void ensureAudioUnlocked()
+
+    if (interactable.entityType === 'enemy-combat') {
+      requestStopMovement()
+      handleRespondToEnemyCombatSupportInvite(interactable.encounterId, 'accept')
+      return
+    }
 
     if (interactable.teleportTarget) {
       transitionToRoom(interactable.teleportTarget.templateId, interactable.teleportTarget.position)
@@ -2494,8 +2690,17 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       return
     }
 
-    if (activeTouchPrompt.requestedByUserId !== session.profile.userId) {
-      enqueueActivityNotice('Combate bloqueado', 'Solo quien inicio el combate puede retirarse del enfrentamiento.')
+    if (!canRetreatFromActiveEnemyCombat) {
+      enqueueActivityNotice(
+        'Combate bloqueado',
+        isCombatLeaderParticipantPresent
+          ? `Solo ${activeTouchPrompt.combatLeaderDisplayName} puede retirarse del enfrentamiento.`
+          : 'Solo quienes ya participan en el combate pueden retirarse del enfrentamiento.',
+      )
+      return
+    }
+
+    if (fleeingEnemyCombatEncounterId === activeTouchPrompt.encounterId) {
       return
     }
 
@@ -2515,12 +2720,16 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
 
     void playUiSound('cancel')
+    setFleeingEnemyCombatEncounterId(activeTouchPrompt.encounterId)
     socket.emit(
       clientEvents.fleeEnemyCombat,
       {
         encounterId: activeTouchPrompt.encounterId,
       },
       (response: { ok: boolean; escaped?: boolean; message?: string }) => {
+        setFleeingEnemyCombatEncounterId((currentValue) =>
+          currentValue === activeTouchPrompt.encounterId ? null : currentValue,
+        )
         console.info('[COMBATE] Respuesta del servidor al intentar huir.', {
           encounterId: activeTouchPrompt.encounterId,
           enemyId: activeTouchPrompt.enemyId,
@@ -2546,8 +2755,31 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     )
   })
 
-  const handleEnemyCombatStartPreview = useEffectEvent(() => {
+  const handleEnemyCombatStart = useEffectEvent(() => {
     if (!activeTouchPrompt || activeTouchPrompt.kind !== 'enemy') {
+      return
+    }
+
+    if (activeTouchPrompt.phase === 'battle') {
+      return
+    }
+
+    if (!canStartActiveEnemyCombat) {
+      enqueueActivityNotice(
+        'Combate bloqueado',
+        isCombatLeaderParticipantPresent
+          ? `Solo ${activeTouchPrompt.combatLeaderDisplayName} puede comenzar el combate.`
+          : 'Solo quienes ya participan en el combate pueden comenzarlo.',
+      )
+      return
+    }
+
+    if (startingEnemyCombatEncounterId === activeTouchPrompt.encounterId) {
+      return
+    }
+
+    const socket = socketRef.current
+    if (!socket) {
       return
     }
 
@@ -2556,8 +2788,32 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       enemyId: activeTouchPrompt.enemyId,
       participants: activeTouchPrompt.participants.map((participant) => participant.userId),
     })
+
     void playUiSound('confirm')
-    enqueueActivityNotice('Combate en preparacion', 'La logica de inicio del combate se conectara en el siguiente paso.')
+    setStartingEnemyCombatEncounterId(activeTouchPrompt.encounterId)
+    socket.emit(
+      clientEvents.startEnemyCombat,
+      {
+        encounterId: activeTouchPrompt.encounterId,
+      },
+      (response: { ok: boolean; message?: string }) => {
+        setStartingEnemyCombatEncounterId((currentValue) =>
+          currentValue === activeTouchPrompt.encounterId ? null : currentValue,
+        )
+
+        if (!response.ok) {
+          enqueueActivityNotice('Aviso del sistema', response.message ?? 'No fue posible comenzar el combate.')
+        }
+      },
+    )
+  })
+
+  const handleBattleCommandPreview = useEffectEvent((commandLabel: string) => {
+    void playUiSound('select')
+    enqueueActivityNotice(
+      `${commandLabel} en preparacion`,
+      'Primero dejamos lista la interfaz de combate. La logica de acciones ira en el siguiente paso.',
+    )
   })
 
   const handleInteractShortcut = useEffectEvent(() => {
@@ -3873,79 +4129,271 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
                   </header>
                 ) : null}
                 {activeTouchPrompt.kind === 'enemy' ? (
-                  <div className="combat-banner-shell">
-                    <button
-                      type="button"
-                      className="combat-banner-close-button"
-                      aria-label="Huir del combate"
-                      onClick={handleEnemyFlee}
-                      disabled={!canRetreatFromActiveEnemyCombat}
-                      title={
-                        canRetreatFromActiveEnemyCombat
-                          ? 'Retirarse del combate'
-                          : 'Solo quien inicio el combate puede retirarse'
-                      }
-                    >
-                      X
-                    </button>
+                  activeTouchPrompt.phase === 'battle' && activeCombatCurrentParticipant ? (
+                    <div className="pokemon-combat-shell">
+                      <div className="pokemon-combat-stage">
+                        <div className="pokemon-combat-stage-header">
+                          <span>Combate activo</span>
+                          <span>{`Lider: ${activeTouchPrompt.combatLeaderDisplayName}`}</span>
+                        </div>
 
-                    <div className="combat-banner-topband">
-                      <p className="combat-banner-kicker">Sala de espera de combate</p>
-                      <div className="combat-banner-heading">
-                        <h2>{activeTouchPrompt.title}</h2>
-                        <p>{`Iniciado por ${activeTouchPrompt.requestedByDisplayName} · Huida ${Math.round(activeTouchPrompt.fleeChance * 100)}%`}</p>
-                        {!canRetreatFromActiveEnemyCombat ? (
-                          <p className="combat-banner-helper-copy">Solo el lider del combate puede retirarse.</p>
-                        ) : null}
+                        <div className="pokemon-combat-battlefield">
+                          <section className="pokemon-combat-enemy-zone">
+                            <article className="pokemon-combat-status-card is-enemy">
+                              <div className="pokemon-combat-status-topline">
+                                <strong>{activeTouchPrompt.title}</strong>
+                                <span>{`Nv${activeTouchPrompt.enemyLevel}`}</span>
+                              </div>
+                              <div className="pokemon-combat-status-bar-row">
+                                <span>PS</span>
+                                <div className="pokemon-combat-status-bar">
+                                  <div className="pokemon-combat-status-bar-fill" style={{ width: '100%' }} />
+                                </div>
+                              </div>
+                              <p>{`Rival listo para el combate`}</p>
+                            </article>
+
+                            <div className="pokemon-combat-platform is-enemy">
+                              <PokemonCombatEnemySprite
+                                enemyTemplate={activeCombatEnemyTemplate}
+                                label={activeTouchPrompt.title}
+                                size={172}
+                              />
+                            </div>
+                          </section>
+
+                          <section className="pokemon-combat-ally-zone">
+                            <div className="pokemon-combat-platform is-ally">
+                              <div className="pokemon-combat-ally-formation">
+                                <div className="pokemon-combat-ally-squad" aria-label="Equipo aliado en combate">
+                                  {activeCombatBattlefieldParticipants.map((participant) => (
+                                    <div
+                                      key={participant.userId}
+                                      className={`pokemon-combat-ally-sprite-slot ${
+                                        participant.userId === activeCombatCurrentParticipant.userId ? 'is-current' : ''
+                                      }`}
+                                    >
+                                      <PokemonCombatParticipantSprite
+                                        participant={participant}
+                                        size={activeCombatParticipantSpriteSize}
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+
+                            <article className="pokemon-combat-status-card is-ally">
+                              <div className="pokemon-combat-status-topline">
+                                <strong>{activeCombatCurrentParticipant.displayName}</strong>
+                                <span>{`Nv${Math.max(1, Math.floor(activeCombatCurrentParticipant.level ?? 1))}`}</span>
+                              </div>
+                              <div className="pokemon-combat-status-bar-row">
+                                <span>PS</span>
+                                <div className="pokemon-combat-status-bar">
+                                  <div className="pokemon-combat-status-bar-fill" style={{ width: '100%' }} />
+                                </div>
+                              </div>
+                              <p>{`Aliados presentes: ${activeTouchPrompt.participants.length}`}</p>
+                              <div className="pokemon-combat-team-health-list" aria-label="Salud del equipo">
+                                {activeCombatHealthParticipants.map((participant) => (
+                                  <div
+                                    key={participant.userId}
+                                    className={`pokemon-combat-team-health-row ${
+                                      participant.userId === activeCombatCurrentParticipant.userId ? 'is-current' : ''
+                                    }`}
+                                  >
+                                    <div className="pokemon-combat-team-health-topline">
+                                      <strong className="pokemon-combat-team-health-name">
+                                        {participant.userId === activeCombatCurrentParticipant.userId ? 'Tu' : participant.displayName}
+                                      </strong>
+                                      <span className="pokemon-combat-team-health-level">{`Nv${Math.max(
+                                        1,
+                                        Math.floor(participant.level ?? 1),
+                                      )}`}</span>
+                                    </div>
+                                    <div className="pokemon-combat-team-health-bar">
+                                      <div className="pokemon-combat-team-health-fill" style={{ width: '100%' }} />
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </article>
+                          </section>
+                        </div>
+                      </div>
+
+                      <div className="pokemon-combat-command-shell">
+                        <div className="pokemon-combat-dialogue-box">
+                          <p className="pokemon-combat-dialogue-title">{`¿Que hara ${activeCombatCurrentParticipant.displayName}?`}</p>
+                          <p className="pokemon-combat-dialogue-copy">
+                            {`Rival: ${activeTouchPrompt.title} · Lider del combate: ${activeTouchPrompt.combatLeaderDisplayName}`}
+                          </p>
+                          <div className="pokemon-combat-party-strip">
+                            {activeTouchPrompt.participants.map((participant) => (
+                              <span
+                                key={participant.userId}
+                                className={`pokemon-combat-party-chip ${
+                                  participant.userId === activeCombatCurrentParticipant.userId ? 'is-active' : ''
+                                }`}
+                              >
+                                {participant.userId === activeCombatCurrentParticipant.userId ? 'Tu' : participant.displayName}
+                              </span>
+                            ))}
+                          </div>
+                          {activeCombatSupportParticipants.length > 0 ? (
+                            <div className="pokemon-combat-support-strip">
+                              {activeCombatSupportParticipants.map((participant) => (
+                                <div key={participant.userId} className="pokemon-combat-support-card">
+                                  <PokemonCombatParticipantSprite participant={participant} size={54} />
+                                  <span>{participant.displayName}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                          {!canRetreatFromActiveEnemyCombat ? (
+                            <p className="pokemon-combat-dialogue-helper">
+                              {isCombatLeaderParticipantPresent
+                                ? `Solo ${activeTouchPrompt.combatLeaderDisplayName} puede huir.`
+                                : 'El lider aun no se unio. Cualquier participante puede iniciar o huir.'}
+                            </p>
+                          ) : null}
+                        </div>
+
+                        <div className="pokemon-combat-command-grid">
+                          <button
+                            type="button"
+                            className="pokemon-combat-command-button is-fight"
+                            onClick={() => handleBattleCommandPreview('Luchar')}
+                          >
+                            LUCHAR
+                          </button>
+                          <button
+                            type="button"
+                            className="pokemon-combat-command-button is-bag"
+                            onClick={() => handleBattleCommandPreview('Mochila')}
+                          >
+                            MOCHILA
+                          </button>
+                          <button
+                            type="button"
+                            className="pokemon-combat-command-button is-party"
+                            onClick={() => handleBattleCommandPreview('Grupo')}
+                          >
+                            GRUPO
+                          </button>
+                          <button
+                            type="button"
+                            className="pokemon-combat-command-button is-run"
+                            onClick={handleEnemyFlee}
+                            disabled={isSubmittingEnemyCombatFlee}
+                          >
+                            {isSubmittingEnemyCombatFlee ? '...' : 'HUIR'}
+                          </button>
+                        </div>
                       </div>
                     </div>
-
-                    <div className="combat-banner-stage">
-                      <section className="combat-banner-side">
-                        <header className="combat-banner-side-header">
-                          <span>Aliados</span>
-                          <strong>{activeTouchPrompt.participants.length}</strong>
-                        </header>
-                        <div className="combat-banner-roster is-allies">
-                          {activeTouchPrompt.participants.map((participant) => (
-                            <CombatParticipantPreview
-                              key={participant.userId}
-                              participant={participant}
-                              isRequester={participant.userId === activeTouchPrompt.requestedByUserId}
-                            />
-                          ))}
-                        </div>
-                      </section>
-
-                      <div className="combat-banner-versus">
-                        <span>VS</span>
-                      </div>
-
-                      <section className="combat-banner-side is-enemy">
-                        <header className="combat-banner-side-header is-enemy">
-                          <span>Rival</span>
-                          <strong>{activeTouchPrompt.enemyLevel}</strong>
-                        </header>
-                        <div className="combat-banner-roster is-enemy">
-                          <CombatEnemyPreview
-                            enemyTemplate={activeCombatEnemyTemplate}
-                            label={activeTouchPrompt.title}
-                            enemyLevel={activeTouchPrompt.enemyLevel}
-                          />
-                        </div>
-                      </section>
-                    </div>
-
-                    <div className="combat-banner-bottomband">
+                  ) : (
+                    <div className="combat-banner-shell">
                       <button
                         type="button"
-                        className="combat-banner-start-button"
-                        onClick={handleEnemyCombatStartPreview}
+                        className="combat-banner-close-button"
+                        aria-label="Huir del combate"
+                        onClick={handleEnemyFlee}
+                        disabled={!canRetreatFromActiveEnemyCombat || isSubmittingEnemyCombatFlee}
+                        title={
+                          canRetreatFromActiveEnemyCombat
+                            ? isSubmittingEnemyCombatFlee
+                              ? 'Retirandose del combate...'
+                              : 'Retirarse del combate'
+                            : isCombatLeaderParticipantPresent
+                              ? `Solo ${activeTouchPrompt.combatLeaderDisplayName} puede retirarse`
+                              : 'Solo quienes participan pueden retirarse'
+                        }
                       >
-                        Iniciar combate
+                        {isSubmittingEnemyCombatFlee ? '...' : 'X'}
                       </button>
+
+                      <div className="combat-banner-topband">
+                        <p className="combat-banner-kicker">Sala de espera de combate</p>
+                        <div className="combat-banner-heading">
+                          <h2>{activeTouchPrompt.title}</h2>
+                          <p>{`Iniciado por ${activeTouchPrompt.requestedByDisplayName} · Huida ${Math.round(activeTouchPrompt.fleeChance * 100)}%`}</p>
+                          <p>{`Lider del combate: ${activeTouchPrompt.combatLeaderDisplayName}`}</p>
+                          {!canStartActiveEnemyCombat ? (
+                            <p className="combat-banner-helper-copy">
+                              {isCombatLeaderParticipantPresent
+                                ? `Solo ${activeTouchPrompt.combatLeaderDisplayName} puede iniciar el combate.`
+                                : 'El lider aun no se unio. Cualquier participante puede iniciar el combate.'}
+                            </p>
+                          ) : null}
+                          {!canRetreatFromActiveEnemyCombat ? (
+                            <p className="combat-banner-helper-copy">
+                              {isCombatLeaderParticipantPresent
+                                ? `Solo ${activeTouchPrompt.combatLeaderDisplayName} puede retirarse.`
+                                : 'El lider aun no se unio. Cualquier participante puede retirarse.'}
+                            </p>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="combat-banner-stage">
+                        <section className="combat-banner-side">
+                          <header className="combat-banner-side-header">
+                            <span>Aliados</span>
+                            <strong>{activeTouchPrompt.participants.length}</strong>
+                          </header>
+                          <div className="combat-banner-roster is-allies">
+                            {activeTouchPrompt.participants.map((participant) => (
+                              <CombatParticipantPreview
+                                key={participant.userId}
+                                participant={participant}
+                                isRequester={participant.userId === activeTouchPrompt.requestedByUserId}
+                              />
+                            ))}
+                          </div>
+                        </section>
+
+                        <div className="combat-banner-versus">
+                          <span>VS</span>
+                        </div>
+
+                        <section className="combat-banner-side is-enemy">
+                          <header className="combat-banner-side-header is-enemy">
+                            <span>Rival</span>
+                            <strong>{activeTouchPrompt.enemyLevel}</strong>
+                          </header>
+                          <div className="combat-banner-roster is-enemy">
+                            <CombatEnemyPreview
+                              enemyTemplate={activeCombatEnemyTemplate}
+                              label={activeTouchPrompt.title}
+                              enemyLevel={activeTouchPrompt.enemyLevel}
+                            />
+                          </div>
+                        </section>
+                      </div>
+
+                      <div className="combat-banner-bottomband">
+                        <button
+                          type="button"
+                          className="combat-banner-start-button"
+                          onClick={handleEnemyCombatStart}
+                          disabled={isSubmittingEnemyCombatStart}
+                          title={
+                            canStartActiveEnemyCombat
+                              ? isSubmittingEnemyCombatStart
+                                ? 'Preparando el combate...'
+                                : 'Comenzar combate'
+                              : isCombatLeaderParticipantPresent
+                                ? `Solo ${activeTouchPrompt.combatLeaderDisplayName} puede iniciar el combate`
+                                : 'Solo quienes participan pueden iniciar el combate'
+                          }
+                        >
+                          {isSubmittingEnemyCombatStart ? 'Preparando...' : 'Iniciar combate'}
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  )
                 ) : (
                   <>
                     <div className="fullscreen-touch-prompt-body" />

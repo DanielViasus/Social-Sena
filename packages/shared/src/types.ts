@@ -195,6 +195,8 @@ export interface EnemyCombatParticipantSummary {
   level: number
 }
 
+export type EnemyCombatPhase = 'lobby' | 'battle'
+
 export interface EnemyCombatEncounterStatePayload {
   encounterId: string
   roomId: string
@@ -202,6 +204,9 @@ export interface EnemyCombatEncounterStatePayload {
   enemyId: string
   enemyLabel: string
   enemyLevel: number
+  phase: EnemyCombatPhase
+  combatLeaderUserId: string
+  combatLeaderDisplayName: string
   requestedByUserId: string
   requestedByDisplayName: string
   requestedByPosition: Position
@@ -220,6 +225,8 @@ export interface EnemyCombatSupportInvitePayload {
   enemyId: string
   enemyLabel: string
   enemyLevel: number
+  combatLeaderUserId: string
+  combatLeaderDisplayName: string
   requestedByUserId: string
   requestedByDisplayName: string
   requestedByPosition: Position

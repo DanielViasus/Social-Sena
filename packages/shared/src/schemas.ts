@@ -106,6 +106,10 @@ export const requestEnemyCombatSchema = z.object({
   enemyId: z.string().trim().min(1),
 })
 
+export const startEnemyCombatSchema = z.object({
+  encounterId: z.string().trim().min(1),
+})
+
 export const respondEnemyCombatSupportSchema = z.object({
   encounterId: z.string().trim().min(1),
   action: z.enum(['accept', 'reject']),
