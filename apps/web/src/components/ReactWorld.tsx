@@ -225,7 +225,11 @@ function resolveFacingPoseFromVector(deltaX: number, deltaY: number): FacingPose
   return isLeft ? 'front-left' : 'front-right'
 }
 
-function resolveFacingPose(player: Presence, fallback: FacingPose): FacingPose {
+function resolveFacingPose(
+  player: Presence,
+  fallback: FacingPose,
+  movementVector?: { x: number; y: number },
+): FacingPose {
   if (player.moving && player.destination) {
     const deltaX = player.destination.x - player.position.x
     const deltaY = player.destination.y - player.position.y
@@ -233,6 +237,13 @@ function resolveFacingPose(player: Presence, fallback: FacingPose): FacingPose {
     if (Math.abs(deltaX) >= 0.001 || Math.abs(deltaY) >= 0.001) {
       return resolveFacingPoseFromVector(deltaX, deltaY)
     }
+  }
+
+  if (
+    movementVector &&
+    (Math.abs(movementVector.x) >= 0.001 || Math.abs(movementVector.y) >= 0.001)
+  ) {
+    return resolveFacingPoseFromVector(movementVector.x, movementVector.y)
   }
 
   return fallback
@@ -993,13 +1004,18 @@ function ReactWorld({
 
       targetPlayers.forEach((player) => {
         const previousPosition = nextPlayersBySession[player.sessionId] ?? player.position
+        const deltaX = player.position.x - previousPosition.x
+        const deltaY = player.position.y - previousPosition.y
         nextPlayersBySession[player.sessionId] = {
-          x: previousPosition.x + (player.position.x - previousPosition.x) * playerLerp,
-          y: previousPosition.y + (player.position.y - previousPosition.y) * playerLerp,
+          x: previousPosition.x + deltaX * playerLerp,
+          y: previousPosition.y + deltaY * playerLerp,
         }
 
         const previousFacing = nextFacingBySession[player.sessionId] ?? 'front-right'
-        nextFacingBySession[player.sessionId] = resolveFacingPose(player, previousFacing)
+        nextFacingBySession[player.sessionId] = resolveFacingPose(player, previousFacing, {
+          x: deltaX,
+          y: deltaY,
+        })
       })
 
       targetEnemies.forEach((enemyState) => {
