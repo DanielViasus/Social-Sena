@@ -44,7 +44,7 @@ import {
   resolveAvatarSheetUrl,
   type AvatarColorSelections,
 } from '../game/avatar/avatarSprites'
-import { createAvatarBubblePalette } from '../game/avatar/avatarUiColors'
+import { createAvatarBubblePalette, mixHexColor, withAlpha } from '../game/avatar/avatarUiColors'
 import ReactWorld, { type WorldInteractableTarget } from './ReactWorld'
 import SceneLoadingOverlay, { SCENE_LOADING_LAYER_ASSETS } from './SceneLoadingOverlay'
 import DialogueOverlay from './dialogue/DialogueOverlay'
@@ -67,6 +67,32 @@ const SCENE_LOADING_EXTRA_HOLD_MS = 1000
 const SCENE_LOADING_FAILSAFE_MS = 5500
 const ENEMY_ESCAPE_INTERACTION_COOLDOWN_MS = 4000
 type PlayerIdentityMode = 'icons' | 'names'
+type MovementInputState = {
+  up: boolean
+  down: boolean
+  left: boolean
+  right: boolean
+}
+
+const EMPTY_MOVEMENT_INPUT: MovementInputState = {
+  up: false,
+  down: false,
+  left: false,
+  right: false,
+}
+
+const MOVEMENT_KEY_CODES = new Set([
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'ArrowUp',
+  'KeyA',
+  'KeyD',
+  'KeyS',
+  'KeyW',
+])
+const USER_AVATAR_SHAPE_PATH =
+  'M0 32V20H4V12H8V8H12V4H20V0H32V4H40V8H44V12H48V20H52V32H48V40H44V44H40V48H32V52H20V48H12V44H8V40H4V32H0Z'
 
 function parsePlayerIdentityMode(value: string | null): PlayerIdentityMode {
   if (value === 'names' || value === 'icons') {
@@ -82,6 +108,23 @@ function parsePlayerIdentityMode(value: string | null): PlayerIdentityMode {
 
 function getNextPlayerIdentityMode(currentMode: PlayerIdentityMode): PlayerIdentityMode {
   return currentMode === 'icons' ? 'names' : 'icons'
+}
+
+function buildMovementInputFromKeyCodes(pressedKeyCodes: Set<string>): MovementInputState {
+  return {
+    up: pressedKeyCodes.has('KeyW') || pressedKeyCodes.has('ArrowUp'),
+    down: pressedKeyCodes.has('KeyS') || pressedKeyCodes.has('ArrowDown'),
+    left: pressedKeyCodes.has('KeyA') || pressedKeyCodes.has('ArrowLeft'),
+    right: pressedKeyCodes.has('KeyD') || pressedKeyCodes.has('ArrowRight'),
+  }
+}
+
+function areMovementInputsEqual(left: MovementInputState, right: MovementInputState) {
+  return left.up === right.up && left.down === right.down && left.left === right.left && left.right === right.right
+}
+
+function hasMovementInput(input: MovementInputState) {
+  return input.up || input.down || input.left || input.right
 }
 
 interface GameClientProps {
@@ -558,6 +601,8 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const sessionProfileRef = useRef(session.profile)
   const optionsMenuRef = useRef<HTMLDivElement | null>(null)
   const quickChatInputRef = useRef<HTMLInputElement | null>(null)
+  const pressedMovementKeyCodesRef = useRef<Set<string>>(new Set())
+  const movementInputRef = useRef<MovementInputState>(EMPTY_MOVEMENT_INPUT)
   const chatOpenRef = useRef(false)
   const floatingTimeoutsRef = useRef<Map<string, number>>(new Map())
   const friendRequestPopupTimeoutsRef = useRef<Map<string, number>>(new Map())
@@ -1634,6 +1679,19 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     appliedSkinPreset,
     currentPlayer?.skinColors ?? sessionProfileRef.current.skinColors,
   )
+  const appliedPrimaryColor = resolveAvatarPrimaryColor(appliedSkinPreset, appliedSkinColors)
+  const userAvatarFrameColors = {
+    fill: mixHexColor(appliedPrimaryColor, '#FFFFFF', 0.64),
+    edge: mixHexColor(appliedPrimaryColor, '#000000', 0.26),
+    shadow: withAlpha(mixHexColor(appliedPrimaryColor, '#000000', 0.34), 0.24),
+  }
+  const userMetaFrameColors = {
+    fill: mixHexColor(appliedPrimaryColor, '#FFFFFF', 0.68),
+    edge: mixHexColor(appliedPrimaryColor, '#000000', 0.34),
+    ink: mixHexColor(appliedPrimaryColor, '#000000', 0.62),
+    subInk: mixHexColor(appliedPrimaryColor, '#000000', 0.4),
+    shadow: withAlpha(mixHexColor(appliedPrimaryColor, '#000000', 0.38), 0.24),
+  }
   const appliedSkinColorsKey = JSON.stringify(appliedSkinColors)
   const selectedSkinPreset = resolveAvatarPreset(selectedSkinId)
   const selectedSkinColors =
@@ -1828,6 +1886,151 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       roomId: room.roomId,
     })
   })
+
+  const emitMovementInput = useEffectEvent((nextInput: MovementInputState) => {
+    const socket = socketRef.current
+    const activeRoom = roomRef.current
+
+    if (areMovementInputsEqual(movementInputRef.current, nextInput)) {
+      return
+    }
+
+    const hadMovement = hasMovementInput(movementInputRef.current)
+    const hasNextMovement = hasMovementInput(nextInput)
+    movementInputRef.current = nextInput
+
+    if (!socket || !activeRoom || !connected) {
+      return
+    }
+
+    if (hasNextMovement && !hadMovement) {
+      socket.emit(clientEvents.stopNavigation, {
+        roomId: activeRoom.roomId,
+      })
+    }
+
+    socket.emit(clientEvents.setMovementInput, {
+      roomId: activeRoom.roomId,
+      ...nextInput,
+    })
+  })
+
+  const resetKeyboardMovement = useEffectEvent(() => {
+    pressedMovementKeyCodesRef.current.clear()
+    emitMovementInput(EMPTY_MOVEMENT_INPUT)
+  })
+
+  useEffect(() => {
+    const handleMovementKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat || !MOVEMENT_KEY_CODES.has(event.code)) {
+        return
+      }
+
+      const target = event.target as HTMLElement | null
+      const tagName = target?.tagName?.toLowerCase()
+      const isTyping =
+        tagName === 'input' ||
+        tagName === 'textarea' ||
+        target?.isContentEditable === true
+
+      if (
+        isTyping ||
+        !connected ||
+        !room ||
+        sceneLoadingVisible ||
+        chatOpen ||
+        quickChatOpen ||
+        optionsOpen ||
+        activeDialogue ||
+        activeTouchPrompt ||
+        partyLeaderFollowPrompt ||
+        skinEditorOpen ||
+        initialSkinSetupOpen
+      ) {
+        return
+      }
+
+      if (pressedMovementKeyCodesRef.current.has(event.code)) {
+        return
+      }
+
+      event.preventDefault()
+      pressedMovementKeyCodesRef.current.add(event.code)
+      emitMovementInput(buildMovementInputFromKeyCodes(pressedMovementKeyCodesRef.current))
+    }
+
+    const handleMovementKeyUp = (event: KeyboardEvent) => {
+      if (!MOVEMENT_KEY_CODES.has(event.code)) {
+        return
+      }
+
+      const didDeleteKey = pressedMovementKeyCodesRef.current.delete(event.code)
+      if (!didDeleteKey) {
+        return
+      }
+
+      event.preventDefault()
+      emitMovementInput(buildMovementInputFromKeyCodes(pressedMovementKeyCodesRef.current))
+    }
+
+    const handleWindowBlur = () => {
+      resetKeyboardMovement()
+    }
+
+    window.addEventListener('keydown', handleMovementKeyDown)
+    window.addEventListener('keyup', handleMovementKeyUp)
+    window.addEventListener('blur', handleWindowBlur)
+
+    return () => {
+      window.removeEventListener('keydown', handleMovementKeyDown)
+      window.removeEventListener('keyup', handleMovementKeyUp)
+      window.removeEventListener('blur', handleWindowBlur)
+    }
+  }, [
+    activeDialogue,
+    activeTouchPrompt,
+    chatOpen,
+    connected,
+    initialSkinSetupOpen,
+    optionsOpen,
+    partyLeaderFollowPrompt,
+    quickChatOpen,
+    room,
+    sceneLoadingVisible,
+    skinEditorOpen,
+  ])
+
+  useEffect(() => {
+    if (
+      connected &&
+      room &&
+      !sceneLoadingVisible &&
+      !chatOpen &&
+      !quickChatOpen &&
+      !optionsOpen &&
+      !activeDialogue &&
+      !activeTouchPrompt &&
+      !partyLeaderFollowPrompt &&
+      !skinEditorOpen &&
+      !initialSkinSetupOpen
+    ) {
+      return
+    }
+
+    resetKeyboardMovement()
+  }, [
+    activeDialogue,
+    activeTouchPrompt,
+    chatOpen,
+    connected,
+    initialSkinSetupOpen,
+    optionsOpen,
+    partyLeaderFollowPrompt,
+    quickChatOpen,
+    room,
+    sceneLoadingVisible,
+    skinEditorOpen,
+  ])
 
   const closeActiveTouchPrompt = useEffectEvent(() => {
     void playUiSound('panel-close')
@@ -3236,16 +3439,114 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
         <div className="hud-layer">
           <section className="user-card">
-            <div className="user-avatar">
-              {session.pictureUrl ? (
-                <img src={session.pictureUrl} alt={session.profile.displayName} />
-              ) : (
-                playerInitial
-              )}
+            <div
+              className="user-avatar-frame"
+              style={{
+                boxShadow: `0 16px 34px ${userAvatarFrameColors.shadow}`,
+              }}
+            >
+              <svg
+                className="user-avatar-frame-art"
+                viewBox="0 0 60 60"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <rect x="24" y="0" width="12" height="4" fill={userAvatarFrameColors.edge} />
+                <rect x="24" y="56" width="12" height="4" fill={userAvatarFrameColors.edge} />
+                <rect x="16" y="4" width="8" height="4" fill={userAvatarFrameColors.edge} />
+                <rect x="36" y="4" width="8" height="4" fill={userAvatarFrameColors.edge} />
+                <rect x="16" y="52" width="8" height="4" fill={userAvatarFrameColors.edge} />
+                <rect x="36" y="52" width="8" height="4" fill={userAvatarFrameColors.edge} />
+                <rect x="8" y="8" width="8" height="4" fill={userAvatarFrameColors.edge} />
+                <rect x="44" y="8" width="8" height="4" fill={userAvatarFrameColors.edge} />
+                <rect x="8" y="48" width="8" height="4" fill={userAvatarFrameColors.edge} />
+                <rect x="44" y="48" width="8" height="4" fill={userAvatarFrameColors.edge} />
+                <rect x="8" y="12" width="4" height="4" fill={userAvatarFrameColors.edge} />
+                <rect x="48" y="12" width="4" height="4" fill={userAvatarFrameColors.edge} />
+                <rect x="8" y="44" width="4" height="4" fill={userAvatarFrameColors.edge} />
+                <rect x="48" y="44" width="4" height="4" fill={userAvatarFrameColors.edge} />
+                <rect x="4" y="16" width="4" height="8" fill={userAvatarFrameColors.edge} />
+                <rect x="52" y="16" width="4" height="8" fill={userAvatarFrameColors.edge} />
+                <rect x="4" y="36" width="4" height="8" fill={userAvatarFrameColors.edge} />
+                <rect x="52" y="36" width="4" height="8" fill={userAvatarFrameColors.edge} />
+                <rect x="0" y="24" width="4" height="12" fill={userAvatarFrameColors.edge} />
+                <rect x="56" y="24" width="4" height="12" fill={userAvatarFrameColors.edge} />
+                <path
+                  d="M4 36V24H8V16H12V12H16V8H24V4H36V8H44V12H48V16H52V24H56V36H52V44H48V48H44V52H36V56H24V52H16V48H12V44H8V36H4Z"
+                  fill={userAvatarFrameColors.fill}
+                />
+              </svg>
+              <div className="user-avatar image-user">
+                <svg
+                  className="user-avatar-shape"
+                  viewBox="0 0 52 52"
+                  aria-label={session.profile.displayName}
+                  role="img"
+                >
+                  <defs>
+                    <clipPath id="user-avatar-shape-clip">
+                      <path d={USER_AVATAR_SHAPE_PATH} />
+                    </clipPath>
+                  </defs>
+
+                  <path
+                    d={USER_AVATAR_SHAPE_PATH}
+                    fill={session.pictureUrl ? mixHexColor(appliedPrimaryColor, '#FFFFFF', 0.56) : appliedPrimaryColor}
+                  />
+
+                  {session.pictureUrl ? (
+                    <image
+                      href={session.pictureUrl}
+                      width="52"
+                      height="52"
+                      preserveAspectRatio="xMidYMid slice"
+                      clipPath="url(#user-avatar-shape-clip)"
+                    />
+                  ) : (
+                    <text
+                      x="26"
+                      y="28"
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      className="user-avatar-shape-letter"
+                    >
+                      {playerInitial}
+                    </text>
+                  )}
+                </svg>
+              </div>
             </div>
-            <div className="user-meta">
-              <strong>{session.profile.displayName}</strong>
-              <span>Nivel {session.level}</span>
+            <div
+              className="user-meta-frame"
+              style={{
+                boxShadow: `0 16px 34px ${userMetaFrameColors.shadow}`,
+              }}
+            >
+              <svg
+                className="user-meta-frame-art"
+                viewBox="0 0 184 60"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <rect x="4" y="4" width="176" height="52" fill={userMetaFrameColors.fill} />
+                <rect x="8" y="0" width="168" height="4" fill={userMetaFrameColors.edge} />
+                <rect x="8" y="56" width="168" height="4" fill={userMetaFrameColors.edge} />
+                <rect x="4" y="4" width="4" height="4" fill={userMetaFrameColors.edge} />
+                <rect x="176" y="52" width="4" height="4" fill={userMetaFrameColors.edge} />
+                <rect x="4" y="52" width="4" height="4" fill={userMetaFrameColors.edge} />
+                <rect x="0" y="8" width="4" height="44" fill={userMetaFrameColors.edge} />
+                <rect x="180" y="8" width="4" height="44" fill={userMetaFrameColors.edge} />
+                <rect x="176" y="4" width="4" height="4" fill={userMetaFrameColors.edge} />
+              </svg>
+              <div
+                className="user-meta"
+                style={{
+                  color: userMetaFrameColors.ink,
+                }}
+              >
+                <strong>{session.profile.displayName}</strong>
+                <span style={{ color: userMetaFrameColors.subInk }}>lvl. {session.level}</span>
+              </div>
             </div>
           </section>
 

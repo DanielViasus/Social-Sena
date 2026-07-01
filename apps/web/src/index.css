@@ -78,9 +78,43 @@ button {
   box-shadow: 0 28px 54px rgba(2, 8, 16, 0.36);
 }
 
+.login-panel--framed {
+  position: relative;
+  width: min(462px, 100%);
+  min-height: 589px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: 0 28px 54px rgba(2, 8, 16, 0.36);
+  overflow: hidden;
+}
+
+.login-panel-background {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  user-select: none;
+}
+
+.login-panel-content {
+  position: relative;
+  z-index: 1;
+  min-height: 589px;
+  padding: 32px;
+}
+
+.pixel-font {
+  font-family: 'Press Start 2P', monospace;
+}
+
 .login-kicker {
   margin: 0 0 10px;
-  font-size: 0.8rem;
+  font-size: 0.68rem;
+  line-height: 1.45;
   text-transform: uppercase;
   letter-spacing: 0.16em;
   color: #9cde71;
@@ -88,9 +122,8 @@ button {
 
 .login-panel h1 {
   margin: 0;
-  font-family: 'Space Grotesk', sans-serif;
-  font-size: clamp(2rem, 4vw, 2.8rem);
-  line-height: 0.96;
+  font-size: clamp(1.12rem, 2.15vw, 1.52rem);
+  line-height: 1.2;
   color: #f5fbff;
 }
 
@@ -115,29 +148,97 @@ button {
   border: 1px solid rgba(57, 150, 136, 0.24);
 }
 
-.auth0-button {
+.auth0-box--framed {
+  position: relative;
+  min-height: 208px;
+  padding: 0;
+  background: transparent;
   border: none;
-  border-radius: 14px;
-  padding: 14px 18px;
-  background: #9cde71;
+  border-radius: 0;
+  overflow: hidden;
+}
+
+.auth0-box-background {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
+  user-select: none;
+}
+
+.auth0-box-content {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 10px;
+  min-height: 208px;
+  padding: 18px 16px;
+  align-content: start;
+}
+
+.auth0-box-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.auth0-button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 52px;
+  width: 100%;
+  border: none;
+  padding: 0 18px;
+  background: transparent;
   color: #102033;
-  font-weight: 700;
+  font-size: 0.62rem;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
   cursor: pointer;
+  isolation: isolate;
   transition:
     transform 120ms ease,
-    background-color 120ms ease,
-    color 120ms ease,
-    border-color 120ms ease;
+    filter 120ms ease,
+    opacity 120ms ease;
 }
 
 .auth0-button:hover {
   transform: translateY(-1px);
 }
 
-.auth0-button-secondary {
-  border: 1px solid rgba(159, 178, 203, 0.35);
-  background: rgba(16, 32, 51, 0.42);
-  color: #dbe5f3;
+.auth0-button:active {
+  transform: translateY(0);
+}
+
+.auth0-button-background {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
+  user-select: none;
+}
+
+.auth0-button-label {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+}
+
+.auth0-button--primary .auth0-button-background {
+  filter: none;
+}
+
+.auth0-button--secondary {
+  color: #f2fbff;
+}
+
+.auth0-button--secondary .auth0-button-background {
+  filter: hue-rotate(155deg) saturate(0.7) brightness(0.72);
 }
 
 .auth0-box p {
@@ -395,51 +496,92 @@ button {
   left: 28px;
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
+}
+
+.user-avatar-frame {
+  position: relative;
+  width: 60px;
+  height: 60px;
+  flex: 0 0 60px;
+}
+
+.user-avatar-frame-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  image-rendering: pixelated;
 }
 
 .user-avatar {
-  width: 60px;
-  height: 60px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
+  position: absolute;
+  inset: 6.6667%;
   overflow: hidden;
-  background: #399688;
-  color: #effffb;
-  font-family: 'Space Grotesk', sans-serif;
-  font-size: 1.2rem;
-  font-weight: 700;
-  box-shadow: 0 16px 34px rgba(13, 53, 48, 0.34);
 }
 
-.user-avatar img {
+.user-avatar-shape {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  display: block;
+}
+
+.user-avatar-shape image {
+  image-rendering: auto;
+}
+
+.user-avatar-shape-letter {
+  fill: #effffb;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.user-meta-frame {
+  position: relative;
+  width: 184px;
+  height: 60px;
+  flex: 0 0 184px;
+}
+
+.user-meta-frame-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  image-rendering: pixelated;
 }
 
 .user-meta {
-  min-width: 204px;
-  min-height: 40px;
-  padding: 12px 18px;
-  border-radius: 12px;
-  background: #399688;
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  color: #effffb;
-  box-shadow: 0 16px 34px rgba(13, 53, 48, 0.34);
+  gap: 4px;
+  padding: 11px 14px 11px 15px;
+  color: #1d2838;
+  font-family: 'Press Start 2P', monospace;
 }
 
 .user-meta strong {
-  font-size: 1rem;
-  line-height: 1.1;
+  font-size: 0.74rem;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .user-meta span {
-  font-size: 0.86rem;
-  opacity: 0.92;
+  font-size: 0.54rem;
+  line-height: 1.2;
+  color: #4f5f6d;
 }
 
 .options-anchor {
@@ -2496,14 +2638,33 @@ button {
     gap: 10px;
   }
 
-  .user-avatar {
+  .user-avatar-frame {
     width: 52px;
     height: 52px;
+    flex-basis: 52px;
+  }
+
+  .user-avatar {
+    inset: 6.6667%;
+  }
+
+  .user-meta-frame {
+    width: 164px;
+    height: 54px;
+    flex-basis: 164px;
   }
 
   .user-meta {
-    min-width: 164px;
-    padding: 10px 14px;
+    gap: 3px;
+    padding: 10px 12px 10px 13px;
+  }
+
+  .user-meta strong {
+    font-size: 0.64rem;
+  }
+
+  .user-meta span {
+    font-size: 0.48rem;
   }
 
   .options-anchor {

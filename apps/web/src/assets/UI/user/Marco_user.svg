@@ -1,0 +1,30 @@
+<svg width="60" height="60" viewBox="0 0 60 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0_21_350)">
+<rect x="24" width="12" height="4" fill="#676767"/>
+<rect x="24" y="56" width="12" height="4" fill="#676767"/>
+<rect x="16" y="4" width="8" height="4" fill="#676767"/>
+<rect x="36" y="4" width="8" height="4" fill="#676767"/>
+<rect x="16" y="52" width="8" height="4" fill="#676767"/>
+<rect x="36" y="52" width="8" height="4" fill="#676767"/>
+<rect x="8" y="8" width="8" height="4" fill="#676767"/>
+<rect x="44" y="8" width="8" height="4" fill="#676767"/>
+<rect x="8" y="48" width="8" height="4" fill="#676767"/>
+<rect x="44" y="48" width="8" height="4" fill="#676767"/>
+<rect x="8" y="12" width="4" height="4" fill="#676767"/>
+<rect x="48" y="12" width="4" height="4" fill="#676767"/>
+<rect x="8" y="44" width="4" height="4" fill="#676767"/>
+<rect x="48" y="44" width="4" height="4" fill="#676767"/>
+<rect x="4" y="16" width="4" height="8" fill="#676767"/>
+<rect x="52" y="16" width="4" height="8" fill="#676767"/>
+<rect x="4" y="36" width="4" height="8" fill="#676767"/>
+<rect x="52" y="36" width="4" height="8" fill="#676767"/>
+<rect y="24" width="4" height="12" fill="#676767"/>
+<rect x="56" y="24" width="4" height="12" fill="#676767"/>
+<path d="M4 36V24H8V16H12V12H16V8H24V4H36V8H44V12H48V16H52V24H56V36H52V44H48V48H44V52H36V56H24V52H16V48H12V44H8V36H4Z" fill="#CACACA"/>
+</g>
+<defs>
+<clipPath id="clip0_21_350">
+<rect width="60" height="60" fill="white"/>
+</clipPath>
+</defs>
+</svg>
