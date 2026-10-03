@@ -2,6 +2,7 @@ import type { RoomTemplate } from '@social-sena/shared'
 import bkGarden from '../../assets/Places/bk_garden.svg?url&no-inline'
 import bkCenterRoom from '../../assets/Places/bk_centerRoom.svg?url&no-inline'
 import mazmorraDemo from '../../assets/Places/mazmorra_demo.svg?url&no-inline'
+import tavernDesign from '../../assets/Places/TavernDesign.png?url&no-inline'
 import plazaSeparator1 from '../../assets/Decoration/Plaza/Separador_Plaza_1.svg'
 import plazaSeparator2 from '../../assets/Decoration/Plaza/Separador_Plaza_2.svg'
 import plazaSeparator3 from '../../assets/Decoration/Plaza/Separador_Plaza_3.svg'
@@ -21,13 +22,26 @@ import npcAlert3 from '../../assets/npc/icons/alert/ALERT_3.svg'
 import npcInteractionE0 from '../../assets/npc/icons/interaction/INTERACTION_E_0.svg'
 import npcInteractionE1 from '../../assets/npc/icons/interaction/INTERACTION_E_1.svg'
 
+const roomEditorSpriteModules = import.meta.glob<string>(
+  '../../assets/room-editor/sprites/Asset_*',
+  { eager: true, import: 'default', query: '?url' },
+)
+const roomEditorWorldSprites = Object.fromEntries(
+  Object.entries(roomEditorSpriteModules).flatMap(([path, url]) => {
+    const match = /^Asset_([^_]+)_([^_]+)_/.exec(path.split('/').pop() ?? '')
+    return match ? [[`${match[1]}-${match[2]}`, url]] : []
+  }),
+)
+
 export const WORLD_BACKGROUND_BY_TEMPLATE_ID: Record<string, string> = {
+  Tavern: tavernDesign,
   Room_1909: bkGarden,
   CenterRoom: bkCenterRoom,
   mazmorra_demo: mazmorraDemo,
 }
 
 export const WORLD_SPRITES: Record<string, string> = {
+  ...roomEditorWorldSprites,
   'plaza-separator-1': plazaSeparator1,
   'plaza-separator-2': plazaSeparator2,
   'plaza-separator-3': plazaSeparator3,

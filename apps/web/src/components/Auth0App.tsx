@@ -9,20 +9,31 @@ import {
   clearAuthSession,
   type AuthSession,
 } from '../auth/localSession'
-import GameClient from './GameClient'
+import PublishedRoomGate from './PublishedRoomGate'
 import LoginScreen from './LoginScreen'
+import AccessRolePage from './AccessRolePage'
+import EditRoomPage from './EditRoomPage'
+import RoomEditorMenuPage from './RoomEditorMenuPage'
+import {
+  isAccessRolePath,
+  isEditRoomPath,
+  isRoomEditorMenuPath,
+  isStandalonePagePath,
+  usePathname,
+} from '../hooks/usePathname'
 
 function redirectToLobbyIfNeeded() {
-  if (window.location.pathname === '/Room_1909') {
+  if (window.location.pathname === '/Tavern' || isStandalonePagePath(window.location.pathname)) {
     return
   }
 
-  window.history.replaceState({}, '', '/Room_1909')
+  window.history.replaceState({}, '', '/Tavern')
   window.dispatchEvent(new PopStateEvent('popstate'))
 }
 
 function Auth0App() {
   const { error, isAuthenticated, isLoading, loginWithRedirect, logout, user } = useAuth0()
+  const pathname = usePathname()
   const [session, setSession] = useState<AuthSession | null>(null)
   const [localSession, setLocalSession] = useState<AuthSession | null>(() => {
     const storedSession = readStoredAuthSession()
@@ -55,7 +66,7 @@ function Auth0App() {
   const handleLocalLogin = (displayName: string) => {
     const nextSession = createLocalAuthSession(displayName)
     saveAuthSession(nextSession)
-    window.history.replaceState({}, '', '/Room_1909')
+    window.history.replaceState({}, '', '/Tavern')
     setLocalSession(nextSession)
   }
 
@@ -123,7 +134,19 @@ function Auth0App() {
 
   if (!isAuthenticated || !user) {
     if (localSession) {
-      return <GameClient session={localSession} onSessionChange={setLocalSession} onLogout={handleLocalLogout} />
+      if (isAccessRolePath(pathname)) {
+        return <AccessRolePage session={localSession} onSessionChange={setLocalSession} />
+      }
+
+      if (isEditRoomPath(pathname)) {
+        return <EditRoomPage session={localSession} onSessionChange={setLocalSession} />
+      }
+
+      if (isRoomEditorMenuPath(pathname)) {
+        return <RoomEditorMenuPage session={localSession} />
+      }
+
+      return <PublishedRoomGate session={localSession} onSessionChange={setLocalSession} onLogout={handleLocalLogout} />
     }
 
     return (
@@ -140,14 +163,26 @@ function Auth0App() {
     return null
   }
 
+  if (isAccessRolePath(pathname)) {
+    return <AccessRolePage session={session} onSessionChange={setSession} />
+  }
+
+  if (isEditRoomPath(pathname)) {
+    return <EditRoomPage session={session} onSessionChange={setSession} />
+  }
+
+  if (isRoomEditorMenuPath(pathname)) {
+    return <RoomEditorMenuPage session={session} />
+  }
+
   return (
-    <GameClient
+    <PublishedRoomGate
       session={session}
       onSessionChange={setSession}
       onLogout={() =>
         void logout({
           logoutParams: {
-            returnTo: `${window.location.origin}/Room_1909`,
+            returnTo: `${window.location.origin}/Tavern`,
           },
         })
       }

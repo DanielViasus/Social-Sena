@@ -11,5 +11,5 @@ export function getAuth0RedirectUri() {
 }
 
 export function resolvePostLoginRoute(pathname: string) {
-  return pathname === '/' ? '/Room_1909' : pathname
+  return pathname === '/' ? '/Tavern' : pathname
 }

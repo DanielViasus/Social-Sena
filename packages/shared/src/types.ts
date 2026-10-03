@@ -3,6 +3,31 @@ import type { RoomEnemyState, RoomTemplate } from './rooms/types'
 export type Direction = 'up' | 'down' | 'left' | 'right'
 export type SkinColorSelections = Record<string, string>
 
+export const USER_ROLES = ['visitor', 'user', 'mage', 'admin', 'developer'] as const
+export type UserRole = (typeof USER_ROLES)[number]
+
+export const DEFAULT_USER_ROLE: UserRole = 'visitor'
+
+const USER_ROLE_LEVEL: Record<UserRole, number> = {
+  visitor: 0,
+  user: 1,
+  mage: 2,
+  admin: 3,
+  developer: 4,
+}
+
+export function isUserRole(value: unknown): value is UserRole {
+  return typeof value === 'string' && USER_ROLES.includes(value as UserRole)
+}
+
+export function normalizeUserRole(value: unknown): UserRole {
+  return isUserRole(value) ? value : DEFAULT_USER_ROLE
+}
+
+export function hasMinimumUserRole(currentRole: UserRole, requiredRole: UserRole) {
+  return USER_ROLE_LEVEL[currentRole] >= USER_ROLE_LEVEL[requiredRole]
+}
+
 export interface AudioSettings {
   musicEnabled: boolean
   musicVolume: number
@@ -65,6 +90,7 @@ export interface UserProfile {
   userId: string
   username: string
   displayName: string
+  role: UserRole
   skinId: string
   skinColors: SkinColorSelections
   audioSettings: AudioSettings
@@ -289,6 +315,80 @@ export interface UpdateSkinPayload {
   roomId: string
   skinId: string
   skinColors?: SkinColorSelections
+}
+
+export interface UpdateAccessRolePayload {
+  role: UserRole
+}
+
+export interface RoomEditorLayerData {
+  id: string
+  name: string
+  collidersEnabled: boolean
+  required?: boolean
+}
+
+export interface RoomEditorPlacementData {
+  layerId: string
+  assetId: string
+  cellX: number
+  cellY: number
+  flippedX: boolean
+}
+
+export interface RoomEditorAssetData {
+  id: string
+  category: string
+  frameWidth: number
+  frameHeight: number
+  occupiedColumns: number
+  occupiedRows: number
+  colliderWidth: number
+  colliderHeight: number
+  colliderOffsetX: number
+  colliderOffsetY: number
+  zIndexOffsetY: number
+}
+
+export interface RoomEditorDocument {
+  version: 1
+  gridWidth: number
+  gridHeight: number
+  layers: RoomEditorLayerData[]
+  placements: RoomEditorPlacementData[]
+  assets: RoomEditorAssetData[]
+}
+
+export type RoomEditorPublicationKind = 'system' | 'classroom' | 'room' | 'event' | 'official'
+
+export interface RoomEditorPublicationInput {
+  kind: RoomEditorPublicationKind
+  routeSlug?: string
+  classCode?: string
+  accessCode?: string
+}
+
+export interface SavedRoomEditorMap {
+  code: string
+  name: string
+  ownerUserId: string
+  publicationKind: RoomEditorPublicationKind | 'draft'
+  routePath: string | null
+  classCode: string | null
+  document: RoomEditorDocument
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SaveRoomEditorMapPayload {
+  code?: string
+  name: string
+  document: RoomEditorDocument
+  publication?: RoomEditorPublicationInput
+}
+
+export interface LoadRoomEditorMapPayload {
+  code: string
 }
 
 export interface UpdateAudioSettingsPayload {

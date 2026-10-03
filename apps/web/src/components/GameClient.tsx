@@ -11,7 +11,6 @@ import {
   type ChatMessage,
   type ConnectionAcceptedPayload,
   type EnemyCombatEncounterStatePayload,
-  type EnemyCombatParticipantSummary,
   type EnemyCombatSupportInvitePayload,
   type FriendRequestSummary,
   type FriendSummary,
@@ -23,6 +22,7 @@ import {
   type Position,
   type Presence,
   type RoomEnemyTemplate,
+  type RoomMerchantConfig,
   type RoomEnemyCombatStatePayload,
   type RoomEnemiesStatePayload,
   type RoomState,
@@ -49,14 +49,13 @@ import ReactWorld, { type WorldInteractableTarget } from './ReactWorld'
 import SceneLoadingOverlay, { SCENE_LOADING_LAYER_ASSETS } from './SceneLoadingOverlay'
 import DialogueOverlay from './dialogue/DialogueOverlay'
 import MobileNpcInteractButton from './MobileNpcInteractButton'
+import MerchantShopOverlay from './merchant/MerchantShopOverlay'
 import InitialSkinSetupOverlay from './skins/InitialSkinSetupOverlay'
 import SkinEditorOverlay from './skins/SkinEditorOverlay'
 import { availableRoomRoutes, resolveRoomTemplateFromPath } from '../rooms/registry'
 import { createUiSoundController, type UiSoundName } from '../audio/chiptuneSounds'
 import { createAmbientMusicController } from '../audio/chiptuneMusic'
 import {
-  getEnemyOverlayAsset,
-  getEnemySpriteAsset,
   preloadImageAsset,
   preloadRoomTemplateAssets,
 } from './world/worldAssetCatalog'
@@ -148,16 +147,12 @@ type ActiveTouchPromptState =
   | {
       kind: 'enemy'
       encounterId: string
-      enemyId: string
+    }
+  | {
+      kind: 'merchant'
+      npcId: string
       title: string
-      enemyLevel: number
-      phase: 'lobby' | 'battle'
-      fleeChance: number
-      combatLeaderUserId: string
-      combatLeaderDisplayName: string
-      requestedByUserId: string
-      requestedByDisplayName: string
-      participants: EnemyCombatParticipantSummary[]
+      merchant: RoomMerchantConfig
     }
 
 interface FriendRequestPopupState extends FriendRequestSummary {
@@ -190,48 +185,6 @@ function areAudioSettingsEqual(left: AudioSettings, right: AudioSettings) {
 
 function resolveLevelSubtitle(level: number | null | undefined) {
   return `Nivel ${Math.max(1, Math.floor(level ?? 1))}`
-}
-
-function resolveEnemyFleeChance(enemyLevel: number) {
-  return Math.max(0.1, Math.min(1, 1 - enemyLevel * 0.1))
-}
-
-function buildEnemyCombatPromptState(encounter: EnemyCombatEncounterStatePayload): ActiveTouchPromptState {
-  const enemyLevel = Math.max(0, Math.floor(encounter.enemyLevel))
-  return {
-    kind: 'enemy',
-    encounterId: encounter.encounterId,
-    enemyId: encounter.enemyId,
-    title: encounter.enemyLabel || 'Rival',
-    enemyLevel,
-    phase: encounter.phase,
-    fleeChance: resolveEnemyFleeChance(enemyLevel),
-    combatLeaderUserId: encounter.combatLeaderUserId,
-    combatLeaderDisplayName: encounter.combatLeaderDisplayName,
-    requestedByUserId: encounter.requestedByUserId,
-    requestedByDisplayName: encounter.requestedByDisplayName,
-    participants: encounter.participants,
-  }
-}
-
-function useLoopingPreviewFrame(frameCount: number, durationMs: number) {
-  const [frameIndex, setFrameIndex] = useState(0)
-
-  useEffect(() => {
-    setFrameIndex(0)
-
-    if (frameCount <= 1) {
-      return
-    }
-
-    const intervalId = window.setInterval(() => {
-      setFrameIndex((currentValue) => (currentValue + 1) % frameCount)
-    }, Math.max(80, durationMs))
-
-    return () => window.clearInterval(intervalId)
-  }, [durationMs, frameCount])
-
-  return frameIndex
 }
 
 function MenuAvatarPreview({
@@ -272,250 +225,6 @@ function MenuAvatarPreview({
         }}
       />
     </div>
-  )
-}
-
-function CombatParticipantPreview({
-  participant,
-  isRequester,
-}: {
-  participant: EnemyCombatParticipantSummary
-  isRequester: boolean
-}) {
-  const preset = resolveAvatarPreset(participant.skinId)
-  const idleFrameIndex = useLoopingPreviewFrame(preset.idleFrames.length, 240)
-  const frame = preset.idleFrames[idleFrameIndex] ?? preset.idleFrames[0]
-  const sheetUrl = resolveAvatarSheetUrl(preset, participant.skinColors)
-  const size = 88
-  const scale = size / preset.frameWidth
-
-  return (
-    <article className="combat-banner-character-card">
-      <div className="combat-banner-character-stage">
-        <div
-          className="combat-banner-character-sprite-frame"
-          style={{
-            width: `${size}px`,
-            height: `${size}px`,
-          }}
-        >
-          <img
-            src={sheetUrl}
-            alt={participant.displayName}
-            draggable={false}
-            className="combat-banner-character-sheet"
-            style={{
-              width: `${preset.sheetWidth * scale}px`,
-              height: `${preset.sheetHeight * scale}px`,
-              left: `${-frame.column * preset.frameWidth * scale}px`,
-              top: `${-frame.row * preset.frameHeight * scale}px`,
-            }}
-          />
-        </div>
-      </div>
-      <div className="combat-banner-character-meta">
-        <strong>{participant.displayName}</strong>
-        <span>{resolveLevelSubtitle(participant.level)}</span>
-        {isRequester ? <em>Inicio el combate</em> : null}
-      </div>
-    </article>
-  )
-}
-
-function CombatEnemyPreview({
-  enemyTemplate,
-  label,
-  enemyLevel,
-}: {
-  enemyTemplate: RoomEnemyTemplate | null
-  label: string
-  enemyLevel: number
-}) {
-  const spriteSheetUrl = getEnemySpriteAsset(enemyTemplate?.spriteSheetAssetId)
-  const spriteUrl = getEnemyOverlayAsset(enemyTemplate?.spriteAssetId)
-  const frameWidth = enemyTemplate?.spriteFrameWidth ?? 128
-  const frameHeight = enemyTemplate?.spriteFrameHeight ?? 128
-  const sheetWidth = enemyTemplate?.spriteSheetWidth ?? frameWidth
-  const sheetHeight = enemyTemplate?.spriteSheetHeight ?? frameHeight
-  const idleFrames = (enemyTemplate?.spriteFrames ?? [])
-    .filter((frame) => frame.row === 0)
-    .sort((leftFrame, rightFrame) => leftFrame.column - rightFrame.column)
-  const idleFrameIndex = useLoopingPreviewFrame(
-    idleFrames.length,
-    Math.max(80, enemyTemplate?.spriteFrameDurationMs ?? 240),
-  )
-  const activeIdleFrame = idleFrames[idleFrameIndex] ?? idleFrames[0] ?? null
-  const size = 88
-  const scale = size / frameWidth
-
-  return (
-    <article className="combat-banner-character-card is-enemy">
-      <div className="combat-banner-character-stage is-enemy">
-        {spriteSheetUrl ? (
-          <div
-            className="combat-banner-character-sprite-frame is-enemy"
-            style={{
-              width: `${size}px`,
-              height: `${size}px`,
-              transform: 'scaleX(-1)',
-            }}
-          >
-            <img
-              src={spriteSheetUrl}
-              alt={label}
-              draggable={false}
-              className="combat-banner-character-sheet"
-              style={{
-                width: `${sheetWidth * scale}px`,
-                height: `${sheetHeight * scale}px`,
-                left: `${-((activeIdleFrame?.column ?? 0) * frameWidth * scale)}px`,
-                top: `${-((activeIdleFrame?.row ?? 0) * frameHeight * scale)}px`,
-              }}
-            />
-          </div>
-        ) : spriteUrl ? (
-          <img
-            src={spriteUrl}
-            alt={label}
-            draggable={false}
-            className="combat-banner-character-static is-enemy"
-            style={{
-              width: `${size}px`,
-              height: `${size}px`,
-              transform: 'scaleX(-1)',
-            }}
-          />
-        ) : (
-          <div
-            className="combat-banner-character-fallback is-enemy"
-            aria-hidden="true"
-            style={{
-              width: `${size}px`,
-              height: `${size}px`,
-            }}
-          />
-        )}
-      </div>
-      <div className="combat-banner-character-meta is-enemy">
-        <strong>{label}</strong>
-        <span>{`Nivel ${enemyLevel}`}</span>
-      </div>
-    </article>
-  )
-}
-
-function PokemonCombatParticipantSprite({
-  participant,
-  size,
-}: {
-  participant: EnemyCombatParticipantSummary
-  size: number
-}) {
-  const preset = resolveAvatarPreset(participant.skinId)
-  const previewFrames = preset.idleBackFrames?.length ? preset.idleBackFrames : preset.idleFrames
-  const frameIndex = useLoopingPreviewFrame(previewFrames.length, 260)
-  const frame = previewFrames[frameIndex] ?? previewFrames[0]
-  const sheetUrl = resolveAvatarSheetUrl(preset, participant.skinColors)
-  const scale = size / preset.frameWidth
-
-  return (
-    <div
-      className="pokemon-combat-sprite-frame"
-      style={{
-        width: `${size}px`,
-        height: `${size}px`,
-      }}
-    >
-      <img
-        src={sheetUrl}
-        alt={participant.displayName}
-        draggable={false}
-        className="pokemon-combat-sprite-sheet"
-        style={{
-          width: `${preset.sheetWidth * scale}px`,
-          height: `${preset.sheetHeight * scale}px`,
-          left: `${-frame.column * preset.frameWidth * scale}px`,
-          top: `${-frame.row * preset.frameHeight * scale}px`,
-        }}
-      />
-    </div>
-  )
-}
-
-function PokemonCombatEnemySprite({
-  enemyTemplate,
-  label,
-  size,
-}: {
-  enemyTemplate: RoomEnemyTemplate | null
-  label: string
-  size: number
-}) {
-  const spriteSheetUrl = getEnemySpriteAsset(enemyTemplate?.spriteSheetAssetId)
-  const spriteUrl = getEnemyOverlayAsset(enemyTemplate?.spriteAssetId)
-  const frameWidth = enemyTemplate?.spriteFrameWidth ?? 128
-  const frameHeight = enemyTemplate?.spriteFrameHeight ?? 128
-  const sheetWidth = enemyTemplate?.spriteSheetWidth ?? frameWidth
-  const sheetHeight = enemyTemplate?.spriteSheetHeight ?? frameHeight
-  const idleFrames = (enemyTemplate?.spriteFrames ?? [])
-    .filter((frame) => frame.row === 0)
-    .sort((leftFrame, rightFrame) => leftFrame.column - rightFrame.column)
-  const idleFrameIndex = useLoopingPreviewFrame(
-    idleFrames.length,
-    Math.max(120, enemyTemplate?.spriteFrameDurationMs ?? 280),
-  )
-  const activeIdleFrame = idleFrames[idleFrameIndex] ?? idleFrames[0] ?? null
-  const scale = size / frameWidth
-
-  if (spriteSheetUrl) {
-    return (
-      <div
-        className="pokemon-combat-sprite-frame is-enemy"
-        style={{
-          width: `${size}px`,
-          height: `${size}px`,
-        }}
-      >
-        <img
-          src={spriteSheetUrl}
-          alt={label}
-          draggable={false}
-          className="pokemon-combat-sprite-sheet"
-          style={{
-            width: `${sheetWidth * scale}px`,
-            height: `${sheetHeight * scale}px`,
-            left: `${-((activeIdleFrame?.column ?? 0) * frameWidth * scale)}px`,
-            top: `${-((activeIdleFrame?.row ?? 0) * frameHeight * scale)}px`,
-          }}
-        />
-      </div>
-    )
-  }
-
-  if (spriteUrl) {
-    return (
-      <img
-        src={spriteUrl}
-        alt={label}
-        draggable={false}
-        className="pokemon-combat-static-sprite"
-        style={{
-          width: `${size}px`,
-          height: `${size}px`,
-        }}
-      />
-    )
-  }
-
-  return (
-    <div
-      className="pokemon-combat-static-sprite is-fallback"
-      aria-hidden="true"
-      style={{
-        width: `${size}px`,
-        height: `${size}px`,
-      }}
-    />
   )
 }
 
@@ -567,8 +276,6 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const [respondingPartyInviteId, setRespondingPartyInviteId] = useState<string | null>(null)
   const [respondingEnemyCombatInviteId, setRespondingEnemyCombatInviteId] = useState<string | null>(null)
   const [respondingPartyLeaderFollow, setRespondingPartyLeaderFollow] = useState(false)
-  const [startingEnemyCombatEncounterId, setStartingEnemyCombatEncounterId] = useState<string | null>(null)
-  const [fleeingEnemyCombatEncounterId, setFleeingEnemyCombatEncounterId] = useState<string | null>(null)
   const [promotingPartyLeaderUserId, setPromotingPartyLeaderUserId] = useState<string | null>(null)
   const [leavingParty, setLeavingParty] = useState(false)
   const [activeDialogue, setActiveDialogue] = useState<ActiveDialogueState | null>(null)
@@ -667,47 +374,6 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     ambientMusicControllerRef.current = createAmbientMusicController()
   }
   const activeTemplate = resolveRoomTemplateFromPath(pathname)
-  const isCombatLeaderParticipantPresent =
-    activeTouchPrompt?.kind === 'enemy'
-      ? activeTouchPrompt.participants.some((participant) => participant.userId === activeTouchPrompt.combatLeaderUserId)
-      : false
-  const canStartActiveEnemyCombat =
-    activeTouchPrompt?.kind === 'enemy' &&
-    (isCombatLeaderParticipantPresent
-      ? activeTouchPrompt.combatLeaderUserId === session.profile.userId
-      : activeTouchPrompt.participants.some((participant) => participant.userId === session.profile.userId))
-  const isSubmittingEnemyCombatStart =
-    activeTouchPrompt?.kind === 'enemy' && startingEnemyCombatEncounterId === activeTouchPrompt.encounterId
-  const canRetreatFromActiveEnemyCombat =
-    activeTouchPrompt?.kind === 'enemy' &&
-    (isCombatLeaderParticipantPresent
-      ? activeTouchPrompt.combatLeaderUserId === session.profile.userId
-      : activeTouchPrompt.participants.some((participant) => participant.userId === session.profile.userId))
-  const isSubmittingEnemyCombatFlee =
-    activeTouchPrompt?.kind === 'enemy' && fleeingEnemyCombatEncounterId === activeTouchPrompt.encounterId
-  const activeCombatEnemyTemplate =
-    activeTouchPrompt?.kind === 'enemy'
-      ? (activeTemplate.enemies ?? []).find((enemyTemplate) => enemyTemplate.id === activeTouchPrompt.enemyId) ?? null
-      : null
-  const activeCombatCurrentParticipant =
-    activeTouchPrompt?.kind === 'enemy'
-      ? activeTouchPrompt.participants.find((participant) => participant.userId === session.profile.userId) ??
-        activeTouchPrompt.participants[0] ??
-        null
-      : null
-  const activeCombatSupportParticipants =
-    activeTouchPrompt?.kind === 'enemy' && activeCombatCurrentParticipant
-      ? activeTouchPrompt.participants.filter((participant) => participant.userId !== activeCombatCurrentParticipant.userId)
-      : []
-  const activeCombatParticipantSpriteSize = 136
-  const activeCombatBattlefieldParticipants =
-    activeTouchPrompt?.kind === 'enemy' && activeCombatCurrentParticipant
-      ? [...activeCombatSupportParticipants, activeCombatCurrentParticipant]
-      : []
-  const activeCombatHealthParticipants =
-    activeTouchPrompt?.kind === 'enemy' && activeCombatCurrentParticipant
-      ? [activeCombatCurrentParticipant, ...activeCombatSupportParticipants]
-      : []
   const playerInitial = session.profile.displayName.slice(0, 1).toUpperCase()
   const typingIndicatorText = ['.', '..', '...'][typingIndicatorFrame] ?? '...'
   const availableSkins = getAvailableAvatarPresets()
@@ -1277,8 +943,6 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       partyInvitePopupsRef.current = []
       setPartyInvitePopups([])
       setRespondingEnemyCombatInviteId(null)
-      setStartingEnemyCombatEncounterId(null)
-      setFleeingEnemyCombatEncounterId(null)
       setActiveTouchPrompt(null)
       friendsRef.current = []
       partyRef.current = null
@@ -1315,8 +979,6 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       partyInvitePopupsRef.current = []
       setPartyInvitePopups([])
       setRespondingEnemyCombatInviteId(null)
-      setStartingEnemyCombatEncounterId(null)
-      setFleeingEnemyCombatEncounterId(null)
       setActiveTouchPrompt(null)
       friendsRef.current = []
       partyRef.current = null
@@ -1524,15 +1186,6 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
           encounter.participants.some((participant) => participant.userId === currentUserId),
         ) ?? null
 
-      if (!activeEncounter) {
-        setStartingEnemyCombatEncounterId(null)
-        setFleeingEnemyCombatEncounterId(null)
-      } else if (activeEncounter.phase === 'battle') {
-        setStartingEnemyCombatEncounterId((currentValue) =>
-          currentValue === activeEncounter.encounterId ? null : currentValue,
-        )
-      }
-
       setEnemyCombatSupportInvites((currentValue) =>
         currentValue.filter((currentInvite) => {
           const encounter = payload.encounters.find(
@@ -1555,16 +1208,10 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
           return currentValue?.kind === 'enemy' ? null : currentValue
         }
 
-        const nextPrompt = buildEnemyCombatPromptState(activeEncounter)
-        if (currentValue?.kind === 'npc') {
-          return nextPrompt
+        return {
+          kind: 'enemy',
+          encounterId: activeEncounter.encounterId,
         }
-
-        if (currentValue?.kind === 'enemy' && currentValue.encounterId === activeEncounter.encounterId) {
-          return nextPrompt
-        }
-
-        return nextPrompt
       })
     })
 
@@ -1860,6 +1507,13 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
         event.preventDefault()
         void playUiSound('menu-close')
         setOptionsOpen(false)
+        return
+      }
+
+      if (activeTouchPrompt?.kind === 'merchant') {
+        event.preventDefault()
+        void playUiSound('panel-close')
+        setActiveTouchPrompt(null)
         return
       }
 
@@ -2858,6 +2512,17 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
     requestStopMovement()
 
+    if (interactable.merchant) {
+      void playUiSound('panel-open')
+      setActiveTouchPrompt({
+        kind: 'merchant',
+        npcId: interactable.id,
+        title: interactable.label ?? 'Mercader',
+        merchant: interactable.merchant,
+      })
+      return
+    }
+
     if (interactable.interactionMode === 'touch') {
       void playUiSound('panel-open')
       setActiveTouchPrompt({
@@ -2885,138 +2550,6 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       roomId: room?.roomId ?? null,
       userId: session.profile.userId,
     })
-  })
-
-  const handleEnemyFlee = useEffectEvent(() => {
-    if (!activeTouchPrompt || activeTouchPrompt.kind !== 'enemy') {
-      console.info('[COMBATE] Se intento huir, pero no hay un combate enemigo activo en la interfaz.')
-      return
-    }
-
-    if (!canRetreatFromActiveEnemyCombat) {
-      enqueueActivityNotice(
-        'Combate bloqueado',
-        isCombatLeaderParticipantPresent
-          ? `Solo ${activeTouchPrompt.combatLeaderDisplayName} puede retirarse del enfrentamiento.`
-          : 'Solo quienes ya participan en el combate pueden retirarse del enfrentamiento.',
-      )
-      return
-    }
-
-    if (fleeingEnemyCombatEncounterId === activeTouchPrompt.encounterId) {
-      return
-    }
-
-    const socket = socketRef.current
-    if (!socket) {
-      console.info('[COMBATE] Se intento huir, pero no existe socket activo.')
-      return
-    }
-
-    console.info('[COMBATE] Boton Huir presionado.', {
-      encounterId: activeTouchPrompt.encounterId,
-      enemyId: activeTouchPrompt.enemyId,
-      enemyLevel: activeTouchPrompt.enemyLevel,
-      fleeChance: activeTouchPrompt.fleeChance,
-      userId: session.profile.userId,
-      roomId: room?.roomId ?? null,
-    })
-
-    void playUiSound('cancel')
-    setFleeingEnemyCombatEncounterId(activeTouchPrompt.encounterId)
-    socket.emit(
-      clientEvents.fleeEnemyCombat,
-      {
-        encounterId: activeTouchPrompt.encounterId,
-      },
-      (response: { ok: boolean; escaped?: boolean; message?: string }) => {
-        setFleeingEnemyCombatEncounterId((currentValue) =>
-          currentValue === activeTouchPrompt.encounterId ? null : currentValue,
-        )
-        console.info('[COMBATE] Respuesta del servidor al intentar huir.', {
-          encounterId: activeTouchPrompt.encounterId,
-          enemyId: activeTouchPrompt.enemyId,
-          response,
-        })
-
-        if (!response.ok) {
-          if (response.message) {
-            enqueueActivityNotice('Aviso del sistema', response.message)
-          }
-          return
-        }
-
-        if (response.escaped) {
-          blockEnemyInteractionFor(activeTouchPrompt.enemyId, ENEMY_ESCAPE_INTERACTION_COOLDOWN_MS)
-          setActiveTouchPrompt(null)
-          enqueueActivityNotice('Huida exitosa', response.message ?? 'Escapaste del rival.')
-          return
-        }
-
-        enqueueActivityNotice('Huida fallida', response.message ?? 'No lograste escapar del rival.')
-      },
-    )
-  })
-
-  const handleEnemyCombatStart = useEffectEvent(() => {
-    if (!activeTouchPrompt || activeTouchPrompt.kind !== 'enemy') {
-      return
-    }
-
-    if (activeTouchPrompt.phase === 'battle') {
-      return
-    }
-
-    if (!canStartActiveEnemyCombat) {
-      enqueueActivityNotice(
-        'Combate bloqueado',
-        isCombatLeaderParticipantPresent
-          ? `Solo ${activeTouchPrompt.combatLeaderDisplayName} puede comenzar el combate.`
-          : 'Solo quienes ya participan en el combate pueden comenzarlo.',
-      )
-      return
-    }
-
-    if (startingEnemyCombatEncounterId === activeTouchPrompt.encounterId) {
-      return
-    }
-
-    const socket = socketRef.current
-    if (!socket) {
-      return
-    }
-
-    console.info('[COMBATE] Boton Iniciar combate presionado en la sala de espera.', {
-      encounterId: activeTouchPrompt.encounterId,
-      enemyId: activeTouchPrompt.enemyId,
-      participants: activeTouchPrompt.participants.map((participant) => participant.userId),
-    })
-
-    void playUiSound('confirm')
-    setStartingEnemyCombatEncounterId(activeTouchPrompt.encounterId)
-    socket.emit(
-      clientEvents.startEnemyCombat,
-      {
-        encounterId: activeTouchPrompt.encounterId,
-      },
-      (response: { ok: boolean; message?: string }) => {
-        setStartingEnemyCombatEncounterId((currentValue) =>
-          currentValue === activeTouchPrompt.encounterId ? null : currentValue,
-        )
-
-        if (!response.ok) {
-          enqueueActivityNotice('Aviso del sistema', response.message ?? 'No fue posible comenzar el combate.')
-        }
-      },
-    )
-  })
-
-  const handleBattleCommandPreview = useEffectEvent((commandLabel: string) => {
-    void playUiSound('select')
-    enqueueActivityNotice(
-      `${commandLabel} en preparacion`,
-      'Primero dejamos lista la interfaz de combate. La logica de acciones ira en el siguiente paso.',
-    )
   })
 
   const handleInteractShortcut = useEffectEvent(() => {
@@ -3428,7 +2961,10 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
           navigationEnabled={!activeDialogue && !activeTouchPrompt && !skinEditorOpen && !initialSkinSetupOpen}
           interactionEnabled={!activeDialogue && !activeTouchPrompt && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen}
           blockedEnemyInteractionIds={blockedEnemyInteractionIds}
-          suppressInteractionIconForId={activeDialogue?.npcId ?? null}
+          suppressInteractionIconForId={
+            activeDialogue?.npcId ??
+            (activeTouchPrompt?.kind === 'merchant' ? activeTouchPrompt.npcId : null)
+          }
           pointerInteractionEnabled={false}
         />
         <SceneLoadingOverlay
@@ -4318,6 +3854,9 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
               <strong>Posicion</strong>
               <span>X: {debugPositionX} / {activeTemplate.world.width}</span>
               <span>Y: {debugPositionY} / {activeTemplate.world.height}</span>
+              <span className={`debug-role-value is-${session.profile.role}`}>
+                Rol: {session.profile.role}
+              </span>
             </section>
           ) : null}
 
@@ -4415,7 +3954,13 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
             />
           ) : null}
 
-          {activeTouchPrompt ? (
+          {activeTouchPrompt?.kind === 'merchant' ? (
+            <MerchantShopOverlay
+              merchantName={activeTouchPrompt.title}
+              merchant={activeTouchPrompt.merchant}
+              onClose={closeActiveTouchPrompt}
+            />
+          ) : activeTouchPrompt ? (
             <section
               className="fullscreen-touch-prompt"
               aria-modal="true"
@@ -4423,293 +3968,27 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
               aria-label={activeTouchPrompt.kind === 'enemy' ? 'Encuentro rival' : 'Evento rival'}
             >
               <div className="fullscreen-touch-prompt-backdrop" />
-              <div className={`fullscreen-touch-prompt-panel ${activeTouchPrompt.kind === 'enemy' ? 'is-enemy' : ''}`}>
-                {activeTouchPrompt.title && activeTouchPrompt.kind !== 'enemy' ? (
-                  <header className="fullscreen-touch-prompt-header">
-                    <h2>{activeTouchPrompt.title}</h2>
-                  </header>
-                ) : null}
-                {activeTouchPrompt.kind === 'enemy' ? (
-                  activeTouchPrompt.phase === 'battle' && activeCombatCurrentParticipant ? (
-                    <div className="pokemon-combat-shell">
-                      <div className="pokemon-combat-stage">
-                        <div className="pokemon-combat-stage-header">
-                          <span>Combate activo</span>
-                          <span>{`Lider: ${activeTouchPrompt.combatLeaderDisplayName}`}</span>
-                        </div>
-
-                        <div className="pokemon-combat-battlefield">
-                          <section className="pokemon-combat-enemy-zone">
-                            <article className="pokemon-combat-status-card is-enemy">
-                              <div className="pokemon-combat-status-topline">
-                                <strong>{activeTouchPrompt.title}</strong>
-                                <span>{`Nv${activeTouchPrompt.enemyLevel}`}</span>
-                              </div>
-                              <div className="pokemon-combat-status-bar-row">
-                                <span>PS</span>
-                                <div className="pokemon-combat-status-bar">
-                                  <div className="pokemon-combat-status-bar-fill" style={{ width: '100%' }} />
-                                </div>
-                              </div>
-                              <p>{`Rival listo para el combate`}</p>
-                            </article>
-
-                            <div className="pokemon-combat-platform is-enemy">
-                              <PokemonCombatEnemySprite
-                                enemyTemplate={activeCombatEnemyTemplate}
-                                label={activeTouchPrompt.title}
-                                size={172}
-                              />
-                            </div>
-                          </section>
-
-                          <section className="pokemon-combat-ally-zone">
-                            <div className="pokemon-combat-platform is-ally">
-                              <div className="pokemon-combat-ally-formation">
-                                <div className="pokemon-combat-ally-squad" aria-label="Equipo aliado en combate">
-                                  {activeCombatBattlefieldParticipants.map((participant) => (
-                                    <div
-                                      key={participant.userId}
-                                      className={`pokemon-combat-ally-sprite-slot ${
-                                        participant.userId === activeCombatCurrentParticipant.userId ? 'is-current' : ''
-                                      }`}
-                                    >
-                                      <PokemonCombatParticipantSprite
-                                        participant={participant}
-                                        size={activeCombatParticipantSpriteSize}
-                                      />
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            </div>
-
-                            <article className="pokemon-combat-status-card is-ally">
-                              <div className="pokemon-combat-status-topline">
-                                <strong>{activeCombatCurrentParticipant.displayName}</strong>
-                                <span>{`Nv${Math.max(1, Math.floor(activeCombatCurrentParticipant.level ?? 1))}`}</span>
-                              </div>
-                              <div className="pokemon-combat-status-bar-row">
-                                <span>PS</span>
-                                <div className="pokemon-combat-status-bar">
-                                  <div className="pokemon-combat-status-bar-fill" style={{ width: '100%' }} />
-                                </div>
-                              </div>
-                              <p>{`Aliados presentes: ${activeTouchPrompt.participants.length}`}</p>
-                              <div className="pokemon-combat-team-health-list" aria-label="Salud del equipo">
-                                {activeCombatHealthParticipants.map((participant) => (
-                                  <div
-                                    key={participant.userId}
-                                    className={`pokemon-combat-team-health-row ${
-                                      participant.userId === activeCombatCurrentParticipant.userId ? 'is-current' : ''
-                                    }`}
-                                  >
-                                    <div className="pokemon-combat-team-health-topline">
-                                      <strong className="pokemon-combat-team-health-name">
-                                        {participant.userId === activeCombatCurrentParticipant.userId ? 'Tu' : participant.displayName}
-                                      </strong>
-                                      <span className="pokemon-combat-team-health-level">{`Nv${Math.max(
-                                        1,
-                                        Math.floor(participant.level ?? 1),
-                                      )}`}</span>
-                                    </div>
-                                    <div className="pokemon-combat-team-health-bar">
-                                      <div className="pokemon-combat-team-health-fill" style={{ width: '100%' }} />
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </article>
-                          </section>
-                        </div>
-                      </div>
-
-                      <div className="pokemon-combat-command-shell">
-                        <div className="pokemon-combat-dialogue-box">
-                          <p className="pokemon-combat-dialogue-title">{`¿Que hara ${activeCombatCurrentParticipant.displayName}?`}</p>
-                          <p className="pokemon-combat-dialogue-copy">
-                            {`Rival: ${activeTouchPrompt.title} · Lider del combate: ${activeTouchPrompt.combatLeaderDisplayName}`}
-                          </p>
-                          <div className="pokemon-combat-party-strip">
-                            {activeTouchPrompt.participants.map((participant) => (
-                              <span
-                                key={participant.userId}
-                                className={`pokemon-combat-party-chip ${
-                                  participant.userId === activeCombatCurrentParticipant.userId ? 'is-active' : ''
-                                }`}
-                              >
-                                {participant.userId === activeCombatCurrentParticipant.userId ? 'Tu' : participant.displayName}
-                              </span>
-                            ))}
-                          </div>
-                          {activeCombatSupportParticipants.length > 0 ? (
-                            <div className="pokemon-combat-support-strip">
-                              {activeCombatSupportParticipants.map((participant) => (
-                                <div key={participant.userId} className="pokemon-combat-support-card">
-                                  <PokemonCombatParticipantSprite participant={participant} size={54} />
-                                  <span>{participant.displayName}</span>
-                                </div>
-                              ))}
-                            </div>
-                          ) : null}
-                          {!canRetreatFromActiveEnemyCombat ? (
-                            <p className="pokemon-combat-dialogue-helper">
-                              {isCombatLeaderParticipantPresent
-                                ? `Solo ${activeTouchPrompt.combatLeaderDisplayName} puede huir.`
-                                : 'El lider aun no se unio. Cualquier participante puede iniciar o huir.'}
-                            </p>
-                          ) : null}
-                        </div>
-
-                        <div className="pokemon-combat-command-grid">
-                          <button
-                            type="button"
-                            className="pokemon-combat-command-button is-fight"
-                            onClick={() => handleBattleCommandPreview('Luchar')}
-                          >
-                            LUCHAR
-                          </button>
-                          <button
-                            type="button"
-                            className="pokemon-combat-command-button is-bag"
-                            onClick={() => handleBattleCommandPreview('Mochila')}
-                          >
-                            MOCHILA
-                          </button>
-                          <button
-                            type="button"
-                            className="pokemon-combat-command-button is-party"
-                            onClick={() => handleBattleCommandPreview('Grupo')}
-                          >
-                            GRUPO
-                          </button>
-                          <button
-                            type="button"
-                            className="pokemon-combat-command-button is-run"
-                            onClick={handleEnemyFlee}
-                            disabled={isSubmittingEnemyCombatFlee}
-                          >
-                            {isSubmittingEnemyCombatFlee ? '...' : 'HUIR'}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="combat-banner-shell">
-                      <button
-                        type="button"
-                        className="combat-banner-close-button"
-                        aria-label="Huir del combate"
-                        onClick={handleEnemyFlee}
-                        disabled={!canRetreatFromActiveEnemyCombat || isSubmittingEnemyCombatFlee}
-                        title={
-                          canRetreatFromActiveEnemyCombat
-                            ? isSubmittingEnemyCombatFlee
-                              ? 'Retirandose del combate...'
-                              : 'Retirarse del combate'
-                            : isCombatLeaderParticipantPresent
-                              ? `Solo ${activeTouchPrompt.combatLeaderDisplayName} puede retirarse`
-                              : 'Solo quienes participan pueden retirarse'
-                        }
-                      >
-                        {isSubmittingEnemyCombatFlee ? '...' : 'X'}
-                      </button>
-
-                      <div className="combat-banner-topband">
-                        <p className="combat-banner-kicker">Sala de espera de combate</p>
-                        <div className="combat-banner-heading">
-                          <h2>{activeTouchPrompt.title}</h2>
-                          <p>{`Iniciado por ${activeTouchPrompt.requestedByDisplayName} · Huida ${Math.round(activeTouchPrompt.fleeChance * 100)}%`}</p>
-                          <p>{`Lider del combate: ${activeTouchPrompt.combatLeaderDisplayName}`}</p>
-                          {!canStartActiveEnemyCombat ? (
-                            <p className="combat-banner-helper-copy">
-                              {isCombatLeaderParticipantPresent
-                                ? `Solo ${activeTouchPrompt.combatLeaderDisplayName} puede iniciar el combate.`
-                                : 'El lider aun no se unio. Cualquier participante puede iniciar el combate.'}
-                            </p>
-                          ) : null}
-                          {!canRetreatFromActiveEnemyCombat ? (
-                            <p className="combat-banner-helper-copy">
-                              {isCombatLeaderParticipantPresent
-                                ? `Solo ${activeTouchPrompt.combatLeaderDisplayName} puede retirarse.`
-                                : 'El lider aun no se unio. Cualquier participante puede retirarse.'}
-                            </p>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      <div className="combat-banner-stage">
-                        <section className="combat-banner-side">
-                          <header className="combat-banner-side-header">
-                            <span>Aliados</span>
-                            <strong>{activeTouchPrompt.participants.length}</strong>
-                          </header>
-                          <div className="combat-banner-roster is-allies">
-                            {activeTouchPrompt.participants.map((participant) => (
-                              <CombatParticipantPreview
-                                key={participant.userId}
-                                participant={participant}
-                                isRequester={participant.userId === activeTouchPrompt.requestedByUserId}
-                              />
-                            ))}
-                          </div>
-                        </section>
-
-                        <div className="combat-banner-versus">
-                          <span>VS</span>
-                        </div>
-
-                        <section className="combat-banner-side is-enemy">
-                          <header className="combat-banner-side-header is-enemy">
-                            <span>Rival</span>
-                            <strong>{activeTouchPrompt.enemyLevel}</strong>
-                          </header>
-                          <div className="combat-banner-roster is-enemy">
-                            <CombatEnemyPreview
-                              enemyTemplate={activeCombatEnemyTemplate}
-                              label={activeTouchPrompt.title}
-                              enemyLevel={activeTouchPrompt.enemyLevel}
-                            />
-                          </div>
-                        </section>
-                      </div>
-
-                      <div className="combat-banner-bottomband">
-                        <button
-                          type="button"
-                          className="combat-banner-start-button"
-                          onClick={handleEnemyCombatStart}
-                          disabled={isSubmittingEnemyCombatStart}
-                          title={
-                            canStartActiveEnemyCombat
-                              ? isSubmittingEnemyCombatStart
-                                ? 'Preparando el combate...'
-                                : 'Comenzar combate'
-                              : isCombatLeaderParticipantPresent
-                                ? `Solo ${activeTouchPrompt.combatLeaderDisplayName} puede iniciar el combate`
-                                : 'Solo quienes participan pueden iniciar el combate'
-                          }
-                        >
-                          {isSubmittingEnemyCombatStart ? 'Preparando...' : 'Iniciar combate'}
-                        </button>
-                      </div>
-                    </div>
-                  )
-                ) : (
-                  <>
-                    <div className="fullscreen-touch-prompt-body" />
-                    <div className="fullscreen-touch-prompt-actions">
-                      <button
-                        type="button"
-                        className="secondary-action-button is-active"
-                        onClick={closeActiveTouchPrompt}
-                      >
-                        Cerrar
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
+              {activeTouchPrompt.kind === 'enemy' ? (
+                <div className="fullscreen-touch-prompt-panel is-enemy" />
+              ) : (
+                <div className="fullscreen-touch-prompt-panel">
+                  {activeTouchPrompt.title ? (
+                    <header className="fullscreen-touch-prompt-header">
+                      <h2>{activeTouchPrompt.title}</h2>
+                    </header>
+                  ) : null}
+                  <div className="fullscreen-touch-prompt-body" />
+                  <div className="fullscreen-touch-prompt-actions">
+                    <button
+                      type="button"
+                      className="secondary-action-button is-active"
+                      onClick={closeActiveTouchPrompt}
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+                </div>
+              )}
             </section>
           ) : null}
         </div>

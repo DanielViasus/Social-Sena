@@ -1,5 +1,6 @@
 import {
   DEFAULT_AUDIO_SETTINGS,
+  DEFAULT_USER_ROLE,
   normalizeAudioSettings,
   type PlayerInventory,
   type SkinColorSelections,
@@ -172,6 +173,7 @@ export function readStoredAuthSession(): AuthSession | null {
       inventory: normalizeInventory(parsedSession.inventory),
       profile: {
         ...parsedSession.profile,
+        role: parsedSession.profile.role ?? DEFAULT_USER_ROLE,
         skinColors: normalizeSkinColors(parsedSession.profile.skinColors),
         audioSettings: normalizeAudioSettings(parsedSession.profile.audioSettings),
       },
@@ -253,6 +255,7 @@ export function createLocalAuthSession(displayName: string): AuthSession {
       userId: `player_${suffix}`,
       username: `${usernameBase}_${suffix.slice(0, 4)}`,
       displayName: displayName.trim(),
+      role: DEFAULT_USER_ROLE,
       skinId: 'default-student',
       skinColors: {},
       audioSettings: { ...DEFAULT_AUDIO_SETTINGS },
@@ -280,6 +283,7 @@ export function createAuth0Session(options: {
       userId: options.userId,
       username: usernameBase,
       displayName: options.displayName.trim(),
+      role: DEFAULT_USER_ROLE,
       skinId: preferredSkinId,
       skinColors: preferredSkinColors,
       audioSettings: { ...DEFAULT_AUDIO_SETTINGS },

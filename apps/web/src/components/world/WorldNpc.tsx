@@ -19,7 +19,7 @@ export interface WorldNpcFrameDefinition {
 
 export type NpcInteractionState = 'out' | 'warning' | 'interaction'
 
-interface WorldNpcProps {
+export interface WorldNpcProps {
   npcTemplate: RoomNpcTemplate
   debugEnabled: boolean
   state: NpcInteractionState

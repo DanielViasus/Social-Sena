@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
 import { Server, type Socket } from 'socket.io'
 import { initializeDatabase } from './db/client'
@@ -12,13 +12,18 @@ import {
   clientEvents,
   completeOnboardingSchema,
   connectToGameSchema,
+  createRoomTemplateFromEditorMap,
   getRoomTemplateById,
+  registerRoomTemplate,
   inviteToPartySchema,
   joinRoomSchema,
+  loadRoomEditorMapSchema,
   leavePartySchema,
   movementInputSchema,
   navigateToSchema,
   requestEnemyCombatSchema,
+  roomEditorDocumentSchema,
+  saveRoomEditorMapSchema,
   startEnemyCombatSchema,
   promotePartyLeaderSchema,
   respondEnemyCombatSupportSchema,
@@ -28,6 +33,7 @@ import {
   respondFriendRequestSchema,
   fleeEnemyCombatSchema,
   updateAudioSettingsSchema,
+  updateAccessRoleSchema,
   updateSkinSchema,
   updateInventorySchema,
   type ActivityNoticePayload,
@@ -41,6 +47,7 @@ import {
   type PartyStatePayload,
   type PartySummary,
   type RoomEnemiesStatePayload,
+  type SavedRoomEditorMap,
   type RoomEnemyCombatStatePayload,
   type RoomEnemyState,
   type RoomTransitionRequestedPayload,
@@ -173,7 +180,40 @@ function isOriginAllowed(origin?: string) {
 }
 
 const httpServer = createServer((request, response) => {
-  if (request.url === '/health') {
+  const requestOrigin = request.headers.origin
+  if (requestOrigin && isOriginAllowed(requestOrigin)) {
+    response.setHeader('access-control-allow-origin', requestOrigin)
+    response.setHeader('vary', 'Origin')
+  }
+
+  const requestUrl = new URL(request.url ?? '/', 'http://localhost')
+  if (requestUrl.pathname === '/api/editor-rooms/resolve') {
+    const routePath = requestUrl.searchParams.get('path')
+    if (!routePath?.startsWith('/')) {
+      response.writeHead(400, { 'content-type': 'application/json; charset=utf-8' })
+      response.end(JSON.stringify({ ok: false, message: 'Ruta invalida.' }))
+      return
+    }
+    void gameRepository.getRoomEditorMapByRoute(routePath).then((map) => {
+      const parsedDocument = roomEditorDocumentSchema.safeParse(map?.document)
+      if (!map || !parsedDocument.success) {
+        response.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
+        response.end(JSON.stringify({ ok: false }))
+        return
+      }
+      const normalizedMap = { ...map, document: parsedDocument.data }
+      registerRoomTemplate(createRoomTemplateFromEditorMap(normalizedMap))
+      response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+      response.end(JSON.stringify({ ok: true, map: normalizedMap }))
+    }).catch((error: unknown) => {
+      console.error('[room-editor] No fue posible resolver la ruta publicada.', error)
+      response.writeHead(500, { 'content-type': 'application/json; charset=utf-8' })
+      response.end(JSON.stringify({ ok: false }))
+    })
+    return
+  }
+
+  if (requestUrl.pathname === '/health') {
     response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
     response.end(JSON.stringify({ status: 'ok', service: 'social-sena-game-server' }))
     return
@@ -198,6 +238,8 @@ const io = new Server(httpServer, {
 })
 
 const sessions = new Map<string, SessionState>()
+const accessRoleChangeEnabled =
+  process.env.NODE_ENV !== 'production' || process.env.ENABLE_ACCESS_ROLE_PAGE === 'true'
 const rooms = new Map<string, RoomState>()
 const roomEnemyRuntimes = new Map<string, Record<string, ServerEnemyRuntimeState>>()
 const activeEnemyCombatEncounters = new Map<string, ActiveEnemyCombatEncounter>()
@@ -2378,6 +2420,181 @@ io.on('connection', (socket) => {
     void emitSocialStateToSocket(socket.id)
   })
 
+  socket.on(clientEvents.updateAccessRole, async (rawPayload, callback) => {
+    const parsed = updateAccessRoleSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!accessRoleChangeEnabled) {
+      callback?.({
+        ok: false,
+        message: 'El cambio rapido de rol esta deshabilitado en este entorno.',
+      })
+      return
+    }
+
+    if (!parsed.success || !session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible actualizar el rol de la sesion.',
+      })
+      return
+    }
+
+    const persistedRole = await gameRepository.updateUserRole(
+      session.profile.userId,
+      parsed.data.role,
+    )
+
+    if (!persistedRole) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible guardar el nuevo rol.',
+      })
+      return
+    }
+
+    session.profile.role = persistedRole
+    callback?.({
+      ok: true,
+      profile: session.profile,
+    })
+  })
+
+  socket.on(clientEvents.saveRoomEditorMap, async (rawPayload, callback) => {
+    const session = sessions.get(socket.id)
+    const parsed = saveRoomEditorMapSchema.safeParse(rawPayload)
+
+    if (!session || !parsed.success) {
+      callback?.({ ok: false, message: 'Los datos del mapa no son validos.' })
+      return
+    }
+
+    if (!['user', 'mage', 'admin', 'developer'].includes(session.profile.role)) {
+      callback?.({ ok: false, message: 'Tu rol no tiene permiso para guardar mapas.' })
+      return
+    }
+
+    let publication: {
+      kind: 'system' | 'classroom' | 'room' | 'event' | 'official'
+      routePath: string
+      classCode: string | null
+      code: string
+    } | undefined
+
+    if (!parsed.data.code || parsed.data.publication) {
+      const requestedKind = parsed.data.publication?.kind === 'classroom'
+        ? 'room'
+        : parsed.data.publication?.kind
+      const allowedKindsByRole: Record<string, string[]> = {
+        visitor: [],
+        user: ['room'],
+        mage: ['room'],
+        admin: ['room', 'event'],
+        developer: ['system', 'event', 'official'],
+      }
+
+      if (!requestedKind || !allowedKindsByRole[session.profile.role].includes(requestedKind)) {
+        callback?.({ ok: false, message: 'Tu rol no puede publicar ese tipo de URL.' })
+        return
+      }
+
+      if (requestedKind === 'system' && parsed.data.publication?.kind === 'system') {
+        const routeSlug = parsed.data.publication.routeSlug
+        if (['editor', 'editroom', 'accessrole'].includes(routeSlug.toLowerCase())) {
+          callback?.({ ok: false, message: 'Esa URL esta reservada por el sistema.' })
+          return
+        }
+        publication = {
+          kind: 'system',
+          routePath: `/${routeSlug}`,
+          classCode: parsed.data.publication.classCode.trim().toUpperCase(),
+          code: randomUUID().replaceAll('-', '').slice(0, 16).toUpperCase(),
+        }
+      } else {
+        const accessCode = parsed.data.publication?.kind === 'classroom'
+          ? parsed.data.publication.classCode.trim().toUpperCase()
+          : parsed.data.publication && 'accessCode' in parsed.data.publication
+            ? parsed.data.publication.accessCode.trim().toUpperCase()
+            : undefined
+        if (!accessCode) {
+          callback?.({ ok: false, message: 'Escribe el codigo base antes de guardar la sala.' })
+          return
+        }
+        const roomHash = createHash('sha256')
+          .update(`${requestedKind}:${accessCode}:${parsed.data.name.trim().toLowerCase()}:${session.profile.userId}`)
+          .digest('hex')
+          .slice(0, 20)
+          .toUpperCase()
+        const routePrefix = requestedKind === 'event'
+          ? 'event'
+          : requestedKind === 'official' ? 'roomOficial' : 'Room'
+        publication = {
+          kind: requestedKind,
+          routePath: `/${routePrefix}=${roomHash}`,
+          classCode: accessCode,
+          code: roomHash,
+        }
+      }
+    }
+
+    try {
+      const result = await gameRepository.saveRoomEditorMap(
+        session.profile.userId,
+        parsed.data.name,
+        parsed.data.document,
+        parsed.data.code,
+        publication,
+      )
+      if (result.forbidden) {
+        callback?.({
+          ok: false,
+          canSaveAsCopy: true,
+          message: 'Este mapa pertenece a otro creador. Puedes guardarlo como una copia.',
+        })
+        return
+      }
+      if (!result.map) {
+        callback?.({ ok: false, message: 'No fue posible guardar el mapa en la base de datos.' })
+        return
+      }
+      callback?.({ ok: true, map: result.map })
+    } catch (error) {
+      console.error('[room-editor] No fue posible guardar el mapa.', error)
+      const databaseError = error as { code?: string }
+      callback?.({
+        ok: false,
+        message: databaseError.code === '23505'
+          ? 'Esa URL ya pertenece a otra escena. Elige una diferente.'
+          : 'Ocurrio un error al guardar el mapa.',
+      })
+    }
+  })
+
+  socket.on(clientEvents.loadRoomEditorMap, async (rawPayload, callback) => {
+    const session = sessions.get(socket.id)
+    const parsed = loadRoomEditorMapSchema.safeParse(rawPayload)
+    if (!session || !parsed.success) {
+      callback?.({ ok: false, message: 'El codigo del mapa no es valido.' })
+      return
+    }
+
+    try {
+      const map = await gameRepository.getRoomEditorMap(parsed.data.code)
+      const parsedDocument = roomEditorDocumentSchema.safeParse(map?.document)
+      if (!map || !parsedDocument.success) {
+        callback?.({ ok: false, message: 'No se encontro un mapa valido con ese codigo.' })
+        return
+      }
+      callback?.({
+        ok: true,
+        map: { ...map, document: parsedDocument.data } satisfies SavedRoomEditorMap,
+      })
+    } catch (error) {
+      console.error('[room-editor] No fue posible cargar el mapa.', error)
+      callback?.({ ok: false, message: 'Ocurrio un error al cargar el mapa.' })
+    }
+  })
+
   socket.on(clientEvents.joinRoom, async (rawPayload) => {
     const session = sessions.get(socket.id)
     const parsed = joinRoomSchema.safeParse(rawPayload)
@@ -2388,6 +2605,18 @@ io.on('connection', (socket) => {
         message: 'No fue posible unir al jugador a la sala.',
       })
       return
+    }
+
+    if (!getRoomTemplateById(parsed.data.templateId) && parsed.data.templateId.startsWith('editor-map-')) {
+      const mapCode = parsed.data.templateId.slice('editor-map-'.length)
+      const publishedMap = await gameRepository.getRoomEditorMap(mapCode)
+      const parsedDocument = roomEditorDocumentSchema.safeParse(publishedMap?.document)
+      if (publishedMap?.routePath && parsedDocument.success) {
+        registerRoomTemplate(createRoomTemplateFromEditorMap({
+          ...publishedMap,
+          document: parsedDocument.data,
+        }))
+      }
     }
 
     const previousRoomId = session.roomId
