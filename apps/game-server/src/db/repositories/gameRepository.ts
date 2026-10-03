@@ -10,6 +10,7 @@ import type {
   PlayerProgress,
   Position,
   RoomEditorDocument,
+  RoomEditorMapSummary,
   SavedRoomEditorMap,
   RoomEditorPublicationKind,
   SkinColorSelections,
@@ -418,6 +419,63 @@ async function queryOutgoingPartyInvites(
 }
 
 class GameRepository {
+  async deleteRoomEditorMap(ownerUserId: string, code: string): Promise<boolean> {
+    const pool = getDbPool()
+    if (!pool) return false
+
+    const result = await pool.query(
+      'delete from room_editor_maps where code = $1 and owner_user_id = $2',
+      [code, ownerUserId],
+    )
+    return (result.rowCount ?? 0) > 0
+  }
+
+  async listRoomEditorMapsVisibleToUser(
+    ownerUserId: string,
+    includeDeveloperSharedMaps: boolean,
+  ): Promise<RoomEditorMapSummary[]> {
+    const pool = getDbPool()
+    if (!pool) return []
+
+    const result = await pool.query<{
+      code: string
+      name: string
+      owner_user_id: string
+      owner_display_name: string
+      publication_kind: RoomEditorPublicationKind | 'draft'
+      route_path: string | null
+      updated_at: string | Date
+    }>(
+      `select
+         room_editor_maps.code,
+         room_editor_maps.name,
+         room_editor_maps.owner_user_id,
+         users.display_name as owner_display_name,
+         room_editor_maps.publication_kind,
+         room_editor_maps.route_path,
+         room_editor_maps.updated_at
+       from room_editor_maps
+       inner join users on users.user_id = room_editor_maps.owner_user_id
+       where room_editor_maps.owner_user_id = $1
+          or ($2::boolean = true and room_editor_maps.publication_kind in ('system', 'event'))
+       order by
+         case when room_editor_maps.owner_user_id = $1 then 0 else 1 end,
+         room_editor_maps.updated_at desc,
+         room_editor_maps.name asc`,
+      [ownerUserId, includeDeveloperSharedMaps],
+    )
+
+    return result.rows.map((row) => ({
+      code: row.code,
+      name: row.name,
+      ownerUserId: row.owner_user_id,
+      ownerDisplayName: row.owner_display_name,
+      publicationKind: row.publication_kind,
+      routePath: row.route_path,
+      updatedAt: normalizeTimestamp(row.updated_at),
+    }))
+  }
+
   async getRoomEditorMapByRoute(routePath: string): Promise<SavedRoomEditorMap | null> {
     const pool = getDbPool()
     if (!pool) return null

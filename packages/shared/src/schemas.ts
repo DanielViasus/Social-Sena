@@ -105,6 +105,13 @@ export const roomEditorAssetSchema = z.object({
   zIndexOffsetY: z.number().int().min(-4096).max(4096),
 })
 
+export const roomEditorSpawnPointSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  cellX: z.number().int().min(0).max(49),
+  cellY: z.number().int().min(0).max(49),
+  entryKey: z.string().trim().min(1).max(80).optional(),
+})
+
 export const roomEditorDocumentSchema = z.object({
   version: z.literal(1),
   gridWidth: z.number().int().min(1).max(50),
@@ -112,6 +119,9 @@ export const roomEditorDocumentSchema = z.object({
   layers: z.array(roomEditorLayerSchema).min(1).max(40),
   placements: z.array(roomEditorPlacementSchema).max(10000),
   assets: z.array(roomEditorAssetSchema).max(1000).default([]),
+  // Se conserva como colección para admitir varias entradas en el futuro.
+  // El editor actual limita la creación a un único punto predeterminado.
+  spawnPoints: z.array(roomEditorSpawnPointSchema).max(20).default([]),
 })
 
 export const saveRoomEditorMapSchema = z.object({

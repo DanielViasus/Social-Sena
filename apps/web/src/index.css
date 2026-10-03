@@ -3023,8 +3023,10 @@ button {
   position: absolute;
   display: block;
   transform: translate(-50%, -50%);
+  transform-origin: center;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
+  shape-rendering: crispEdges;
   user-select: none;
   -webkit-user-drag: none;
   backface-visibility: hidden;
@@ -4433,6 +4435,171 @@ button {
   white-space: nowrap;
 }
 
+.room-editor-menu-maps {
+  min-height: 150px;
+  display: grid;
+  grid-template-rows: 38px minmax(0, 1fr);
+  overflow: hidden;
+  background: #242424;
+  border: 2px solid;
+  border-color: #151515 #555555 #555555 #151515;
+}
+
+.room-editor-menu-maps > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 10px;
+  color: #e4e4e4;
+  background: #3c3c3c;
+  border-bottom: 2px solid #151515;
+}
+
+.room-editor-menu-maps > header strong {
+  font-size: 0.48rem;
+}
+
+.room-editor-menu-maps > header output {
+  min-width: 25px;
+  padding: 3px 5px;
+  color: #d5d5d5;
+  font-size: 0.4rem;
+  text-align: center;
+  background: #292929;
+  border: 1px solid #666666;
+}
+
+.room-editor-menu-map-list {
+  max-height: 230px;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 8px;
+  overflow-y: auto;
+}
+
+.room-editor-menu-map-list > p {
+  margin: auto;
+  padding: 26px 12px;
+  color: #999999;
+  font-size: 0.42rem;
+  line-height: 1.7;
+  text-align: center;
+}
+
+.room-editor-menu-map-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  gap: 5px;
+}
+
+.room-editor-menu-map-row.is-read-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.room-editor-menu-map-list > h2 {
+  margin: 4px 2px 2px;
+  padding: 7px 6px;
+  color: #9fcda5;
+  font-size: 0.38rem;
+  line-height: 1.5;
+  background: #2c352d;
+  border-left: 3px solid #6eaa76;
+}
+
+.room-editor-menu-map-open {
+  min-width: 0;
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 10px;
+  color: #dddddd;
+  font: inherit;
+  text-align: left;
+  background: #353535;
+  border: 2px solid;
+  border-color: #575757 #191919 #191919 #575757;
+  cursor: pointer;
+}
+
+.room-editor-menu-map-open:hover:not(:disabled) {
+  color: #ffffff;
+  background: #424242;
+  border-color: #83c98f #315d38 #315d38 #83c98f;
+}
+
+.room-editor-menu-map-open > span {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.room-editor-menu-map-open strong,
+.room-editor-menu-map-open small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-editor-menu-map-open strong {
+  font-size: 0.48rem;
+}
+
+.room-editor-menu-map-open small {
+  color: #979797;
+  font-size: 0.34rem;
+}
+
+.room-editor-menu-map-open code {
+  flex: none;
+  color: #b9dcbc;
+  font: inherit;
+  font-size: 0.34rem;
+}
+
+.room-editor-menu-map-open:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.room-editor-menu-map-delete {
+  min-height: 58px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: #f2cece;
+  font: inherit;
+  font-size: 0.78rem;
+  background: #603b3b;
+  border: 2px solid;
+  border-color: #a86d6d #2f1b1b #2f1b1b #a86d6d;
+  cursor: pointer;
+}
+
+.room-editor-menu-map-delete:hover:not(:disabled) {
+  color: #ffffff;
+  background: #8a4141;
+}
+
+.room-editor-menu-map-delete:disabled {
+  opacity: 0.48;
+  cursor: wait;
+}
+
+.room-editor-menu-map-message {
+  margin: 0;
+  padding: 8px 10px;
+  color: #d2d2d2;
+  font-size: 0.36rem;
+  line-height: 1.5;
+  background: #292929;
+  border-top: 1px solid #4b4b4b;
+}
+
 .room-editor-menu-actions {
   display: grid;
   gap: 12px;
@@ -4636,6 +4803,16 @@ button {
   font-size: 0.5rem;
 }
 
+.edit-room-scene-name {
+  max-width: min(360px, 28vw);
+  overflow: hidden;
+  color: #2d2d2d;
+  font-size: 0.62rem;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .edit-room-save-controls input {
   width: clamp(130px, 16vw, 230px);
   height: 34px;
@@ -4665,10 +4842,11 @@ button {
   cursor: wait;
 }
 
-.edit-room-save-controls > span {
-  max-width: 220px;
+.edit-room-save-status {
+  max-width: min(280px, 22vw);
   overflow: hidden;
   color: #4b4b4b;
+  font-size: 0.46rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -4701,6 +4879,55 @@ button {
   color: #dedede;
   font-size: 0.72rem;
   background: #202124;
+}
+
+.published-room-not-found {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: #dedede;
+  background: #202124;
+}
+
+.published-room-not-found section {
+  width: min(520px, 100%);
+  display: grid;
+  gap: 16px;
+  padding: 30px;
+  text-align: center;
+  background: #303134;
+  border: 3px solid #5f6368;
+}
+
+.published-room-not-found span {
+  color: #e7b75b;
+  font-size: 1.2rem;
+}
+
+.published-room-not-found h1,
+.published-room-not-found p {
+  margin: 0;
+}
+
+.published-room-not-found h1 {
+  font-size: 0.9rem;
+}
+
+.published-room-not-found p {
+  font-size: 0.52rem;
+  line-height: 1.8;
+}
+
+.published-room-not-found button {
+  min-height: 44px;
+  color: #202124;
+  font: inherit;
+  font-size: 0.52rem;
+  background: #83c98f;
+  border: 2px solid;
+  border-color: #c1efc8 #3f7549 #3f7549 #c1efc8;
+  cursor: pointer;
 }
 
 .edit-room-publication-overlay {
@@ -4831,17 +5058,22 @@ button {
   min-height: 0;
   display: grid;
   grid-template-columns: clamp(190px, 18vw, 270px) minmax(320px, 1fr) clamp(210px, 20vw, 300px);
+  overflow: hidden;
   background: #212121;
 }
 
 .edit-room-panel {
   min-width: 0;
+  min-height: 0;
   display: grid;
   grid-template-rows: 38px minmax(0, 1fr);
+  overflow: hidden;
   background: #303030;
 }
 
 .edit-room-assets-panel {
+  min-height: 0;
+  overflow: hidden;
   border-right: 3px solid #121212;
 }
 
@@ -4862,7 +5094,10 @@ button {
 .edit-room-assets-body {
   min-height: 0;
   margin: 0;
-  overflow-y: auto;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   border: 0;
 }
 
@@ -4975,6 +5210,24 @@ button {
   image-rendering: pixelated;
   user-select: none;
   -webkit-user-drag: none;
+}
+
+.edit-room-spawn-preview {
+  display: grid;
+  place-items: center;
+  color: #d8fbff;
+  background: radial-gradient(circle, #4cb7c3 0 20%, #22535d 21% 42%, #242b2d 43%);
+}
+
+.edit-room-spawn-preview > span {
+  font-size: 1.35rem;
+  line-height: 1;
+  filter: drop-shadow(0 3px 0 #102d33);
+}
+
+.edit-room-spawn-asset.is-selected {
+  border-color: #b8f6f2 #4a8885 #4a8885 #b8f6f2;
+  box-shadow: inset 0 0 0 2px #6badaa;
 }
 
 .edit-room-asset-name {
@@ -5099,12 +5352,65 @@ button {
   width: max-content;
   min-width: 100%;
   min-height: 100%;
-  padding: 48px;
+  padding: 300px;
 }
 
 .edit-room-map-scale-frame {
   position: relative;
   flex: none;
+}
+
+.edit-room-column-guides,
+.edit-room-row-guides {
+  position: absolute;
+  z-index: 130;
+  display: grid;
+  color: rgba(216, 216, 216, 0.68);
+  font-size: 0.42rem;
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+}
+
+.edit-room-column-guides {
+  right: 0;
+  bottom: calc(100% + 8px);
+  left: 0;
+  height: 28px;
+}
+
+.edit-room-row-guides {
+  top: 0;
+  right: calc(100% + 8px);
+  bottom: 0;
+  width: 36px;
+}
+
+.edit-room-column-guides > span,
+.edit-room-row-guides > span {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.edit-room-column-guides.is-anchored,
+.edit-room-row-guides.is-anchored {
+  color: rgba(242, 242, 242, 0.88);
+  background: rgba(30, 30, 30, 0.58);
+  backdrop-filter: blur(2px);
+}
+
+.edit-room-column-guides.is-anchored {
+  box-shadow: 0 1px 0 rgba(235, 235, 235, 0.18), 0 4px 10px rgba(0, 0, 0, 0.18);
+}
+
+.edit-room-row-guides.is-anchored {
+  box-shadow: 1px 0 0 rgba(235, 235, 235, 0.18), 4px 0 10px rgba(0, 0, 0, 0.18);
 }
 
 .edit-room-map-canvas {
@@ -5145,6 +5451,23 @@ button {
   cursor: crosshair;
 }
 
+.edit-room-map-canvas.is-placing-spawn {
+  cursor: crosshair;
+}
+
+.edit-room-grid-guide-overlay {
+  position: absolute;
+  z-index: 90;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, rgba(235, 242, 242, 0.14) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(235, 242, 242, 0.14) 1px, transparent 1px),
+    linear-gradient(to right, rgba(235, 242, 242, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(235, 242, 242, 0.035) 1px, transparent 1px);
+  background-size: 128px 128px, 128px 128px, 16px 16px, 16px 16px;
+  pointer-events: none;
+}
+
 .edit-room-cell-tool-preview {
   position: absolute;
   z-index: 100;
@@ -5180,6 +5503,43 @@ button {
   --edit-room-tool-color: rgba(113, 180, 255, 0.95);
   --edit-room-tool-fill: rgba(68, 135, 219, 0.2);
   --edit-room-tool-shadow: rgba(24, 58, 104, 0.72);
+}
+
+.edit-room-cell-tool-preview.is-spawn {
+  --edit-room-tool-color: rgba(104, 231, 222, 0.95);
+  --edit-room-tool-fill: rgba(60, 188, 181, 0.2);
+  --edit-room-tool-shadow: rgba(19, 78, 76, 0.74);
+}
+
+.edit-room-spawn-marker {
+  position: absolute;
+  z-index: 110;
+  width: 128px;
+  height: 128px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  color: #e7ffff;
+  background: radial-gradient(circle, rgba(66, 205, 196, 0.32) 0 22%, transparent 23%);
+  outline: 3px dashed rgba(104, 231, 222, 0.9);
+  outline-offset: -7px;
+  pointer-events: none;
+}
+
+.edit-room-spawn-marker > span {
+  font-size: 1.3rem;
+  line-height: 1;
+  filter: drop-shadow(0 3px 0 #184745);
+}
+
+.edit-room-spawn-marker > strong {
+  padding: 4px 6px;
+  color: #dffffd;
+  font-size: 0.34rem;
+  letter-spacing: 0.08em;
+  background: rgba(18, 58, 57, 0.88);
+  border: 1px solid #8ce8e2;
 }
 
 .edit-room-paint-preview-sprite {

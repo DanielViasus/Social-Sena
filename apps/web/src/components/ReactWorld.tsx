@@ -265,23 +265,34 @@ function resolveCameraPosition(
   const unclampedCameraX = targetCenterX - viewportSize.width / 2
   const unclampedCameraY = targetCenterY - viewportSize.height / 2
 
-  const worldFitsHorizontally = template.world.width < viewportSize.width
-  const effectiveWorldHeight = template.world.height + cameraVerticalMargin * 2
+  const cameraHorizontalMargin = Math.max(0, template.camera.marginX)
+  const effectiveCameraVerticalMargin = Math.max(
+    0,
+    template.camera.marginY,
+    cameraVerticalMargin,
+  )
+  const effectiveWorldWidth = template.world.width + cameraHorizontalMargin * 2
+  const effectiveWorldHeight = template.world.height + effectiveCameraVerticalMargin * 2
+  const worldFitsHorizontally = effectiveWorldWidth < viewportSize.width
   const worldFitsVertically = effectiveWorldHeight < viewportSize.height
   const centeredCameraX = -(viewportSize.width - template.world.width) / 2
   const centeredCameraY = -(viewportSize.height - template.world.height) / 2
-  const maxCameraX = Math.max(0, template.world.width - viewportSize.width)
-  const minCameraY = -cameraVerticalMargin
+  const minCameraX = -cameraHorizontalMargin
+  const maxCameraX = Math.max(
+    minCameraX,
+    template.world.width + cameraHorizontalMargin - viewportSize.width,
+  )
+  const minCameraY = -effectiveCameraVerticalMargin
   const maxCameraY = Math.max(
     minCameraY,
-    template.world.height + cameraVerticalMargin - viewportSize.height,
+    template.world.height + effectiveCameraVerticalMargin - viewportSize.height,
   )
 
   return {
     cameraX: template.camera.clampBorders
       ? centerWorldWhenSmaller && worldFitsHorizontally
         ? centeredCameraX
-        : clamp(unclampedCameraX, 0, maxCameraX)
+        : clamp(unclampedCameraX, minCameraX, maxCameraX)
       : unclampedCameraX,
     cameraY: template.camera.clampBorders
       ? centerWorldWhenSmaller && worldFitsVertically
@@ -667,7 +678,7 @@ function getPerspectiveAwareRenderItems(
     key: objectTemplate.id,
     perspectiveY: objectTemplate.kind === 'floor'
       ? Number.NEGATIVE_INFINITY
-      : getObjectPerspectiveY(objectTemplate) + (objectTemplate.layerOrder ?? 0) * 0.001,
+      : getObjectPerspectiveY(objectTemplate),
     objectTemplate,
     spriteSrc: resolveObjectSpriteSrc?.(objectTemplate)
       ?? (objectTemplate.spriteAssetId ? getWorldSpriteAsset(objectTemplate.spriteAssetId) : undefined),
@@ -744,6 +755,14 @@ function getPerspectiveAwareRenderItems(
   return [...objectItems, ...teleportItems, ...npcItems, ...enemyItems, ...combatItems, ...playerItems].sort((left, right) => {
     if (left.perspectiveY !== right.perspectiveY) {
       return left.perspectiveY - right.perspectiveY
+    }
+
+    if (left.kind === 'object' && right.kind === 'object') {
+      const leftEditorLayer = left.objectTemplate.layerOrder ?? 0
+      const rightEditorLayer = right.objectTemplate.layerOrder ?? 0
+      if (leftEditorLayer !== rightEditorLayer) {
+        return leftEditorLayer - rightEditorLayer
+      }
     }
 
     if (left.kind === right.kind) {
@@ -1506,7 +1525,7 @@ function ReactWorld({
           width: `${template.world.width}px`,
           height: `${template.world.height}px`,
           backgroundColor: colorToCss(template.world.backgroundColor, '#dfe8d2'),
-          transform: `translate(${-runtime.cameraX}px, ${-runtime.cameraY}px)`,
+          transform: `translate3d(${Math.round(-runtime.cameraX)}px, ${Math.round(-runtime.cameraY)}px, 0)`,
         }}
       >
         {backgroundAsset ? (

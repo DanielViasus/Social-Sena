@@ -18,7 +18,6 @@ interface ObjectDecorationProps {
 }
 
 const PATH_COLLIDER_MARGIN = 2
-const EDITOR_SPRITE_SEAM_OVERLAP_PX = 1
 
 
 function colorToCss(value: number | undefined, fallback: string) {
@@ -84,11 +83,6 @@ export function ObjectDecoration({ objectTemplate, spriteSrc, debugEnabled, flip
   const zIndexRef = getObjectZIndexRef(objectTemplate, referenceCollider)
   const hasVisual = Boolean(spriteSrc) || (objectTemplate.opacity ?? 0.72) > 0.02 || objectTemplate.label
   const resolvedFlippedX = flippedX ?? objectTemplate.flippedX ?? false
-  const isEditorLayerSprite = typeof objectTemplate.layerOrder === 'number'
-  const renderedSpriteWidth = objectTemplate.width
-    + (isEditorLayerSprite ? EDITOR_SPRITE_SEAM_OVERLAP_PX : 0)
-  const renderedSpriteHeight = objectTemplate.height
-    + (isEditorLayerSprite ? EDITOR_SPRITE_SEAM_OVERLAP_PX : 0)
 
   return (
     <div
@@ -138,8 +132,8 @@ export function ObjectDecoration({ objectTemplate, spriteSrc, debugEnabled, flip
                 draggable={false}
                 className="react-world-object-sprite"
                 style={{
-                  width: `${renderedSpriteWidth}px`,
-                  height: `${renderedSpriteHeight}px`,
+                  width: `${objectTemplate.width}px`,
+                  height: `${objectTemplate.height}px`,
                   opacity: objectTemplate.opacity ?? 1,
                   transform: `translate(-50%, -50%)${resolvedFlippedX ? ' scaleX(-1)' : ''}`,
                 }}

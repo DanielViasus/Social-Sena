@@ -1,7 +1,14 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type UIEvent as ReactUIEvent,
+} from 'react'
 import { io, type Socket } from 'socket.io-client'
 import {
   clientEvents,
+  hasMinimumUserRole,
   serverEvents,
   type ConnectionAcceptedPayload,
   type Position,
@@ -9,6 +16,7 @@ import {
   type RoomObjectTemplate,
   type RoomEditorLayerData,
   type RoomEditorPlacementData,
+  type RoomEditorSpawnPointData,
   type RoomTemplate,
   type SavedRoomEditorMap,
   type UserProfile,
@@ -30,6 +38,7 @@ const MIN_ZOOM = 0.25
 const MAX_ZOOM = 2
 const ZOOM_STEP = 0.25
 const MAX_EDIT_HISTORY = 100
+const DEFAULT_SPAWN_ID = 'default'
 
 function createGlobalRouteSlug(sceneName: string) {
   const words = sceneName
@@ -111,9 +120,12 @@ function createPlacedObjectTemplate(
   asset: RoomEditorAsset,
   collidersEnabled = true,
 ): RoomObjectTemplate {
+  const usesBottomCenterAnchor = asset.frameWidth > 128 || asset.frameHeight > 128
+  const occupiedWidth = asset.occupiedColumns * 128
+  const occupiedHeight = asset.occupiedRows * 128
   const hasCollider = collidersEnabled && asset.colliderWidth > 0 && asset.colliderHeight > 0
   const collider = hasCollider ? {
-    offsetX: asset.colliderOffsetX,
+    offsetX: placement.flippedX ? -asset.colliderOffsetX : asset.colliderOffsetX,
     offsetY: asset.colliderOffsetY,
     width: asset.colliderWidth,
     height: asset.colliderHeight,
@@ -128,8 +140,10 @@ function createPlacedObjectTemplate(
   return {
     id: `editor-object-${placement.layerId}-${placement.cellX}-${placement.cellY}`,
     kind: layerKind[placement.layerId] ?? getObjectKindFromAssetType(asset.category),
-    x: placement.cellX * 128 + asset.frameWidth / 2,
-    y: placement.cellY * 128 + asset.frameHeight / 2,
+    x: placement.cellX * 128 + (usesBottomCenterAnchor ? occupiedWidth / 2 : asset.frameWidth / 2),
+    y: placement.cellY * 128 + (
+      usesBottomCenterAnchor ? occupiedHeight - asset.frameHeight / 2 : asset.frameHeight / 2
+    ),
     width: asset.frameWidth,
     height: asset.frameHeight,
     opacity: 1,
@@ -186,7 +200,9 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
   const [isPaintToolActive, setIsPaintToolActive] = useState(false)
   const [isEraseToolActive, setIsEraseToolActive] = useState(false)
   const [isSelectToolActive, setIsSelectToolActive] = useState(true)
+  const [isSpawnToolActive, setIsSpawnToolActive] = useState(false)
   const [isTestSpawnToolActive, setIsTestSpawnToolActive] = useState(false)
+  const [spawnPoints, setSpawnPoints] = useState<RoomEditorSpawnPointData[]>([])
   const [testSpawn, setTestSpawn] = useState<Position | null>(null)
   const [hoveredMapCell, setHoveredMapCell] = useState<MapCellPosition | null>(null)
   const [selectedMapArea, setSelectedMapArea] = useState<SelectedMapArea | null>(null)
@@ -194,6 +210,8 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
   const [isAssetFlippedX, setIsAssetFlippedX] = useState(false)
   const [isDebugEnabled, setIsDebugEnabled] = useState(false)
   const nextLayerIdRef = useRef(1)
+  const columnGuidesRef = useRef<HTMLDivElement | null>(null)
+  const rowGuidesRef = useRef<HTMLDivElement | null>(null)
   const placedAssetsRef = useRef<PlacedRoomAsset[]>([])
   const assetEditHistoryRef = useRef<PlacedRoomAsset[][]>([])
   const dragStartCellRef = useRef<MapCellPosition | null>(null)
@@ -252,6 +270,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
             setActiveLayerId(loadedMap.document.layers[0]?.id ?? 'floor')
             placedAssetsRef.current = loadedMap.document.placements
             setPlacedAssets(loadedMap.document.placements)
+            setSpawnPoints(loadedMap.document.spawnPoints)
             assetEditHistoryRef.current = []
             setSelectedMapArea(null)
             setTestSpawn(null)
@@ -313,6 +332,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
           setIsPaintToolActive(false)
           setIsEraseToolActive(false)
           setIsSelectToolActive(false)
+          setIsSpawnToolActive(false)
           setSelectedMapArea(null)
         }
         return
@@ -345,6 +365,9 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
 
       if ((key === 'delete' || key === 'backspace') && selectedMapArea) {
         event.preventDefault()
+        setSpawnPoints((currentSpawnPoints) => currentSpawnPoints.filter((spawnPoint) => (
+          !isCellInsideArea(spawnPoint.cellX, spawnPoint.cellY, selectedMapArea)
+        )))
         const currentAssets = placedAssetsRef.current
         const nextAssets = currentAssets.filter((asset) => (
           asset.layerId !== selectedMapArea.layerId
@@ -366,6 +389,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
         setIsPaintToolActive(false)
         setIsEraseToolActive(false)
         setIsSelectToolActive(true)
+        setIsSpawnToolActive(false)
         setIsTestSpawnToolActive(false)
         setSelectedMapArea(null)
         setDraggedMapArea(null)
@@ -378,6 +402,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
         setIsPaintToolActive(true)
         setIsEraseToolActive(false)
         setIsSelectToolActive(false)
+        setIsSpawnToolActive(false)
         setIsTestSpawnToolActive(false)
         setSelectedMapArea(null)
         return
@@ -388,6 +413,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
         setIsPaintToolActive(false)
         setIsEraseToolActive(true)
         setIsSelectToolActive(false)
+        setIsSpawnToolActive(false)
         setIsTestSpawnToolActive(false)
         setSelectedMapArea(null)
         return
@@ -398,6 +424,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
         setIsPaintToolActive(false)
         setIsEraseToolActive(false)
         setIsSelectToolActive(true)
+        setIsSpawnToolActive(false)
         setIsTestSpawnToolActive(false)
         return
       }
@@ -462,9 +489,11 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
       ? 'ModoBorrar'
       : isSelectToolActive
         ? 'ModoSeleccionar'
-        : isTestSpawnToolActive
-          ? 'ModoTest'
-          : 'ModoSeleccionar'
+        : isSpawnToolActive
+          ? 'ModoSpawn'
+          : isTestSpawnToolActive
+            ? 'ModoTest'
+            : 'ModoSeleccionar'
   const availableAssets = assetCategories.flatMap((category) => category.assets)
   const selectedAsset = availableAssets.find((asset) => asset.id === selectedAssetId) ?? null
   const visiblePlacedAssets = [...placedAssets].sort((left, right) => (
@@ -496,8 +525,8 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
       offsetX: 0,
       offsetY: 0,
       clampBorders: true,
-      marginX: 0,
-      marginY: 0,
+      marginX: 300,
+      marginY: 300,
     },
     objects: testObjects,
     npcs: [],
@@ -534,6 +563,21 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
 
   const updateZoom = (nextZoom: number) => {
     setMapZoom(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, nextZoom)))
+  }
+
+  const keepGridGuidesVisible = (event: ReactUIEvent<HTMLDivElement>) => {
+    const viewport = event.currentTarget
+    const columnOffsetY = Math.max(0, viewport.scrollTop - 252)
+    const rowOffsetX = Math.max(0, viewport.scrollLeft - 244)
+
+    if (columnGuidesRef.current) {
+      columnGuidesRef.current.style.transform = `translateY(${columnOffsetY}px)`
+      columnGuidesRef.current.classList.toggle('is-anchored', columnOffsetY > 0)
+    }
+    if (rowGuidesRef.current) {
+      rowGuidesRef.current.style.transform = `translateX(${rowOffsetX}px)`
+      rowGuidesRef.current.classList.toggle('is-anchored', rowOffsetX > 0)
+    }
   }
 
   const commitPlacedAssetEdit = (
@@ -660,7 +704,20 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
       return
     }
 
+    if (isSpawnToolActive) {
+      setSpawnPoints([{
+        id: DEFAULT_SPAWN_ID,
+        cellX: area.endX,
+        cellY: area.endY,
+      }])
+      setMapPersistenceMessage('Spawn asignado · guarda la escena para conservarlo')
+      return
+    }
+
     if (isEraseToolActive) {
+      setSpawnPoints((currentSpawnPoints) => currentSpawnPoints.filter((spawnPoint) => (
+        !isCellInsideArea(spawnPoint.cellX, spawnPoint.cellY, area)
+      )))
       commitPlacedAssetEdit((currentAssets) => currentAssets.filter((asset) => (
         asset.layerId !== activeLayer.id
         || !isCellInsideArea(asset.cellX, asset.cellY, area)
@@ -697,7 +754,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
   const beginMapDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (
       event.button !== 0
-      || (!isPaintToolActive && !isEraseToolActive && !isSelectToolActive && !isTestSpawnToolActive)
+      || (!isPaintToolActive && !isEraseToolActive && !isSelectToolActive && !isSpawnToolActive && !isTestSpawnToolActive)
     ) {
       return
     }
@@ -798,6 +855,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
           gridHeight: mapGridHeight,
           layers,
           placements: placedAssetsRef.current,
+          spawnPoints,
           assets: availableAssets.map((asset) => ({
             id: asset.id,
             category: asset.category,
@@ -901,6 +959,13 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
           >
             Copiar enlace
           </button>
+          <output
+            className="edit-room-save-status"
+            aria-live="polite"
+            title={mapPersistenceMessage}
+          >
+            {mapPersistenceMessage}
+          </output>
         </section>
 
         <div className="edit-room-toolbar-spacer" />
@@ -914,9 +979,41 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
         <aside className="edit-room-panel edit-room-assets-panel" aria-label="Assets por categoría">
           <header>
             <span>Assets</span>
-            <output>{assetCategories.reduce((total, category) => total + category.assets.length, 0)}</output>
+            <output>{assetCategories.reduce((total, category) => total + category.assets.length, 1)}</output>
           </header>
           <div className="edit-room-panel-body edit-room-assets-body">
+            <details className="edit-room-asset-collection" open>
+              <summary>
+                <span>Componentes</span>
+                <output>1</output>
+              </summary>
+              <div className="edit-room-asset-grid">
+                <button
+                  type="button"
+                  className={`edit-room-asset-tile edit-room-spawn-asset${isSpawnToolActive ? ' is-selected' : ''}`}
+                  aria-label="Asignar punto de aparición de jugadores"
+                  aria-pressed={isSpawnToolActive}
+                  title="Spawn de jugadores · máximo 1 por escena"
+                  onClick={() => {
+                    setSelectedAssetId(null)
+                    setIsSpawnToolActive(true)
+                    setIsPaintToolActive(false)
+                    setIsEraseToolActive(false)
+                    setIsSelectToolActive(false)
+                    setIsTestSpawnToolActive(false)
+                    setSelectedMapArea(null)
+                  }}
+                >
+                  <span className="edit-room-asset-preview edit-room-spawn-preview" aria-hidden="true">
+                    <span>◆</span>
+                  </span>
+                  <span className="edit-room-asset-name">Spawn</span>
+                  <span className="edit-room-asset-size">
+                    {spawnPoints.length > 0 ? 'Ubicado · 1 máximo' : 'Sin ubicar · 1 máximo'}
+                  </span>
+                </button>
+              </div>
+            </details>
             {assetCategories.length === 0 ? (
               <p className="edit-room-assets-empty">No hay assets disponibles.</p>
             ) : assetCategories.map((category) => (
@@ -943,6 +1040,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                           setIsPaintToolActive(true)
                           setIsEraseToolActive(false)
                           setIsSelectToolActive(false)
+                          setIsSpawnToolActive(false)
                           setIsTestSpawnToolActive(false)
                           setSelectedMapArea(null)
                         }}
@@ -976,7 +1074,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
           <div className="edit-room-active-layer-badge">
             <strong>{activeLayer.name} : {activeToolLabel}</strong>
           </div>
-          <div className="edit-room-canvas-viewport">
+          <div className="edit-room-canvas-viewport" onScroll={keepGridGuidesVisible}>
             <div className="edit-room-canvas-stage">
               <div
                 className="edit-room-map-scale-frame"
@@ -986,7 +1084,31 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                 }}
               >
                 <div
-                  className={`edit-room-map-canvas${isPaintToolActive ? ' is-painting' : ''}${isEraseToolActive ? ' is-erasing' : ''}${isSelectToolActive ? ' is-selecting' : ''}${isTestSpawnToolActive ? ' is-testing-spawn' : ''}`}
+                  ref={columnGuidesRef}
+                  className="edit-room-column-guides"
+                  style={{
+                    gridTemplateColumns: `repeat(${mapGridWidth}, ${128 * mapZoom}px)`,
+                  }}
+                  aria-hidden="true"
+                >
+                  {Array.from({ length: mapGridWidth }, (_, columnIndex) => (
+                    <span key={columnIndex}>{columnIndex + 1}</span>
+                  ))}
+                </div>
+                <div
+                  ref={rowGuidesRef}
+                  className="edit-room-row-guides"
+                  style={{
+                    gridTemplateRows: `repeat(${mapGridHeight}, ${128 * mapZoom}px)`,
+                  }}
+                  aria-hidden="true"
+                >
+                  {Array.from({ length: mapGridHeight }, (_, rowIndex) => (
+                    <span key={rowIndex}>{rowIndex + 1}</span>
+                  ))}
+                </div>
+                <div
+                  className={`edit-room-map-canvas${isPaintToolActive ? ' is-painting' : ''}${isEraseToolActive ? ' is-erasing' : ''}${isSelectToolActive ? ' is-selecting' : ''}${isSpawnToolActive ? ' is-placing-spawn' : ''}${isTestSpawnToolActive ? ' is-testing-spawn' : ''}`}
                   data-active-layer={activeLayer.id}
                   style={{
                     width: `${mapWidthPx}px`,
@@ -1004,11 +1126,12 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                     }
                   }}
                   onContextMenu={(event) => {
-                    if (isPaintToolActive || isEraseToolActive || isSelectToolActive || isTestSpawnToolActive) {
+                    if (isPaintToolActive || isEraseToolActive || isSelectToolActive || isSpawnToolActive || isTestSpawnToolActive) {
                       event.preventDefault()
                       setIsPaintToolActive(false)
                       setIsEraseToolActive(false)
                       setIsSelectToolActive(true)
+                      setIsSpawnToolActive(false)
                       setIsTestSpawnToolActive(false)
                       setSelectedMapArea(null)
                       cancelMapDrag()
@@ -1016,6 +1139,31 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                   }}
                 >
                   {visiblePlacedAssets.map(renderPlacedAsset)}
+                  <span className="edit-room-grid-guide-overlay" aria-hidden="true" />
+                  {spawnPoints.map((spawnPoint) => (
+                    <span
+                      key={spawnPoint.id}
+                      className="edit-room-spawn-marker"
+                      style={{
+                        left: `${spawnPoint.cellX * 128}px`,
+                        top: `${spawnPoint.cellY * 128}px`,
+                      }}
+                      title="Punto de aparición de jugadores"
+                    >
+                      <span aria-hidden="true">◆</span>
+                      <strong>SPAWN</strong>
+                    </span>
+                  ))}
+                  {isSpawnToolActive && hoveredMapCell ? (
+                    <span
+                      className="edit-room-cell-tool-preview is-spawn"
+                      style={{
+                        left: `${hoveredMapCell.x * 128}px`,
+                        top: `${hoveredMapCell.y * 128}px`,
+                      }}
+                      aria-hidden="true"
+                    />
+                  ) : null}
                   {isTestSpawnToolActive && hoveredMapCell ? (
                     <span
                       className="edit-room-cell-tool-preview is-test"
@@ -1107,9 +1255,11 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                       ? 'Borrar'
                       : isSelectToolActive
                         ? 'Seleccionar'
-                        : isTestSpawnToolActive
-                          ? 'Elegir respawn'
-                          : 'Seleccionar'}
+                        : isSpawnToolActive
+                          ? 'Asignar spawn'
+                          : isTestSpawnToolActive
+                            ? 'Elegir respawn'
+                            : 'Seleccionar'}
                 </output>
                 <button
                   type="button"
@@ -1120,6 +1270,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                     setIsPaintToolActive(nextIsActive)
                     setIsEraseToolActive(false)
                     setIsSelectToolActive(!nextIsActive)
+                    setIsSpawnToolActive(false)
                     setIsTestSpawnToolActive(false)
                     setSelectedMapArea(null)
                   }}
@@ -1135,6 +1286,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                     setIsEraseToolActive(nextIsActive)
                     setIsPaintToolActive(false)
                     setIsSelectToolActive(!nextIsActive)
+                    setIsSpawnToolActive(false)
                     setIsTestSpawnToolActive(false)
                     setSelectedMapArea(null)
                   }}
@@ -1149,6 +1301,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                     setIsSelectToolActive(true)
                     setIsPaintToolActive(false)
                     setIsEraseToolActive(false)
+                    setIsSpawnToolActive(false)
                     setIsTestSpawnToolActive(false)
                   }}
                 >
@@ -1164,15 +1317,18 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                     setIsPaintToolActive(false)
                     setIsEraseToolActive(false)
                     setIsSelectToolActive(!nextIsActive)
+                    setIsSpawnToolActive(false)
                     setSelectedMapArea(null)
                   }}
                 >
                   Test: elegir respawn
                 </button>
                 <small>
-                  {selectedAsset
-                    ? `${formatAssetLabel(selectedAsset.name)} seleccionado · ${isAssetFlippedX ? 'Invertido X' : 'Normal'}`
-                    : 'Selecciona un asset de la paleta'}
+                  {isSpawnToolActive
+                    ? `Spawn seleccionado · ${spawnPoints.length > 0 ? 'reubica el punto actual' : 'elige una celda'}`
+                    : selectedAsset
+                      ? `${formatAssetLabel(selectedAsset.name)} seleccionado · ${isAssetFlippedX ? 'Invertido X' : 'Normal'}`
+                      : 'Selecciona un asset de la paleta'}
                 </small>
                 <small className="edit-room-tool-shortcuts">
                   W: pintar · D: borrar · S: seleccionar · Del/Backspace: borrar selección · R: invertir X · T: probar/salir · P: debug · ⌘/Ctrl+Z: deshacer · Esc: seleccionar
@@ -1323,14 +1479,14 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
             <select
               id="edit-room-publication-type"
               value={publicationType}
-              disabled={resolvedProfile?.role !== 'admin' && resolvedProfile?.role !== 'developer'}
+              disabled={!resolvedProfile || !hasMinimumUserRole(resolvedProfile.role, 'admin')}
               onChange={(event) => setPublicationType(
                 event.target.value as 'system' | 'room' | 'event' | 'official',
               )}
             >
-              {(resolvedProfile?.role === 'user' || resolvedProfile?.role === 'mage' || resolvedProfile?.role === 'admin')
+              {resolvedProfile && hasMinimumUserRole(resolvedProfile.role, 'user')
                 ? <option value="room">Sala</option> : null}
-              {(resolvedProfile?.role === 'admin' || resolvedProfile?.role === 'developer')
+              {resolvedProfile && hasMinimumUserRole(resolvedProfile.role, 'admin')
                 ? <option value="event">Evento</option> : null}
               {resolvedProfile?.role === 'developer' ? (
                 <>

@@ -17,6 +17,11 @@ export function isEditRoomPath(pathname: string) {
   return pathname.toLowerCase() === EDIT_ROOM_PATH
 }
 
+export function hasEditRoomContext(search = window.location.search) {
+  const params = new URLSearchParams(search)
+  return params.get('new') === '1' || Boolean(params.get('room')?.trim())
+}
+
 export function isRoomEditorMenuPath(pathname: string) {
   return pathname.toLowerCase() === ROOM_EDITOR_MENU_PATH
 }
@@ -48,7 +53,17 @@ export function usePathname() {
   const [pathname, setPathname] = useState(() => window.location.pathname)
 
   useEffect(() => {
-    const handlePopState = () => setPathname(window.location.pathname)
+    const handlePopState = () => {
+      const nextPathname = window.location.pathname
+      if (isEditRoomPath(nextPathname) && !hasEditRoomContext()) {
+        window.history.replaceState({}, '', '/Editor')
+        setPathname('/Editor')
+        return
+      }
+      setPathname(nextPathname)
+    }
+
+    handlePopState()
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
   }, [])

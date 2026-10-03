@@ -14,6 +14,7 @@ import {
   connectToGameSchema,
   createRoomTemplateFromEditorMap,
   getRoomTemplateById,
+  hasMinimumUserRole,
   registerRoomTemplate,
   inviteToPartySchema,
   joinRoomSchema,
@@ -35,6 +36,7 @@ import {
   updateAudioSettingsSchema,
   updateAccessRoleSchema,
   updateSkinSchema,
+  unregisterRoomTemplate,
   updateInventorySchema,
   type ActivityNoticePayload,
   type EnemyCombatEncounterStatePayload,
@@ -1083,6 +1085,26 @@ function getOrCreateRoom(roomId: string, templateId: string): RoomState | null {
   syncRoomEnemiesForTemplate(room)
   rooms.set(roomId, room)
   return room
+}
+
+function refreshActiveRoomsForTemplate(template: RoomState['template']) {
+  rooms.forEach((room) => {
+    if (room.templateId !== template.id) {
+      return
+    }
+
+    room.template = template
+    room.name = template.name
+    syncRoomEnemiesForTemplate(room)
+
+    room.players.forEach((player) => {
+      player.position = clampPositionToRoom(room, player.position)
+      ensureNavigablePlayerPosition(room, player)
+      stopPlayer(player)
+    })
+
+    io.to(room.roomId).emit(serverEvents.roomState, room)
+  })
 }
 
 function pruneSessionPresenceAcrossRooms(sessionId: string) {
@@ -2469,7 +2491,7 @@ io.on('connection', (socket) => {
       return
     }
 
-    if (!['user', 'mage', 'admin', 'developer'].includes(session.profile.role)) {
+    if (!hasMinimumUserRole(session.profile.role, 'user')) {
       callback?.({ ok: false, message: 'Tu rol no tiene permiso para guardar mapas.' })
       return
     }
@@ -2490,7 +2512,7 @@ io.on('connection', (socket) => {
         user: ['room'],
         mage: ['room'],
         admin: ['room', 'event'],
-        developer: ['system', 'event', 'official'],
+        developer: ['room', 'event', 'official', 'system'],
       }
 
       if (!requestedKind || !allowedKindsByRole[session.profile.role].includes(requestedKind)) {
@@ -2557,6 +2579,10 @@ io.on('connection', (socket) => {
         callback?.({ ok: false, message: 'No fue posible guardar el mapa en la base de datos.' })
         return
       }
+
+      const updatedTemplate = createRoomTemplateFromEditorMap(result.map)
+      registerRoomTemplate(updatedTemplate)
+      refreshActiveRoomsForTemplate(updatedTemplate)
       callback?.({ ok: true, map: result.map })
     } catch (error) {
       console.error('[room-editor] No fue posible guardar el mapa.', error)
@@ -2592,6 +2618,50 @@ io.on('connection', (socket) => {
     } catch (error) {
       console.error('[room-editor] No fue posible cargar el mapa.', error)
       callback?.({ ok: false, message: 'Ocurrio un error al cargar el mapa.' })
+    }
+  })
+
+  socket.on(clientEvents.listRoomEditorMaps, async (_rawPayload, callback) => {
+    const session = sessions.get(socket.id)
+    if (!session || !hasMinimumUserRole(session.profile.role, 'user')) {
+      callback?.({ ok: false, message: 'Tu rol no tiene permiso para consultar mapas.' })
+      return
+    }
+
+    try {
+      const maps = await gameRepository.listRoomEditorMapsVisibleToUser(
+        session.profile.userId,
+        session.profile.role === 'developer',
+      )
+      callback?.({ ok: true, maps })
+    } catch (error) {
+      console.error('[room-editor] No fue posible listar los mapas del usuario.', error)
+      callback?.({ ok: false, message: 'No fue posible cargar tus mapas.' })
+    }
+  })
+
+  socket.on(clientEvents.deleteRoomEditorMap, async (rawPayload, callback) => {
+    const session = sessions.get(socket.id)
+    const parsed = loadRoomEditorMapSchema.safeParse(rawPayload)
+    if (!session || !parsed.success || !hasMinimumUserRole(session.profile.role, 'user')) {
+      callback?.({ ok: false, message: 'No fue posible validar la eliminación del mapa.' })
+      return
+    }
+
+    try {
+      const deleted = await gameRepository.deleteRoomEditorMap(
+        session.profile.userId,
+        parsed.data.code,
+      )
+      if (!deleted) {
+        callback?.({ ok: false, message: 'El mapa no existe o pertenece a otro usuario.' })
+        return
+      }
+      unregisterRoomTemplate(`editor-map-${parsed.data.code}`)
+      callback?.({ ok: true })
+    } catch (error) {
+      console.error('[room-editor] No fue posible eliminar el mapa.', error)
+      callback?.({ ok: false, message: 'Ocurrió un error al eliminar el mapa.' })
     }
   })
 

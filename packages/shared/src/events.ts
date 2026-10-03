@@ -9,6 +9,8 @@ export const clientEvents = {
   updateAccessRole: 'update_access_role',
   saveRoomEditorMap: 'save_room_editor_map',
   loadRoomEditorMap: 'load_room_editor_map',
+  listRoomEditorMaps: 'list_room_editor_maps',
+  deleteRoomEditorMap: 'delete_room_editor_map',
   updateAudioSettings: 'update_audio_settings',
   updateInventory: 'update_inventory',
   addFriend: 'add_friend',

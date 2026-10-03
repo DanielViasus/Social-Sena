@@ -144,18 +144,6 @@ function readRawStoredAuthSession() {
     return null
   }
 
-  try {
-    const parsedSession = JSON.parse(localStorageValue) as AuthSession
-    if (parsedSession.provider === 'local') {
-      window.sessionStorage.setItem(STORAGE_KEY, localStorageValue)
-      window.localStorage.removeItem(STORAGE_KEY)
-      return localStorageValue
-    }
-  } catch {
-    window.localStorage.removeItem(STORAGE_KEY)
-    return null
-  }
-
   return localStorageValue
 }
 
@@ -188,8 +176,8 @@ export function readStoredAuthSession(): AuthSession | null {
 export function saveAuthSession(session: AuthSession) {
   const serializedSession = JSON.stringify(session)
   if (session.provider === 'local') {
-    window.sessionStorage.setItem(STORAGE_KEY, serializedSession)
-    window.localStorage.removeItem(STORAGE_KEY)
+    window.localStorage.setItem(STORAGE_KEY, serializedSession)
+    window.sessionStorage.removeItem(STORAGE_KEY)
     return
   }
 

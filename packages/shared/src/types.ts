@@ -350,6 +350,13 @@ export interface RoomEditorAssetData {
   zIndexOffsetY: number
 }
 
+export interface RoomEditorSpawnPointData {
+  id: string
+  cellX: number
+  cellY: number
+  entryKey?: string
+}
+
 export interface RoomEditorDocument {
   version: 1
   gridWidth: number
@@ -357,6 +364,7 @@ export interface RoomEditorDocument {
   layers: RoomEditorLayerData[]
   placements: RoomEditorPlacementData[]
   assets: RoomEditorAssetData[]
+  spawnPoints: RoomEditorSpawnPointData[]
 }
 
 export type RoomEditorPublicationKind = 'system' | 'classroom' | 'room' | 'event' | 'official'
@@ -377,6 +385,16 @@ export interface SavedRoomEditorMap {
   classCode: string | null
   document: RoomEditorDocument
   createdAt: string
+  updatedAt: string
+}
+
+export interface RoomEditorMapSummary {
+  code: string
+  name: string
+  ownerUserId: string
+  ownerDisplayName: string
+  publicationKind: RoomEditorPublicationKind | 'draft'
+  routePath: string | null
   updatedAt: string
 }
 

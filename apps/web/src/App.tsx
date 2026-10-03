@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { isAuth0Configured } from './auth/auth0Config'
+import { useState } from 'react'
+import { isAuth0Configured, resolvePostLoginRoute } from './auth/auth0Config'
 import {
   clearAuthSession,
   createLocalAuthSession,
@@ -15,6 +15,7 @@ import EditRoomPage from './components/EditRoomPage'
 import RoomEditorMenuPage from './components/RoomEditorMenuPage'
 import {
   isAccessRolePath,
+  hasEditRoomContext,
   isEditRoomPath,
   isRoomEditorMenuPath,
   isStandalonePagePath,
@@ -34,16 +35,14 @@ function LocalApp() {
   const [session, setSession] = useState<AuthSession | null>(() => readStoredAuthSession())
   const pathname = usePathname()
 
-  useEffect(() => {
-    if (!session) {
-      redirectToLobbyIfNeeded()
-    }
-  }, [session])
-
   const handleLogin = (displayName: string) => {
     const nextSession = createLocalAuthSession(displayName)
     saveAuthSession(nextSession)
-    window.history.replaceState({}, '', '/Tavern')
+    window.history.replaceState(
+      {},
+      '',
+      resolvePostLoginRoute(`${window.location.pathname}${window.location.search}`),
+    )
     setSession(nextSession)
   }
 
@@ -62,11 +61,14 @@ function LocalApp() {
   }
 
   if (isEditRoomPath(pathname)) {
+    if (!hasEditRoomContext()) {
+      return <RoomEditorMenuPage session={session} onSessionChange={setSession} />
+    }
     return <EditRoomPage session={session} onSessionChange={setSession} />
   }
 
   if (isRoomEditorMenuPath(pathname)) {
-    return <RoomEditorMenuPage session={session} />
+    return <RoomEditorMenuPage session={session} onSessionChange={setSession} />
   }
 
   return <PublishedRoomGate session={session} onSessionChange={setSession} onLogout={handleLogout} />

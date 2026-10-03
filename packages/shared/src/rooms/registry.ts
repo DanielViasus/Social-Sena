@@ -14,6 +14,17 @@ export function registerRoomTemplate(template: RoomTemplate) {
   roomTemplateRouteMap.set(template.routeSegment.toLowerCase(), template)
 }
 
+export function unregisterRoomTemplate(templateId: string) {
+  const template = roomTemplateMap.get(templateId)
+  if (!template) return
+
+  roomTemplateMap.delete(templateId)
+  const routeKey = template.routeSegment.toLowerCase()
+  if (roomTemplateRouteMap.get(routeKey)?.id === templateId) {
+    roomTemplateRouteMap.delete(routeKey)
+  }
+}
+
 export function getRoomTemplateById(templateId: string): RoomTemplate | undefined {
   return roomTemplateMap.get(templateId)
 }

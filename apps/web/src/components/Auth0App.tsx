@@ -16,6 +16,7 @@ import EditRoomPage from './EditRoomPage'
 import RoomEditorMenuPage from './RoomEditorMenuPage'
 import {
   isAccessRolePath,
+  hasEditRoomContext,
   isEditRoomPath,
   isRoomEditorMenuPath,
   isStandalonePagePath,
@@ -42,8 +43,6 @@ function Auth0App() {
   const displayName =
     user?.name ?? user?.nickname ?? user?.given_name ?? user?.email?.split('@')[0] ?? 'Jugador'
   const auth0UserId = user?.sub ?? null
-  const sameSkinColors = (left: AuthSession | null, right: AuthSession) =>
-    JSON.stringify(left?.profile.skinColors ?? {}) === JSON.stringify(right.profile.skinColors ?? {})
 
   const handleAuth0Login = () =>
     void loginWithRedirect({
@@ -66,7 +65,11 @@ function Auth0App() {
   const handleLocalLogin = (displayName: string) => {
     const nextSession = createLocalAuthSession(displayName)
     saveAuthSession(nextSession)
-    window.history.replaceState({}, '', '/Tavern')
+    window.history.replaceState(
+      {},
+      '',
+      resolvePostLoginRoute(`${window.location.pathname}${window.location.search}`),
+    )
     setLocalSession(nextSession)
   }
 
@@ -90,23 +93,21 @@ function Auth0App() {
     })
 
     setSession((currentSession) => {
-      if (
-        currentSession &&
-        currentSession.profile.userId === nextSession.profile.userId &&
-        (currentSession.profile.skinId !== nextSession.profile.skinId || !sameSkinColors(currentSession, nextSession))
-      ) {
-        return currentSession
+      if (currentSession?.profile.userId === nextSession.profile.userId) {
+        return {
+          ...currentSession,
+          pictureUrl: nextSession.pictureUrl,
+          profile: {
+            ...currentSession.profile,
+            username: nextSession.profile.username,
+            displayName: nextSession.profile.displayName,
+          },
+        }
       }
 
       return nextSession
     })
   }, [auth0UserId, displayName, isAuthenticated, user])
-
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated && !localSession) {
-      redirectToLobbyIfNeeded()
-    }
-  }, [isAuthenticated, isLoading, localSession])
 
   if (isLoading) {
     return (
@@ -139,11 +140,14 @@ function Auth0App() {
       }
 
       if (isEditRoomPath(pathname)) {
+        if (!hasEditRoomContext()) {
+          return <RoomEditorMenuPage session={localSession} onSessionChange={setLocalSession} />
+        }
         return <EditRoomPage session={localSession} onSessionChange={setLocalSession} />
       }
 
       if (isRoomEditorMenuPath(pathname)) {
-        return <RoomEditorMenuPage session={localSession} />
+        return <RoomEditorMenuPage session={localSession} onSessionChange={setLocalSession} />
       }
 
       return <PublishedRoomGate session={localSession} onSessionChange={setLocalSession} onLogout={handleLocalLogout} />
@@ -168,11 +172,14 @@ function Auth0App() {
   }
 
   if (isEditRoomPath(pathname)) {
+    if (!hasEditRoomContext()) {
+      return <RoomEditorMenuPage session={session} onSessionChange={setSession} />
+    }
     return <EditRoomPage session={session} onSessionChange={setSession} />
   }
 
   if (isRoomEditorMenuPath(pathname)) {
-    return <RoomEditorMenuPage session={session} />
+    return <RoomEditorMenuPage session={session} onSessionChange={setSession} />
   }
 
   return (
