@@ -1,0 +1,89 @@
+FORMATO DE NOMBRES PARA ASSETS DEL EDITOR DE SALAS
+
+Formato general:
+
+Asset_Categoria_Nombre_DimensionVisual_CeldasOcupadas_DimensionCollider_OffsetCollider_ZIndexOffsetY.extension
+
+Ejemplo:
+
+Asset_Floor_DungeonRock_128x128_1x1_0x0_0x0_0.svg
+
+ORDEN DE LOS PARAMETROS
+
+1. Asset
+   Indicador obligatorio que identifica el archivo como un asset del editor.
+
+2. Categoria
+   Define el tipo del ObjectDecoration.
+
+   Categorias reconocidas:
+   Floor     -> floor
+   Wall      -> wall
+   Walls     -> wall
+   Door      -> door
+   Doors     -> door
+   Portal    -> portal
+   Zone      -> zone
+
+   Cualquier otra categoria se interpreta como landmark.
+
+3. Nombre
+   Nombre individual del elemento.
+   No debe contener guiones bajos porque el caracter _ separa los parametros.
+   Se recomienda usar PascalCase, por ejemplo: DungeonRock, StoneDoor o WoodenTable.
+
+4. DimensionVisual
+   Ancho y alto del sprite expresados en pixeles.
+
+   Ejemplo:
+   128x128
+
+5. CeldasOcupadas
+   Cantidad de celdas de 128x128 que ocupa el elemento dentro del mapa.
+
+   Ejemplos:
+   1x1
+   2x1
+   2x3
+
+6. DimensionCollider
+   Ancho y alto del collider expresados en pixeles.
+
+   Ejemplos:
+   128x64  -> crea un collider de 128 por 64 pixeles.
+   0x0     -> el elemento no tendrá collider.
+
+7. OffsetCollider
+   Desplazamiento X e Y del collider con respecto al centro del objeto.
+   Se permiten valores negativos.
+
+   Ejemplos:
+   0x0
+   0x32
+   -16x24
+
+8. ZIndexOffsetY
+   Desplazamiento vertical utilizado por la referencia de profundidad del ObjectDecoration.
+   Se expresa como un único número y puede ser negativo.
+
+   Ejemplos:
+   0
+   48
+   -24
+
+REGLAS
+
+- Cada archivo representa un único asset completo.
+- Las secciones del nombre deben estar separadas con guion bajo (_).
+- Los pares de dimensiones y posiciones utilizan la letra x como separador.
+- El tamaño real de la imagen debe coincidir con DimensionVisual.
+- Un collider 0x0 indica que el objeto es transitable y no bloquea al jugador.
+- El formato admite SVG, PNG y otros formatos de imagen compatibles con el navegador.
+
+EJEMPLOS VALIDOS
+
+Asset_Floor_DungeonRock_128x128_1x1_0x0_0x0_0.svg
+Asset_Wall_StoneWall_128x128_1x1_128x128_0x0_48.png
+Asset_Door_WoodenDoor_128x256_1x2_96x48_0x96_112.svg
+Asset_Landmark_LargeStatue_256x384_2x3_160x80_0x128_160.png
+

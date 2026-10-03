@@ -753,6 +753,92 @@ button {
   pointer-events: auto;
 }
 
+.merchant-shop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1000002;
+  display: grid;
+  place-items: center;
+  padding: 48px;
+  pointer-events: auto;
+}
+
+.merchant-shop-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+.merchant-shop-shell {
+  position: relative;
+  z-index: 1;
+  width: min(1040px, calc(100vw - 96px));
+  height: min(680px, calc(100dvh - 96px));
+}
+
+.merchant-shop-container {
+  width: 100%;
+  height: 100%;
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  border-radius: 24px;
+  background: rgba(18, 20, 24, 0.96);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.58);
+}
+
+.merchant-shop-close-button {
+  position: absolute;
+  top: -22px;
+  right: -22px;
+  width: 52px;
+  height: 52px;
+  border: 3px solid #191515;
+  border-radius: 14px;
+  background: #e15757;
+  color: #fff;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.82rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow:
+    inset 0 -5px 0 rgba(91, 24, 24, 0.34),
+    0 12px 24px rgba(0, 0, 0, 0.38);
+  transition: transform 120ms ease, filter 120ms ease;
+}
+
+.merchant-shop-close-button:hover {
+  filter: brightness(1.08);
+  transform: translateY(-2px);
+}
+
+.merchant-shop-close-button:focus-visible {
+  outline: 3px solid #fff4b8;
+  outline-offset: 3px;
+}
+
+@media (max-width: 720px) {
+  .merchant-shop-overlay {
+    padding: 28px 20px 20px;
+  }
+
+  .merchant-shop-shell {
+    width: calc(100vw - 40px);
+    height: calc(100dvh - 48px);
+  }
+
+  .merchant-shop-container {
+    border-radius: 18px;
+  }
+
+  .merchant-shop-close-button {
+    top: -16px;
+    right: -12px;
+    width: 46px;
+    height: 46px;
+  }
+}
+
 .fullscreen-touch-prompt-backdrop {
   position: absolute;
   inset: 0;
@@ -2261,6 +2347,27 @@ button {
   line-height: 1.7;
 }
 
+.debug-position-panel .debug-role-value {
+  margin-top: 2px;
+  padding-top: 10px;
+  color: #f5df93;
+  border-top: 1px solid rgba(215, 230, 255, 0.16);
+  text-transform: uppercase;
+}
+
+.debug-position-panel .debug-role-value.is-mage {
+  color: #c8a9ff;
+}
+
+.debug-position-panel .debug-role-value.is-admin {
+  color: #ff9c96;
+}
+
+.debug-position-panel .debug-role-value.is-developer {
+  color: #7eeeff;
+  text-shadow: 0 0 10px rgba(126, 238, 255, 0.55);
+}
+
 .shortcut-board:hover,
 .shortcut-board:focus-within {
   width: 248px;
@@ -2921,6 +3028,26 @@ button {
   user-select: none;
   -webkit-user-drag: none;
   backface-visibility: hidden;
+}
+
+.react-world-object-sprite-frame {
+  position: absolute;
+  overflow: hidden;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  transform-origin: center;
+  user-select: none;
+  backface-visibility: hidden;
+}
+
+.react-world-object-sprite-frame > img {
+  position: absolute;
+  display: block;
+  max-width: none;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .react-world-object {
@@ -4089,4 +4216,1321 @@ button {
 
 .debug-object-axis-vertical {
   width: 1px;
+}
+
+.access-role-page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: #241d2a;
+  background:
+    radial-gradient(circle at 50% 25%, rgba(230, 190, 117, 0.2), transparent 34%),
+    linear-gradient(180deg, #24202a 0%, #100e14 100%);
+}
+
+.access-role-panel {
+  width: min(460px, 100%);
+  padding: 34px;
+  border: 4px solid #382d3a;
+  border-radius: 18px;
+  background: #f2dfbd;
+  box-shadow:
+    0 0 0 4px #b77b45,
+    0 24px 70px rgba(0, 0, 0, 0.55);
+}
+
+.access-role-kicker {
+  margin: 0 0 12px;
+  color: #7c4c31;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
+.access-role-panel h1 {
+  margin: 0;
+  font-size: clamp(1.45rem, 4vw, 2rem);
+}
+
+.access-role-user {
+  margin: 12px 0 26px;
+  color: #675665;
+}
+
+.access-role-field {
+  display: grid;
+  gap: 10px;
+  font-size: 0.72rem;
+}
+
+.access-role-field select {
+  width: 100%;
+  min-height: 52px;
+  padding: 0 14px;
+  color: #241d2a;
+  font: inherit;
+  border: 3px solid #594858;
+  border-radius: 10px;
+  background: #fff9ec;
+  cursor: pointer;
+}
+
+.access-role-field select:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.access-role-message {
+  min-height: 42px;
+  margin: 18px 0;
+  color: #675665;
+  font-size: 0.66rem;
+  line-height: 1.6;
+}
+
+.access-role-message.is-success {
+  color: #287145;
+}
+
+.access-role-message.is-error {
+  color: #a33131;
+}
+
+.access-role-actions {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 12px;
+}
+
+.access-role-actions button {
+  min-height: 48px;
+  padding: 10px 14px;
+  font: inherit;
+  font-size: 0.65rem;
+  border: 3px solid #443642;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.access-role-back {
+  color: #443642;
+  background: #e5ccb0;
+}
+
+.access-role-save {
+  color: #fff8e9;
+  background: #7951a8;
+}
+
+.access-role-actions button:disabled {
+  cursor: wait;
+  filter: grayscale(0.55);
+  opacity: 0.62;
+}
+
+.access-role-actions button:not(:disabled):hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+@media (max-width: 520px) {
+  .access-role-panel {
+    padding: 26px 20px;
+  }
+
+  .access-role-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+.edit-room-page {
+  width: 100%;
+  height: 100dvh;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: 76px minmax(0, 1fr) 30px;
+  overflow: hidden;
+  color: #dedede;
+  background: #212121;
+  font-family: 'Press Start 2P', monospace;
+}
+
+.room-editor-menu-page {
+  width: 100%;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: #dedede;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    #212121;
+  background-size: 24px 24px;
+  font-family: 'Press Start 2P', monospace;
+}
+
+.room-editor-menu-panel {
+  width: min(560px, 100%);
+  display: grid;
+  gap: 24px;
+  padding: 28px;
+  background: #303030;
+  border: 3px solid;
+  border-color: #737373 #111111 #111111 #737373;
+  box-shadow: 14px 16px 0 rgba(0, 0, 0, 0.32);
+}
+
+.room-editor-menu-panel h1 {
+  margin: 0;
+  color: #f0f0f0;
+  font-size: clamp(0.9rem, 3vw, 1.25rem);
+  line-height: 1.5;
+  text-align: center;
+}
+
+.room-editor-menu-user {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  padding: 12px;
+  background: #232323;
+  border: 2px solid;
+  border-color: #151515 #555555 #555555 #151515;
+}
+
+.room-editor-menu-avatar {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  color: #202020;
+  font-size: 0.82rem;
+  background: #83c98f;
+  border: 3px solid;
+  border-color: #c1efc8 #3f7549 #3f7549 #c1efc8;
+}
+
+.room-editor-menu-user div {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.room-editor-menu-user span:not(.room-editor-menu-avatar) {
+  color: #8f8f8f;
+  font-size: 0.4rem;
+}
+
+.room-editor-menu-user strong {
+  overflow: hidden;
+  color: #f0f0f0;
+  font-size: 0.58rem;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-editor-menu-actions {
+  display: grid;
+  gap: 12px;
+}
+
+.room-editor-menu-open-map {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.room-editor-menu-open-map input {
+  min-width: 0;
+  padding: 0 12px;
+  color: #202020;
+  font: inherit;
+  font-size: 0.52rem;
+  text-transform: uppercase;
+  background: #efefef;
+  border: 3px solid;
+  border-color: #555 #eee #eee #555;
+  border-radius: 0;
+}
+
+.room-editor-menu-open-map button {
+  min-width: 118px;
+}
+
+.room-editor-menu-actions button {
+  min-height: 52px;
+  padding: 10px 16px;
+  color: #202020;
+  font: inherit;
+  font-size: 0.58rem;
+  line-height: 1.5;
+  border: 3px solid;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.room-editor-menu-create {
+  background: #c6c6c6;
+  border-color: #eeeeee #555555 #555555 #eeeeee;
+}
+
+.room-editor-menu-exit {
+  background: #a9a9a9;
+  border-color: #dddddd #484848 #484848 #dddddd;
+}
+
+.room-editor-menu-role {
+  background: #b8a4cd;
+  border-color: #e2d7ef #655674 #655674 #e2d7ef;
+}
+
+.room-editor-menu-actions button:active:not(:disabled) {
+  border-color: #555555 #eeeeee #eeeeee #555555;
+  transform: translate(1px, 1px);
+}
+
+.room-editor-menu-actions button:disabled {
+  color: #686868;
+  background: #8d8d8d;
+  cursor: not-allowed;
+}
+
+.room-editor-menu-denied {
+  margin: 0;
+  color: #dc8b8b;
+  font-size: 0.44rem;
+  line-height: 1.7;
+  text-align: center;
+}
+
+@media (max-width: 560px) {
+  .room-editor-menu-panel {
+    padding: 20px;
+  }
+}
+
+.edit-room-page.is-denied {
+  display: grid;
+  grid-template-rows: none;
+  place-items: center;
+  padding: 24px;
+  color: #241d2a;
+  background: #17141b;
+}
+
+.edit-room-access-panel {
+  width: min(520px, 100%);
+  padding: 32px;
+  border: 4px solid #382d3a;
+  border-radius: 18px;
+  background: #f2dfbd;
+  box-shadow: 0 0 0 4px #9f5b4f, 0 24px 70px rgba(0, 0, 0, 0.55);
+}
+
+.edit-room-access-panel h1 {
+  margin: 10px 0 18px;
+  font-size: clamp(1.2rem, 4vw, 1.7rem);
+  line-height: 1.5;
+}
+
+.edit-room-access-panel p {
+  line-height: 1.8;
+}
+
+.edit-room-kicker {
+  margin: 0;
+  color: #8d423d;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+}
+
+.edit-room-access-panel button {
+  min-height: 48px;
+  margin-top: 14px;
+  padding: 10px 16px;
+  color: #fff8e9;
+  font: inherit;
+  font-size: 0.65rem;
+  border: 3px solid #443642;
+  border-radius: 10px;
+  background: #7951a8;
+  cursor: pointer;
+}
+
+.edit-room-toolbar {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  color: #202020;
+  background: #bdbdbd;
+  border-top: 2px solid #e4e4e4;
+  border-bottom: 3px solid #555555;
+  box-shadow: inset 0 -1px 0 #858585;
+}
+
+.edit-room-map-size {
+  height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  background: #cecece;
+  border: 2px solid;
+  border-color: #f2f2f2 #686868 #686868 #f2f2f2;
+}
+
+.edit-room-map-size strong {
+  margin-right: 4px;
+  font-size: 0.58rem;
+  white-space: nowrap;
+}
+
+.edit-room-map-size label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.55rem;
+}
+
+.edit-room-map-size input {
+  width: 66px;
+  height: 32px;
+  padding: 0 7px;
+  color: #181818;
+  font: inherit;
+  font-size: 0.58rem;
+  border: 2px solid;
+  border-color: #555555 #eeeeee #eeeeee #555555;
+  border-radius: 0;
+  outline: none;
+  background: #f4f4f4;
+}
+
+.edit-room-map-size input:focus {
+  box-shadow: inset 0 0 0 2px #707070;
+}
+
+.edit-room-map-size output {
+  min-width: 148px;
+  color: #4c4c4c;
+  font-size: 0.52rem;
+  white-space: nowrap;
+}
+
+.edit-room-toolbar-spacer {
+  flex: 1;
+}
+
+.edit-room-save-controls {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.5rem;
+}
+
+.edit-room-save-controls input {
+  width: clamp(130px, 16vw, 230px);
+  height: 34px;
+  padding: 0 8px;
+  color: #181818;
+  font: inherit;
+  font-size: 0.56rem;
+  background: #f4f4f4;
+  border: 2px solid;
+  border-color: #555 #eee #eee #555;
+}
+
+.edit-room-save-controls button {
+  min-height: 34px;
+  padding: 0 10px;
+  color: #202020;
+  font: inherit;
+  font-size: 0.48rem;
+  background: #c8c8c8;
+  border: 2px solid;
+  border-color: #eee #555 #555 #eee;
+  cursor: pointer;
+}
+
+.edit-room-save-controls button:disabled {
+  color: #6f6f6f;
+  cursor: wait;
+}
+
+.edit-room-save-controls > span {
+  max-width: 220px;
+  overflow: hidden;
+  color: #4b4b4b;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edit-room-publication-field {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.edit-room-publication-field input {
+  width: 105px;
+}
+
+.edit-room-publication-field select {
+  height: 34px;
+  padding: 0 7px;
+  color: #181818;
+  font: inherit;
+  font-size: 0.48rem;
+  background: #f4f4f4;
+  border: 2px solid;
+  border-color: #555 #eee #eee #555;
+}
+
+.published-room-loading {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  color: #dedede;
+  font-size: 0.72rem;
+  background: #202124;
+}
+
+.edit-room-publication-overlay {
+  position: fixed;
+  z-index: 80;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(10, 10, 10, 0.76);
+  backdrop-filter: blur(4px);
+}
+
+.edit-room-publication-dialog {
+  width: min(520px, 100%);
+  display: grid;
+  gap: 14px;
+  padding: 24px;
+  color: #222;
+  background: #c8c8c8;
+  border: 3px solid;
+  border-color: #f2f2f2 #4c4c4c #4c4c4c #f2f2f2;
+  box-shadow: 14px 16px 0 rgba(0, 0, 0, 0.42);
+}
+
+.edit-room-publication-dialog h2,
+.edit-room-publication-dialog p {
+  margin: 0;
+}
+
+.edit-room-publication-dialog h2 {
+  font-size: 0.9rem;
+}
+
+.edit-room-publication-dialog p,
+.edit-room-publication-dialog label,
+.edit-room-publication-dialog output {
+  font-size: 0.52rem;
+  line-height: 1.7;
+}
+
+.edit-room-publication-dialog label {
+  display: grid;
+  gap: 7px;
+}
+
+.edit-room-publication-dialog input,
+.edit-room-publication-dialog select {
+  min-width: 0;
+  height: 42px;
+  padding: 0 10px;
+  color: #171717;
+  font: inherit;
+  font-size: 0.56rem;
+  background: #f4f4f4;
+  border: 2px solid;
+  border-color: #555 #eee #eee #555;
+}
+
+.edit-room-publication-input-group {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.edit-room-publication-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.edit-room-publication-actions button {
+  min-height: 42px;
+  padding: 8px 14px;
+  color: #202020;
+  font: inherit;
+  font-size: 0.5rem;
+  background: #bcbcbc;
+  border: 2px solid;
+  border-color: #eee #555 #555 #eee;
+  cursor: pointer;
+}
+
+.edit-room-publication-actions button:last-child {
+  background: #83c98f;
+  border-color: #c1efc8 #3f7549 #3f7549 #c1efc8;
+}
+
+.edit-room-publication-actions button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.edit-room-publication-dialog output {
+  color: #7b2929;
+}
+
+.edit-room-role-chip {
+  padding: 8px 10px;
+  color: #ededed;
+  font-size: 0.5rem;
+  text-transform: uppercase;
+  background: #535353;
+  border: 2px solid;
+  border-color: #777777 #303030 #303030 #777777;
+}
+
+.edit-room-exit-button {
+  min-height: 38px;
+  padding: 0 16px;
+  color: #202020;
+  font: inherit;
+  font-size: 0.56rem;
+  background: #c8c8c8;
+  border: 2px solid;
+  border-color: #eeeeee #555555 #555555 #eeeeee;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.edit-room-exit-button:active {
+  border-color: #555555 #eeeeee #eeeeee #555555;
+  transform: translate(1px, 1px);
+}
+
+.edit-room-layout {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: clamp(190px, 18vw, 270px) minmax(320px, 1fr) clamp(210px, 20vw, 300px);
+  background: #212121;
+}
+
+.edit-room-panel {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: 38px minmax(0, 1fr);
+  background: #303030;
+}
+
+.edit-room-assets-panel {
+  border-right: 3px solid #121212;
+}
+
+.edit-room-assets-panel > header {
+  justify-content: space-between;
+}
+
+.edit-room-assets-panel > header output {
+  min-width: 24px;
+  padding: 3px 5px;
+  color: #e3e3e3;
+  font-size: 0.46rem;
+  text-align: center;
+  background: #303030;
+  border: 1px solid #757575;
+}
+
+.edit-room-assets-body {
+  min-height: 0;
+  margin: 0;
+  overflow-y: auto;
+  border: 0;
+}
+
+.edit-room-assets-empty {
+  margin: 16px;
+  color: #9d9d9d;
+  font-size: 0.48rem;
+  line-height: 1.6;
+}
+
+.edit-room-asset-collection {
+  border-bottom: 2px solid #151515;
+}
+
+.edit-room-asset-collection summary {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  color: #e0e0e0;
+  font-size: 0.5rem;
+  background: #3c3c3c;
+  border-top: 1px solid #606060;
+  border-bottom: 1px solid #171717;
+  cursor: pointer;
+  list-style: none;
+}
+
+.edit-room-asset-collection summary::-webkit-details-marker {
+  display: none;
+}
+
+.edit-room-asset-collection summary::before {
+  content: '▸';
+  color: #a9a9a9;
+}
+
+.edit-room-asset-collection[open] summary::before {
+  content: '▾';
+}
+
+.edit-room-asset-collection summary span {
+  flex: 1;
+}
+
+.edit-room-asset-collection summary output {
+  color: #a9a9a9;
+  font-size: 0.43rem;
+}
+
+.edit-room-asset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  padding: 9px;
+  background: #262626;
+}
+
+.edit-room-asset-tile {
+  min-width: 0;
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  padding: 6px;
+  color: #cfcfcf;
+  font: inherit;
+  background: #353535;
+  border: 2px solid;
+  border-color: #555555 #171717 #171717 #555555;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.edit-room-asset-tile:hover {
+  background: #414141;
+}
+
+.edit-room-asset-tile.is-selected {
+  color: #ffffff;
+  background: #5a5a5a;
+  border-color: #e2e2e2 #777777 #777777 #e2e2e2;
+  box-shadow: inset 0 0 0 2px #858585;
+}
+
+.edit-room-asset-preview {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  overflow: hidden;
+  background:
+    linear-gradient(45deg, #555 25%, transparent 25%),
+    linear-gradient(-45deg, #555 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #555 75%),
+    linear-gradient(-45deg, transparent 75%, #555 75%),
+    #494949;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  background-size: 16px 16px;
+  image-rendering: pixelated;
+}
+
+.edit-room-asset-preview > img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  max-width: none;
+  transform-origin: top left;
+  image-rendering: pixelated;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.edit-room-asset-name {
+  width: 100%;
+  overflow: hidden;
+  font-size: 0.39rem;
+  line-height: 1.4;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edit-room-asset-size {
+  width: 100%;
+  overflow: hidden;
+  color: #9f9f9f;
+  font-size: 0.32rem;
+  line-height: 1.45;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edit-room-asset-tile.is-selected .edit-room-asset-size {
+  color: #d6d6d6;
+}
+
+.edit-room-tools-panel {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(190px, 0.8fr) minmax(230px, 1.2fr);
+  background: #303030;
+  border-left: 3px solid #121212;
+}
+
+.edit-room-panel > header {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  color: #dedede;
+  font-size: 0.58rem;
+  text-transform: uppercase;
+  background: #484848;
+  border-top: 1px solid #686868;
+  border-bottom: 2px solid #171717;
+}
+
+.edit-room-panel-body {
+  margin: 10px;
+  background: #292929;
+  border: 2px solid;
+  border-color: #181818 #535353 #535353 #181818;
+}
+
+.edit-room-tools-section,
+.edit-room-layers-section {
+  min-height: 0;
+}
+
+.edit-room-layers-section {
+  border-top: 3px solid #121212;
+}
+
+.edit-room-layers-section > header {
+  justify-content: space-between;
+}
+
+.edit-room-layers-section > header output {
+  min-width: 24px;
+  padding: 3px 5px;
+  color: #e3e3e3;
+  font-size: 0.46rem;
+  text-align: center;
+  background: #303030;
+  border: 1px solid #757575;
+}
+
+.edit-room-workspace {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.edit-room-canvas-viewport {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background-color: #212121;
+  background-image:
+    linear-gradient(45deg, #252525 25%, transparent 25%),
+    linear-gradient(-45deg, #252525 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #252525 75%),
+    linear-gradient(-45deg, transparent 75%, #252525 75%);
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  background-size: 16px 16px;
+}
+
+.edit-room-active-layer-badge {
+  position: absolute;
+  z-index: 3;
+  top: 12px;
+  left: 12px;
+  max-width: calc(100% - 24px);
+  color: #ffffff;
+  opacity: 0.68;
+  pointer-events: none;
+}
+
+.edit-room-active-layer-badge strong {
+  display: block;
+  overflow: hidden;
+  font-size: 0.52rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edit-room-canvas-stage {
+  width: max-content;
+  min-width: 100%;
+  min-height: 100%;
+  padding: 48px;
+}
+
+.edit-room-map-scale-frame {
+  position: relative;
+  flex: none;
+}
+
+.edit-room-map-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  box-sizing: content-box;
+  min-width: 128px;
+  min-height: 128px;
+  transform-origin: top left;
+  background-color: #3a3a3a;
+  background-image:
+    linear-gradient(to right, rgba(224, 224, 224, 0.3) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(224, 224, 224, 0.3) 1px, transparent 1px),
+    linear-gradient(to right, rgba(255, 255, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+  background-size: 128px 128px, 128px 128px, 16px 16px, 16px 16px;
+  border: 2px solid #d4d4d4;
+  outline: 4px solid #101010;
+  box-shadow: 10px 12px 0 rgba(0, 0, 0, 0.34);
+  touch-action: none;
+  user-select: none;
+}
+
+.edit-room-map-canvas.is-painting {
+  cursor: crosshair;
+}
+
+.edit-room-map-canvas.is-erasing {
+  cursor: not-allowed;
+}
+
+.edit-room-map-canvas.is-selecting {
+  cursor: cell;
+}
+
+.edit-room-map-canvas.is-testing-spawn {
+  cursor: crosshair;
+}
+
+.edit-room-cell-tool-preview {
+  position: absolute;
+  z-index: 100;
+  width: 128px;
+  height: 128px;
+  overflow: hidden;
+  background: var(--edit-room-tool-fill);
+  outline: 3px solid var(--edit-room-tool-color);
+  outline-offset: -3px;
+  box-shadow: inset 0 0 0 2px var(--edit-room-tool-shadow);
+  pointer-events: none;
+}
+
+.edit-room-cell-tool-preview.is-paint {
+  --edit-room-tool-color: rgba(230, 199, 74, 0.9);
+  --edit-room-tool-fill: rgba(230, 199, 74, 0.16);
+  --edit-room-tool-shadow: rgba(91, 75, 18, 0.68);
+}
+
+.edit-room-cell-tool-preview.is-erase {
+  --edit-room-tool-color: rgba(232, 91, 91, 0.9);
+  --edit-room-tool-fill: rgba(215, 42, 42, 0.25);
+  --edit-room-tool-shadow: rgba(91, 24, 24, 0.68);
+}
+
+.edit-room-cell-tool-preview.is-select {
+  --edit-room-tool-color: rgba(105, 203, 198, 0.9);
+  --edit-room-tool-fill: rgba(93, 179, 177, 0.14);
+  --edit-room-tool-shadow: rgba(24, 75, 77, 0.68);
+}
+
+.edit-room-cell-tool-preview.is-test {
+  --edit-room-tool-color: rgba(113, 180, 255, 0.95);
+  --edit-room-tool-fill: rgba(68, 135, 219, 0.2);
+  --edit-room-tool-shadow: rgba(24, 58, 104, 0.72);
+}
+
+.edit-room-paint-preview-sprite {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  opacity: 0.48;
+  filter: brightness(1.12);
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+  transform-origin: center;
+}
+
+.edit-room-tools-body {
+  align-content: start;
+  display: grid;
+  gap: 10px;
+  overflow-y: auto;
+  padding: 10px;
+}
+
+.edit-room-tool-group {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  color: #dedede;
+  background: #3b3b3b;
+  border: 2px solid;
+  border-color: #5e5e5e #171717 #171717 #5e5e5e;
+}
+
+.edit-room-tool-group strong,
+.edit-room-tool-group output {
+  font-size: 0.54rem;
+}
+
+.edit-room-tool-group output {
+  color: #bdbdbd;
+}
+
+.edit-room-paint-tool > button {
+  grid-column: 1 / -1;
+  min-height: 38px;
+  color: #1e1e1e;
+  font: inherit;
+  font-size: 0.52rem;
+  background: #c6c6c6;
+  border: 2px solid;
+  border-color: #eeeeee #555555 #555555 #eeeeee;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.edit-room-paint-tool > button.is-active {
+  color: var(--edit-room-active-text, #29230d);
+  background: var(--edit-room-active-background, #d3b84d);
+  border-color:
+    var(--edit-room-active-border-dark, #7b6929)
+    var(--edit-room-active-border-light, #f3df86)
+    var(--edit-room-active-border-light, #f3df86)
+    var(--edit-room-active-border-dark, #7b6929);
+}
+
+.edit-room-paint-tool > button.is-active.is-erase {
+  --edit-room-active-text: #ffffff;
+  --edit-room-active-background: #8c3d3d;
+  --edit-room-active-border-dark: #592424;
+  --edit-room-active-border-light: #e08a8a;
+}
+
+.edit-room-paint-tool > button.is-active.is-select {
+  --edit-room-active-text: #ffffff;
+  --edit-room-active-background: #487b7a;
+  --edit-room-active-border-dark: #284d4c;
+  --edit-room-active-border-light: #9cd2cf;
+}
+
+.edit-room-paint-tool > button.is-active.is-test {
+  --edit-room-active-text: #ffffff;
+  --edit-room-active-background: #416c9c;
+  --edit-room-active-border-dark: #263f60;
+  --edit-room-active-border-light: #9cc8f5;
+}
+
+.edit-room-test-mode {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  width: 100%;
+  height: 100dvh;
+  overflow: hidden;
+  background: #171717;
+}
+
+.edit-room-test-mode .react-world-surface {
+  background-image:
+    linear-gradient(to right, rgba(224, 224, 224, 0.24) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(224, 224, 224, 0.24) 1px, transparent 1px),
+    linear-gradient(to right, rgba(255, 255, 255, 0.055) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.055) 1px, transparent 1px);
+  background-size: 128px 128px, 128px 128px, 16px 16px, 16px 16px;
+}
+
+.edit-room-test-hint {
+  position: fixed;
+  z-index: 1100;
+  top: 14px;
+  left: 50%;
+  padding: 9px 13px;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 0.48rem;
+  line-height: 1.45;
+  text-align: center;
+  background: rgba(22, 22, 22, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.34);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.edit-room-paint-tool small {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  color: #a9a9a9;
+  font-size: 0.4rem;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edit-room-paint-tool .edit-room-tool-shortcuts {
+  color: #d0d0d0;
+  white-space: normal;
+}
+
+.edit-room-zoom-controls {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr 1.35fr 1fr;
+  gap: 6px;
+}
+
+.edit-room-zoom-controls button {
+  min-width: 0;
+  height: 38px;
+  padding: 0 5px;
+  color: #1e1e1e;
+  font: inherit;
+  font-size: 0.58rem;
+  background: #c6c6c6;
+  border: 2px solid;
+  border-color: #eeeeee #555555 #555555 #eeeeee;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.edit-room-zoom-controls button:active:not(:disabled) {
+  border-color: #555555 #eeeeee #eeeeee #555555;
+  transform: translate(1px, 1px);
+}
+
+.edit-room-zoom-controls button:disabled {
+  color: #777777;
+  background: #999999;
+  cursor: not-allowed;
+}
+
+.edit-room-layers-body {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 9px;
+  padding: 9px;
+}
+
+.edit-room-layer-creator {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 5px;
+}
+
+.edit-room-layer-creator input {
+  min-width: 0;
+  height: 34px;
+  padding: 0 8px;
+  color: #e6e6e6;
+  font: inherit;
+  font-size: 0.49rem;
+  background: #202020;
+  border: 2px solid;
+  border-color: #111111 #5b5b5b #5b5b5b #111111;
+  border-radius: 0;
+  outline: none;
+}
+
+.edit-room-layer-creator input:focus {
+  box-shadow: inset 0 0 0 1px #a4a4a4;
+}
+
+.edit-room-layer-creator button,
+.edit-room-layer-collider-toggle,
+.edit-room-layer-delete {
+  color: #1e1e1e;
+  font: inherit;
+  background: #c6c6c6;
+  border: 2px solid;
+  border-color: #eeeeee #555555 #555555 #eeeeee;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.edit-room-layer-creator button {
+  font-size: 0.78rem;
+}
+
+.edit-room-layer-list {
+  min-height: 0;
+  overflow-y: auto;
+  background: #202020;
+  border: 2px solid;
+  border-color: #111111 #505050 #505050 #111111;
+}
+
+.edit-room-layer-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px 30px;
+  border-bottom: 1px solid #111111;
+}
+
+.edit-room-layer-row.is-active {
+  background: #656565;
+  box-shadow: inset 3px 0 0 #f0f0f0;
+}
+
+.edit-room-layer-select {
+  min-width: 0;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  overflow: hidden;
+  color: #cecece;
+  font: inherit;
+  font-size: 0.48rem;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.edit-room-layer-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edit-room-layer-mode {
+  flex: none;
+  color: #d8c35d;
+  font-size: 0.36rem;
+  white-space: nowrap;
+}
+
+.edit-room-layer-row.is-active .edit-room-layer-select {
+  color: #ffffff;
+}
+
+.edit-room-layer-visibility {
+  flex: none;
+  color: #8f8f8f;
+  font-size: 0.4rem;
+}
+
+.edit-room-layer-row.is-active .edit-room-layer-visibility {
+  color: #f2f2f2;
+}
+
+.edit-room-layer-collider-toggle,
+.edit-room-layer-delete {
+  width: 25px;
+  height: 25px;
+  align-self: center;
+  justify-self: center;
+  padding: 0;
+  font-size: 0.64rem;
+  line-height: 1;
+}
+
+.edit-room-layer-collider-toggle {
+  color: #6e6e6e;
+  background: #9b9b9b;
+}
+
+.edit-room-layer-collider-toggle.is-enabled {
+  color: #172b1c;
+  background: #83c98f;
+  border-color: #c1efc8 #3f7549 #3f7549 #c1efc8;
+}
+
+.edit-room-layer-collider-toggle:active {
+  border-color: #555555 #eeeeee #eeeeee #555555;
+  transform: translate(1px, 1px);
+}
+
+.edit-room-layer-delete:disabled {
+  color: #747474;
+  background: #909090;
+  cursor: not-allowed;
+}
+
+.edit-room-layer-creator button:active,
+.edit-room-layer-collider-toggle:active,
+.edit-room-layer-delete:active:not(:disabled) {
+  border-color: #555555 #eeeeee #eeeeee #555555;
+  transform: translate(1px, 1px);
+}
+
+.edit-room-statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 0 12px;
+  color: #1f1f1f;
+  font-size: 0.48rem;
+  background: #bdbdbd;
+  border-top: 2px solid #e3e3e3;
+}
+
+@media (max-width: 820px) {
+  .edit-room-page {
+    grid-template-rows: auto minmax(0, 1fr) 30px;
+  }
+
+  .edit-room-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .edit-room-map-size {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .edit-room-layout {
+    grid-template-columns: 170px minmax(300px, 1fr) 180px;
+    overflow-x: auto;
+  }
 }

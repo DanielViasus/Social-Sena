@@ -4,9 +4,21 @@ interface ObjectDecorationProps {
   objectTemplate: RoomObjectTemplate
   spriteSrc?: string
   debugEnabled: boolean
+  flippedX?: boolean
+  zIndex?: number
+  spriteFrame?: {
+    sheetWidth: number
+    sheetHeight: number
+    frameWidth: number
+    frameHeight: number
+    column: number
+    row: number
+    flippedX?: boolean
+  }
 }
 
 const PATH_COLLIDER_MARGIN = 2
+const EDITOR_SPRITE_SEAM_OVERLAP_PX = 1
 
 
 function colorToCss(value: number | undefined, fallback: string) {
@@ -39,6 +51,7 @@ function getObjectZIndexRef(objectTemplate: RoomObjectTemplate, collider?: RoomC
 }
 
 
+// eslint-disable-next-line react-refresh/only-export-components -- Shared world geometry helper.
 export function getObjectColliderBoundsList(objectTemplate: RoomObjectTemplate) {
   return getObjectColliders(objectTemplate).map((collider) => ({
     left: objectTemplate.x + collider.offsetX - collider.width / 2,
@@ -48,6 +61,7 @@ export function getObjectColliderBoundsList(objectTemplate: RoomObjectTemplate) 
   }))
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- Shared world geometry helper.
 export function getObjectNavigationBoundsList(objectTemplate: RoomObjectTemplate) {
   return getObjectColliderBoundsList(objectTemplate).map((bounds) => ({
     left: bounds.left - PATH_COLLIDER_MARGIN,
@@ -57,20 +71,30 @@ export function getObjectNavigationBoundsList(objectTemplate: RoomObjectTemplate
   }))
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- Shared world geometry helper.
 export function getObjectPerspectiveY(objectTemplate: RoomObjectTemplate) {
   const collider = getObjectColliders(objectTemplate)[0]
   const zIndexRef = getObjectZIndexRef(objectTemplate, collider)
   return objectTemplate.y + zIndexRef.offsetY
 }
 
-export function ObjectDecoration({ objectTemplate, spriteSrc, debugEnabled }: ObjectDecorationProps) {
+export function ObjectDecoration({ objectTemplate, spriteSrc, debugEnabled, flippedX, zIndex, spriteFrame }: ObjectDecorationProps) {
   const colliders = getObjectColliders(objectTemplate)
   const referenceCollider = colliders[0]
   const zIndexRef = getObjectZIndexRef(objectTemplate, referenceCollider)
   const hasVisual = Boolean(spriteSrc) || (objectTemplate.opacity ?? 0.72) > 0.02 || objectTemplate.label
+  const resolvedFlippedX = flippedX ?? objectTemplate.flippedX ?? false
+  const isEditorLayerSprite = typeof objectTemplate.layerOrder === 'number'
+  const renderedSpriteWidth = objectTemplate.width
+    + (isEditorLayerSprite ? EDITOR_SPRITE_SEAM_OVERLAP_PX : 0)
+  const renderedSpriteHeight = objectTemplate.height
+    + (isEditorLayerSprite ? EDITOR_SPRITE_SEAM_OVERLAP_PX : 0)
 
   return (
-    <div className="world-decoration" style={{ left: `${objectTemplate.x}px`, top: `${objectTemplate.y}px` }}>
+    <div
+      className="world-decoration"
+      style={{ left: `${objectTemplate.x}px`, top: `${objectTemplate.y}px`, zIndex }}
+    >
       {hasVisual ? (
         <>
           {!spriteSrc ? (
@@ -85,17 +109,42 @@ export function ObjectDecoration({ objectTemplate, spriteSrc, debugEnabled }: Ob
           ) : null}
 
           {spriteSrc ? (
-            <img
-              src={spriteSrc}
-              alt={objectTemplate.label ?? objectTemplate.id}
-              draggable={false}
-              className="react-world-object-sprite"
-              style={{
-                width: `${objectTemplate.width}px`,
-                height: `${objectTemplate.height}px`,
-                opacity: objectTemplate.opacity ?? 1,
-              }}
-            />
+            spriteFrame ? (
+              <div
+                className="react-world-object-sprite-frame"
+                style={{
+                  width: `${objectTemplate.width}px`,
+                  height: `${objectTemplate.height}px`,
+                  opacity: objectTemplate.opacity ?? 1,
+                  transform: `translate(-50%, -50%)${spriteFrame.flippedX || resolvedFlippedX ? ' scaleX(-1)' : ''}`,
+                }}
+              >
+                <img
+                  src={spriteSrc}
+                  alt={objectTemplate.label ?? objectTemplate.id}
+                  draggable={false}
+                  style={{
+                    left: `${-spriteFrame.column * spriteFrame.frameWidth}px`,
+                    top: `${-spriteFrame.row * spriteFrame.frameHeight}px`,
+                    width: `${spriteFrame.sheetWidth}px`,
+                    height: `${spriteFrame.sheetHeight}px`,
+                  }}
+                />
+              </div>
+            ) : (
+              <img
+                src={spriteSrc}
+                alt={objectTemplate.label ?? objectTemplate.id}
+                draggable={false}
+                className="react-world-object-sprite"
+                style={{
+                  width: `${renderedSpriteWidth}px`,
+                  height: `${renderedSpriteHeight}px`,
+                  opacity: objectTemplate.opacity ?? 1,
+                  transform: `translate(-50%, -50%)${resolvedFlippedX ? ' scaleX(-1)' : ''}`,
+                }}
+              />
+            )
           ) : (
             <div
               className={`react-world-object react-world-object-${objectTemplate.kind}`}

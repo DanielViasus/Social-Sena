@@ -7,21 +7,32 @@ import {
   saveAuthSession,
   type AuthSession,
 } from './auth/localSession'
-import GameClient from './components/GameClient'
+import PublishedRoomGate from './components/PublishedRoomGate'
 import LoginScreen from './components/LoginScreen'
 import Auth0App from './components/Auth0App'
+import AccessRolePage from './components/AccessRolePage'
+import EditRoomPage from './components/EditRoomPage'
+import RoomEditorMenuPage from './components/RoomEditorMenuPage'
+import {
+  isAccessRolePath,
+  isEditRoomPath,
+  isRoomEditorMenuPath,
+  isStandalonePagePath,
+  usePathname,
+} from './hooks/usePathname'
 
 function redirectToLobbyIfNeeded() {
-  if (window.location.pathname === '/Room_1909') {
+  if (window.location.pathname === '/Tavern' || isStandalonePagePath(window.location.pathname)) {
     return
   }
 
-  window.history.replaceState({}, '', '/Room_1909')
+  window.history.replaceState({}, '', '/Tavern')
   window.dispatchEvent(new PopStateEvent('popstate'))
 }
 
 function LocalApp() {
   const [session, setSession] = useState<AuthSession | null>(() => readStoredAuthSession())
+  const pathname = usePathname()
 
   useEffect(() => {
     if (!session) {
@@ -32,7 +43,7 @@ function LocalApp() {
   const handleLogin = (displayName: string) => {
     const nextSession = createLocalAuthSession(displayName)
     saveAuthSession(nextSession)
-    window.history.replaceState({}, '', '/Room_1909')
+    window.history.replaceState({}, '', '/Tavern')
     setSession(nextSession)
   }
 
@@ -46,7 +57,19 @@ function LocalApp() {
     return <LoginScreen auth0Ready={isAuth0Configured} onLogin={handleLogin} />
   }
 
-  return <GameClient session={session} onSessionChange={setSession} onLogout={handleLogout} />
+  if (isAccessRolePath(pathname)) {
+    return <AccessRolePage session={session} onSessionChange={setSession} />
+  }
+
+  if (isEditRoomPath(pathname)) {
+    return <EditRoomPage session={session} onSessionChange={setSession} />
+  }
+
+  if (isRoomEditorMenuPath(pathname)) {
+    return <RoomEditorMenuPage session={session} />
+  }
+
+  return <PublishedRoomGate session={session} onSessionChange={setSession} onLogout={handleLogout} />
 }
 
 function App() {

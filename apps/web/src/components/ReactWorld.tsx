@@ -28,6 +28,7 @@ import {
   getNpcWarningArea,
   getNpcInteractionArea,
 } from './world/WorldNpc'
+import { WeaponShopNpc } from './world/WeaponShopNpc'
 import {
   WorldTeleport,
   getTeleportAreaBounds,
@@ -63,6 +64,9 @@ interface ReactWorldProps {
   blockedEnemyInteractionIds?: string[]
   suppressInteractionIconForId?: string | null
   pointerInteractionEnabled?: boolean
+  resolveObjectSpriteSrc?: (objectTemplate: RoomObjectTemplate) => string | undefined
+  centerWorldWhenSmaller?: boolean
+  cameraVerticalMargin?: number
 }
 
 export interface CombatEncounterInteractable {
@@ -253,18 +257,37 @@ function resolveCameraPosition(
   playerPosition: Position,
   template: RoomTemplate,
   viewportSize: ViewportSize,
+  centerWorldWhenSmaller = false,
+  cameraVerticalMargin = 0,
 ) {
   const targetCenterX = playerPosition.x + template.camera.offsetX
   const targetCenterY = playerPosition.y + template.camera.offsetY
   const unclampedCameraX = targetCenterX - viewportSize.width / 2
   const unclampedCameraY = targetCenterY - viewportSize.height / 2
 
+  const worldFitsHorizontally = template.world.width < viewportSize.width
+  const effectiveWorldHeight = template.world.height + cameraVerticalMargin * 2
+  const worldFitsVertically = effectiveWorldHeight < viewportSize.height
+  const centeredCameraX = -(viewportSize.width - template.world.width) / 2
+  const centeredCameraY = -(viewportSize.height - template.world.height) / 2
   const maxCameraX = Math.max(0, template.world.width - viewportSize.width)
-  const maxCameraY = Math.max(0, template.world.height - viewportSize.height)
+  const minCameraY = -cameraVerticalMargin
+  const maxCameraY = Math.max(
+    minCameraY,
+    template.world.height + cameraVerticalMargin - viewportSize.height,
+  )
 
   return {
-    cameraX: template.camera.clampBorders ? clamp(unclampedCameraX, 0, maxCameraX) : unclampedCameraX,
-    cameraY: template.camera.clampBorders ? clamp(unclampedCameraY, 0, maxCameraY) : unclampedCameraY,
+    cameraX: template.camera.clampBorders
+      ? centerWorldWhenSmaller && worldFitsHorizontally
+        ? centeredCameraX
+        : clamp(unclampedCameraX, 0, maxCameraX)
+      : unclampedCameraX,
+    cameraY: template.camera.clampBorders
+      ? centerWorldWhenSmaller && worldFitsVertically
+        ? centeredCameraY
+        : clamp(unclampedCameraY, minCameraY, maxCameraY)
+      : unclampedCameraY,
   }
 }
 
@@ -637,13 +660,17 @@ function getPerspectiveAwareRenderItems(
       height: number
     }
   }>,
+  resolveObjectSpriteSrc?: (objectTemplate: RoomObjectTemplate) => string | undefined,
 ) {
   const objectItems: RenderLayerItem[] = template.objects.map((objectTemplate) => ({
     kind: 'object',
     key: objectTemplate.id,
-    perspectiveY: getObjectPerspectiveY(objectTemplate),
+    perspectiveY: objectTemplate.kind === 'floor'
+      ? Number.NEGATIVE_INFINITY
+      : getObjectPerspectiveY(objectTemplate) + (objectTemplate.layerOrder ?? 0) * 0.001,
     objectTemplate,
-    spriteSrc: objectTemplate.spriteAssetId ? getWorldSpriteAsset(objectTemplate.spriteAssetId) : undefined,
+    spriteSrc: resolveObjectSpriteSrc?.(objectTemplate)
+      ?? (objectTemplate.spriteAssetId ? getWorldSpriteAsset(objectTemplate.spriteAssetId) : undefined),
   }))
 
   const teleportItems: RenderLayerItem[] = teleportViews.map(({ teleportTemplate, state, spriteSrc, hoverSpriteSrc, iconFrame }) => ({
@@ -875,6 +902,9 @@ function ReactWorld({
   blockedEnemyInteractionIds = [],
   suppressInteractionIconForId = null,
   pointerInteractionEnabled = false,
+  resolveObjectSpriteSrc,
+  centerWorldWhenSmaller = false,
+  cameraVerticalMargin = 0,
 }: ReactWorldProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const roomRef = useRef(room)
@@ -950,7 +980,13 @@ function ReactWorld({
     )
     const currentPlayer = room.players.find((player) => player.userId === currentUserId) ?? null
     const nextCamera = currentPlayer
-      ? resolveCameraPosition(currentPlayer.position, template, viewportSize)
+      ? resolveCameraPosition(
+          currentPlayer.position,
+          template,
+          viewportSize,
+          centerWorldWhenSmaller,
+          cameraVerticalMargin,
+        )
       : { cameraX: 0, cameraY: 0 }
 
     const nextRuntime: WorldRuntimeState = {
@@ -966,7 +1002,7 @@ function ReactWorld({
 
     runtimeRef.current = nextRuntime
     setRuntime(nextRuntime)
-  }, [room?.roomId, currentUserId, template, viewportSize])
+  }, [cameraVerticalMargin, centerWorldWhenSmaller, room?.roomId, currentUserId, template, viewportSize])
 
   useEffect(() => {
     let frameId = 0
@@ -1044,7 +1080,13 @@ function ReactWorld({
 
       if (currentPlayer) {
         const animatedCurrentPlayer = nextPlayersBySession[currentPlayer.sessionId] ?? currentPlayer.position
-        const nextCamera = resolveCameraPosition(animatedCurrentPlayer, template, viewportSize)
+        const nextCamera = resolveCameraPosition(
+          animatedCurrentPlayer,
+          template,
+          viewportSize,
+          centerWorldWhenSmaller,
+          cameraVerticalMargin,
+        )
         const cameraLerp = 1 - Math.exp(-delta / template.camera.delayMs)
 
         nextCameraX = previousState.cameraX + (nextCamera.cameraX - previousState.cameraX) * cameraLerp
@@ -1069,7 +1111,7 @@ function ReactWorld({
 
     frameId = window.requestAnimationFrame(tick)
     return () => window.cancelAnimationFrame(frameId)
-  }, [currentUserId, template, viewportSize.height, viewportSize.width])
+  }, [cameraVerticalMargin, centerWorldWhenSmaller, currentUserId, template, viewportSize.height, viewportSize.width])
 
   const playerViews = useMemo(() => {
     return (room?.players ?? []).map((player) => {
@@ -1434,8 +1476,9 @@ function ReactWorld({
         npcViews,
         enemyViews,
         combatViews,
+        resolveObjectSpriteSrc,
       ),
-    [combatViews, enemyViews, npcViews, template, teleportViews, visiblePlayerViews],
+    [combatViews, enemyViews, npcViews, resolveObjectSpriteSrc, template, teleportViews, visiblePlayerViews],
   )
   const backgroundAsset = getRoomBackgroundAsset(template.id)
 
@@ -1558,6 +1601,20 @@ function ReactWorld({
           if (item.kind === 'npc') {
             const npcAllowsPointerInteraction =
               pointerInteractionEnabled && interactionEnabled && item.state === 'interaction'
+            const npcProps = {
+              npcTemplate: item.npcTemplate,
+              debugEnabled,
+              state: item.state,
+              spriteFrame: item.spriteFrame,
+              iconFrame: item.iconFrame,
+              flipX: item.flipX,
+              hideIcon: suppressInteractionIconForId === item.npcTemplate.id,
+              interactive: npcAllowsPointerInteraction,
+              onInteractClick:
+                npcAllowsPointerInteraction && onInteract
+                  ? () => onInteract(item.npcTemplate)
+                  : undefined,
+            }
 
             return (
               <div
@@ -1569,21 +1626,15 @@ function ReactWorld({
                   zIndex: 20 + index,
                 }}
               >
-                <WorldNpc
-                  npcTemplate={item.npcTemplate}
-                  debugEnabled={debugEnabled}
-                  state={item.state}
-                  spriteFrame={item.spriteFrame}
-                  iconFrame={item.iconFrame}
-                  flipX={item.flipX}
-                  hideIcon={suppressInteractionIconForId === item.npcTemplate.id}
-                  interactive={npcAllowsPointerInteraction}
-                  onInteractClick={
-                    npcAllowsPointerInteraction && onInteract
-                      ? () => onInteract(item.npcTemplate)
-                      : undefined
-                  }
-                />
+                {item.npcTemplate.merchant ? (
+                  <WeaponShopNpc
+                    {...npcProps}
+                    merchantType={item.npcTemplate.merchant.type}
+                    categories={item.npcTemplate.merchant.categories}
+                  />
+                ) : (
+                  <WorldNpc {...npcProps} />
+                )}
               </div>
             )
           }

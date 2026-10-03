@@ -2,9 +2,24 @@ create table if not exists users (
   user_id text primary key,
   username text not null,
   display_name text not null,
+  role text not null default 'visitor' check (role in ('visitor', 'user', 'mage', 'admin', 'developer')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table if exists users
+add column if not exists role text not null default 'visitor';
+
+update users
+set role = 'visitor'
+where role not in ('visitor', 'user', 'mage', 'admin', 'developer');
+
+alter table users
+drop constraint if exists users_role_check;
+
+alter table users
+add constraint users_role_check
+check (role in ('visitor', 'user', 'mage', 'admin', 'developer'));
 
 create table if not exists player_profiles (
   user_id text primary key references users(user_id) on delete cascade,
@@ -91,6 +106,31 @@ create table if not exists party_invites (
 create index if not exists idx_party_invites_to_user_id on party_invites(to_user_id);
 create index if not exists idx_party_invites_from_user_id on party_invites(from_user_id);
 create index if not exists idx_party_invites_party_id on party_invites(party_id);
+
+create table if not exists room_editor_maps (
+  code text primary key,
+  owner_user_id text not null references users(user_id) on delete cascade,
+  name text not null,
+  document jsonb not null,
+  publication_kind text not null default 'draft',
+  route_path text,
+  class_code text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_room_editor_maps_owner_user_id on room_editor_maps(owner_user_id);
+
+alter table if exists room_editor_maps
+add column if not exists publication_kind text not null default 'draft';
+
+alter table if exists room_editor_maps
+add column if not exists route_path text;
+
+alter table if exists room_editor_maps
+add column if not exists class_code text;
+
+create unique index if not exists idx_room_editor_maps_route_path on room_editor_maps(lower(route_path)) where route_path is not null;
 
 alter table if exists player_profiles
 add column if not exists onboarding_completed boolean not null default true;

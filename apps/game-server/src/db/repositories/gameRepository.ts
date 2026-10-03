@@ -9,10 +9,19 @@ import type {
   PlayerInventory,
   PlayerProgress,
   Position,
+  RoomEditorDocument,
+  SavedRoomEditorMap,
+  RoomEditorPublicationKind,
   SkinColorSelections,
   UserProfile,
+  UserRole,
 } from '@social-sena/shared'
-import { normalizeAudioSettings, PARTY_INVITE_TTL_MS } from '@social-sena/shared'
+import {
+  DEFAULT_USER_ROLE,
+  normalizeAudioSettings,
+  normalizeUserRole,
+  PARTY_INVITE_TTL_MS,
+} from '@social-sena/shared'
 import { getDbPool } from '../client'
 
 interface PersistedPlayerState {
@@ -32,6 +41,8 @@ interface ResolvedUserProfileResult {
   incomingPartyInvites: PartyInviteSummary[]
   outgoingPartyInvites: PartyOutgoingInviteSummary[]
 }
+
+const developmentRolesByUserId = new Map<string, UserRole>()
 
 function normalizeSkinColors(value: unknown): SkinColorSelections {
   if (!value || typeof value !== 'object') {
@@ -407,11 +418,122 @@ async function queryOutgoingPartyInvites(
 }
 
 class GameRepository {
+  async getRoomEditorMapByRoute(routePath: string): Promise<SavedRoomEditorMap | null> {
+    const pool = getDbPool()
+    if (!pool) return null
+    const result = await pool.query<{ code: string }>(
+      'select code from room_editor_maps where lower(route_path) = lower($1) limit 1',
+      [routePath],
+    )
+    return result.rows[0] ? this.getRoomEditorMap(result.rows[0].code) : null
+  }
+
+  async getRoomEditorMap(code: string): Promise<SavedRoomEditorMap | null> {
+    const pool = getDbPool()
+    if (!pool) return null
+
+    const result = await pool.query<{
+      code: string
+      owner_user_id: string
+      name: string
+      document: RoomEditorDocument
+      publication_kind: RoomEditorPublicationKind | 'draft'
+      route_path: string | null
+      class_code: string | null
+      created_at: string | Date
+      updated_at: string | Date
+    }>(
+      `select code, owner_user_id, name, document, publication_kind, route_path, class_code, created_at, updated_at
+       from room_editor_maps where code = $1 limit 1`,
+      [code],
+    )
+    const row = result.rows[0]
+    return row ? {
+      code: row.code,
+      ownerUserId: row.owner_user_id,
+      name: row.name,
+      document: row.document,
+      publicationKind: row.publication_kind,
+      routePath: row.route_path,
+      classCode: row.class_code,
+      createdAt: normalizeTimestamp(row.created_at),
+      updatedAt: normalizeTimestamp(row.updated_at),
+    } : null
+  }
+
+  async saveRoomEditorMap(
+    ownerUserId: string,
+    name: string,
+    document: RoomEditorDocument,
+    code?: string,
+    publication?: {
+      kind: RoomEditorPublicationKind
+      routePath: string
+      classCode: string | null
+      code: string
+    },
+  ): Promise<{ map: SavedRoomEditorMap | null; forbidden: boolean }> {
+    const pool = getDbPool()
+    if (!pool) return { map: null, forbidden: false }
+
+    if (code) {
+      const ownerResult = await pool.query<{ owner_user_id: string }>(
+        'select owner_user_id from room_editor_maps where code = $1 limit 1',
+        [code],
+      )
+      const existing = ownerResult.rows[0]
+      if (existing && existing.owner_user_id !== ownerUserId) {
+        return { map: null, forbidden: true }
+      }
+      if (existing) {
+        await pool.query(
+          `update room_editor_maps set
+             document = $2::jsonb,
+             publication_kind = case when publication_kind = 'draft' and $4::text is not null then $4 else publication_kind end,
+             route_path = case when publication_kind = 'draft' and $5::text is not null then $5 else route_path end,
+             class_code = case when publication_kind = 'draft' and $4 is not null then $6 else class_code end,
+             updated_at = now()
+           where code = $1 and owner_user_id = $3`,
+          [
+            code,
+            JSON.stringify(document),
+            ownerUserId,
+            publication?.kind ?? null,
+            publication?.routePath ?? null,
+            publication?.classCode ?? null,
+          ],
+        )
+        return { map: await this.getRoomEditorMap(code), forbidden: false }
+      }
+    }
+
+    const generatedCode = publication?.code
+      ?? randomUUID().replaceAll('-', '').slice(0, 16).toUpperCase()
+    await pool.query(
+      `insert into room_editor_maps (
+         code, owner_user_id, name, document, publication_kind, route_path, class_code
+       ) values ($1, $2, $3, $4::jsonb, $5, $6, $7)`,
+      [
+        generatedCode,
+        ownerUserId,
+        name,
+        JSON.stringify(document),
+        publication?.kind ?? 'draft',
+        publication?.routePath ?? null,
+        publication?.classCode ?? null,
+      ],
+    )
+    return { map: await this.getRoomEditorMap(generatedCode), forbidden: false }
+  }
+
   async resolveUserProfile(incomingProfile: UserProfile): Promise<ResolvedUserProfileResult> {
     const pool = getDbPool()
     if (!pool) {
       return {
-        profile: incomingProfile,
+        profile: {
+          ...incomingProfile,
+          role: developmentRolesByUserId.get(incomingProfile.userId) ?? DEFAULT_USER_ROLE,
+        },
         needsOnboarding: false,
         progress: {
           level: 1,
@@ -431,7 +553,7 @@ class GameRepository {
 
     try {
       await client.query('BEGIN')
-      await client.query(
+      const userResult = await client.query<{ role: unknown }>(
         `
           insert into users (user_id, username, display_name)
           values ($1, $2, $3)
@@ -439,9 +561,11 @@ class GameRepository {
             username = excluded.username,
             display_name = excluded.display_name,
             updated_at = now()
+          returning role
         `,
         [incomingProfile.userId, incomingProfile.username, incomingProfile.displayName],
       )
+      const persistedRole = normalizeUserRole(userResult.rows[0]?.role)
 
       await client.query(
         `
@@ -569,6 +693,7 @@ class GameRepository {
         return {
           profile: {
             ...incomingProfile,
+            role: persistedRole,
             skinId: profileResult.rows[0].skin_id,
             skinColors: normalizeSkinColors(profileResult.rows[0].skin_colors),
             audioSettings: normalizeAudioSettings(profileResult.rows[0].audio_settings),
@@ -603,7 +728,10 @@ class GameRepository {
 
       await client.query('COMMIT')
       return {
-        profile: incomingProfile,
+        profile: {
+          ...incomingProfile,
+          role: persistedRole,
+        },
         needsOnboarding: true,
         progress: {
           level: 1,
@@ -621,7 +749,10 @@ class GameRepository {
       await client.query('ROLLBACK')
       console.error('[db] No fue posible resolver el perfil persistido del jugador.', error)
       return {
-        profile: incomingProfile,
+        profile: {
+          ...incomingProfile,
+          role: DEFAULT_USER_ROLE,
+        },
         needsOnboarding: false,
         progress: {
           level: 1,
@@ -678,6 +809,31 @@ class GameRepository {
       )
     } catch (error) {
       console.error('[db] No fue posible guardar el perfil del jugador.', error)
+    }
+  }
+
+  async updateUserRole(userId: string, role: UserRole): Promise<UserRole | null> {
+    const pool = getDbPool()
+    if (!pool) {
+      developmentRolesByUserId.set(userId, role)
+      return role
+    }
+
+    try {
+      const result = await pool.query<{ role: unknown }>(
+        `
+          update users
+          set role = $2, updated_at = now()
+          where user_id = $1
+          returning role
+        `,
+        [userId, role],
+      )
+
+      return result.rows[0] ? normalizeUserRole(result.rows[0].role) : null
+    } catch (error) {
+      console.error('[db] No fue posible actualizar el rol del jugador.', error)
+      return null
     }
   }
 

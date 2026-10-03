@@ -1,6 +1,6 @@
 import type { Position } from '../types'
 
-export type RoomObjectKind = 'wall' | 'door' | 'portal' | 'zone' | 'landmark'
+export type RoomObjectKind = 'wall' | 'floor' | 'door' | 'portal' | 'zone' | 'landmark'
 
 export interface RoomColliderTemplate {
   offsetX: number
@@ -32,6 +32,21 @@ export interface RoomSpriteFrameTemplate {
   key: string
   row: number
   column: number
+}
+
+export type RoomMerchantCategory =
+  | 'weapons'
+  | 'potions'
+  | 'food'
+  | 'extras'
+  | 'armor'
+  | 'designs'
+
+export type RoomMerchantType = 'shop' | 'merchant' | 'barter'
+
+export interface RoomMerchantConfig {
+  type: RoomMerchantType
+  categories: [RoomMerchantCategory, ...RoomMerchantCategory[]]
 }
 
 export interface RoomInteractableBaseTemplate {
@@ -71,6 +86,12 @@ export interface RoomObjectTemplate {
   strokeColor?: number
   opacity?: number
   spriteAssetId?: string
+  flippedX?: boolean
+  layerOrder?: number
+  gridFootprint?: {
+    columns: number
+    rows: number
+  }
   collider?: RoomColliderTemplate
   colliders?: RoomColliderTemplate[]
   zIndexRef?: RoomZIndexReferenceTemplate
@@ -78,6 +99,7 @@ export interface RoomObjectTemplate {
 
 export interface RoomNpcTemplate extends RoomInteractableBaseTemplate {
   entityType: 'npc'
+  merchant?: RoomMerchantConfig
   interactionMode?: 'manual' | 'touch'
   showInteractionIcon?: boolean
   patrolArea?: RoomInteractionAreaTemplate
