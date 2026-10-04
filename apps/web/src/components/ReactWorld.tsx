@@ -102,6 +102,7 @@ interface WorldRuntimeState {
   cameraX: number
   cameraY: number
   playersBySession: Record<string, AnimatedPlayerPosition>
+  movingBySession: Record<string, boolean>
   facingBySession: Record<string, FacingPose>
   enemiesById: Record<string, AnimatedPlayerPosition>
   enemyFacingById: Record<string, FacingPose>
@@ -119,6 +120,7 @@ function createInitialWorldRuntimeState(): WorldRuntimeState {
     cameraX: 0,
     cameraY: 0,
     playersBySession: {},
+    movingBySession: {},
     facingBySession: {},
     enemiesById: {},
     enemyFacingById: {},
@@ -631,12 +633,17 @@ function getPatrollingNpcPosition(
   }
 }
 
-function getAvatarFrame(player: Presence, now: number, facingPose: FacingPose) {
+function getAvatarFrame(
+  player: Presence,
+  now: number,
+  facingPose: FacingPose,
+  visuallyMoving = player.moving,
+) {
   const preset = resolveAvatarPreset(player.skinId)
   const sheetUrl = resolveAvatarSheetUrl(preset, player.skinColors)
   const useBack = facingPose === 'back-left' || facingPose === 'back-right'
   const flipX = facingPose === 'front-left' || facingPose === 'back-left'
-  const frames = player.moving
+  const frames = visuallyMoving
     ? useBack && preset.walkBackFrames?.length
       ? preset.walkBackFrames
       : preset.walkFrames
@@ -1032,6 +1039,7 @@ function ReactWorld({
         cameraX: 0,
         cameraY: 0,
         playersBySession: {},
+        movingBySession: {},
         facingBySession: {},
         enemiesById: {},
         enemyFacingById: {},
@@ -1047,6 +1055,9 @@ function ReactWorld({
     )
     const facingBySession = Object.fromEntries(
       activeRoom.players.map((player) => [player.sessionId, resolveFacingPose(player, 'front-right')] as const),
+    )
+    const movingBySession = Object.fromEntries(
+      activeRoom.players.map((player) => [player.sessionId, player.moving] as const),
     )
     const enemiesById = Object.fromEntries(
       activeRoom.enemies.map((enemyState) => [enemyState.enemyId, { x: enemyState.x, y: enemyState.y }] as const),
@@ -1071,6 +1082,7 @@ function ReactWorld({
       cameraX: nextCamera.cameraX,
       cameraY: nextCamera.cameraY,
       playersBySession,
+      movingBySession,
       facingBySession,
       enemiesById,
       enemyFacingById,
@@ -1100,6 +1112,7 @@ function ReactWorld({
       const previousState = runtimeRef.current
       const activeTemplate = templateRef.current
       const nextPlayersBySession: Record<string, AnimatedPlayerPosition> = { ...previousState.playersBySession }
+      const nextMovingBySession: Record<string, boolean> = { ...previousState.movingBySession }
       const nextFacingBySession: Record<string, FacingPose> = { ...previousState.facingBySession }
       const nextEnemiesById: Record<string, AnimatedPlayerPosition> = { ...previousState.enemiesById }
       const nextEnemyFacingById: Record<string, FacingPose> = { ...previousState.enemyFacingById }
@@ -1113,6 +1126,7 @@ function ReactWorld({
       Object.keys(nextPlayersBySession).forEach((sessionId) => {
         if (!activeSessionIds.has(sessionId)) {
           delete nextPlayersBySession[sessionId]
+          delete nextMovingBySession[sessionId]
           delete nextFacingBySession[sessionId]
           blockedPredictionDestinationRef.current.delete(sessionId)
         }
@@ -1181,11 +1195,20 @@ function ReactWorld({
             nextPlayersBySession[player.sessionId] = previousPosition
           }
         } else {
-          nextPlayersBySession[player.sessionId] = {
-            x: previousPosition.x + deltaX * playerLerp,
-            y: previousPosition.y + deltaY * playerLerp,
-          }
+          nextPlayersBySession[player.sessionId] =
+            isSelf && player.moving && blockedDestination === destinationKey
+              ? previousPosition
+              : {
+                  x: previousPosition.x + deltaX * playerLerp,
+                  y: previousPosition.y + deltaY * playerLerp,
+                }
         }
+
+        const nextPlayerPosition = nextPlayersBySession[player.sessionId]
+        nextMovingBySession[player.sessionId] = player.moving && Math.hypot(
+          nextPlayerPosition.x - previousPosition.x,
+          nextPlayerPosition.y - previousPosition.y,
+        ) > 0.05
 
         const previousFacing = nextFacingBySession[player.sessionId] ?? 'front-right'
         nextFacingBySession[player.sessionId] = resolveFacingPose(player, previousFacing, {
@@ -1239,6 +1262,7 @@ function ReactWorld({
         cameraX: nextCameraX,
         cameraY: nextCameraY,
         playersBySession: nextPlayersBySession,
+        movingBySession: nextMovingBySession,
         facingBySession: nextFacingBySession,
         enemiesById: nextEnemiesById,
         enemyFacingById: nextEnemyFacingById,
@@ -1295,7 +1319,12 @@ function ReactWorld({
     return (room?.players ?? []).map((player) => {
       const animatedPosition = runtime.playersBySession[player.sessionId] ?? player.position
       const facingPose = runtime.facingBySession[player.sessionId] ?? 'front-right'
-      const frame = getAvatarFrame(player, runtime.now, facingPose)
+      const frame = getAvatarFrame(
+        player,
+        runtime.now,
+        facingPose,
+        runtime.movingBySession[player.sessionId] ?? player.moving,
+      )
       const isSelf = player.userId === currentUserId
 
       return {
@@ -1305,7 +1334,14 @@ function ReactWorld({
         isSelf,
       }
     })
-  }, [currentUserId, room?.players, runtime.facingBySession, runtime.now, runtime.playersBySession])
+  }, [
+    currentUserId,
+    room?.players,
+    runtime.facingBySession,
+    runtime.movingBySession,
+    runtime.now,
+    runtime.playersBySession,
+  ])
 
   const enemyCombatOverlayState = useMemo(
     () => getEnemyCombatOverlayState(room, enemyCombatEncounters, runtime.playersBySession),
