@@ -1,4 +1,4 @@
-import type { RoomEnemyState, RoomTemplate } from './rooms/types'
+import type { RoomEnemyState, RoomObjectTemplate, RoomTemplate } from './rooms/types'
 
 export type Direction = 'up' | 'down' | 'left' | 'right'
 export type SkinColorSelections = Record<string, string>
@@ -211,6 +211,12 @@ export interface RoomState {
 export interface RoomEnemiesStatePayload {
   roomId: string
   enemies: RoomEnemyState[]
+}
+
+export interface RoomObjectStateChangedPayload {
+  roomId: string
+  objectId: string
+  object: RoomObjectTemplate | null
 }
 
 export interface EnemyCombatParticipantSummary {

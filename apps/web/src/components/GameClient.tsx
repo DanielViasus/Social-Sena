@@ -25,6 +25,7 @@ import {
   type RoomMerchantConfig,
   type RoomEnemyCombatStatePayload,
   type RoomEnemiesStatePayload,
+  type RoomObjectStateChangedPayload,
   type RoomState,
   type SkinColorSelections,
   type SocialStatePayload,
@@ -92,6 +93,17 @@ const MOVEMENT_KEY_CODES = new Set([
 ])
 const USER_AVATAR_SHAPE_PATH =
   'M0 32V20H4V12H8V8H12V4H20V0H32V4H40V8H44V12H48V20H52V32H48V40H44V44H40V48H32V52H20V48H12V44H8V40H4V32H0Z'
+
+function resolveMovementDirection(from: Position, to: Position): Presence['direction'] {
+  const deltaX = to.x - from.x
+  const deltaY = to.y - from.y
+
+  if (Math.abs(deltaX) > Math.abs(deltaY)) {
+    return deltaX >= 0 ? 'right' : 'left'
+  }
+
+  return deltaY >= 0 ? 'down' : 'up'
+}
 
 function parsePlayerIdentityMode(value: string | null): PlayerIdentityMode {
   if (value === 'names' || value === 'icons') {
@@ -310,6 +322,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const quickChatInputRef = useRef<HTMLInputElement | null>(null)
   const pressedMovementKeyCodesRef = useRef<Set<string>>(new Set())
   const movementInputRef = useRef<MovementInputState>(EMPTY_MOVEMENT_INPUT)
+  const navigationRequestIdRef = useRef(0)
   const chatOpenRef = useRef(false)
   const floatingTimeoutsRef = useRef<Map<string, number>>(new Map())
   const friendRequestPopupTimeoutsRef = useRef<Map<string, number>>(new Map())
@@ -1149,6 +1162,37 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       if (!pendingSceneLoad && nextRoom.templateId === routeTemplate.id) {
         setSceneLoadingVisible(false)
       }
+    })
+
+    nextSocket.on(serverEvents.roomObjectStateChanged, (payload: RoomObjectStateChangedPayload) => {
+      setRoom((currentRoom) => {
+        if (!currentRoom || currentRoom.roomId !== payload.roomId) {
+          return currentRoom
+        }
+
+        const existingIndex = currentRoom.template.objects.findIndex(
+          (roomObject) => roomObject.id === payload.objectId,
+        )
+        const nextObjects = currentRoom.template.objects.slice()
+
+        if (payload.object) {
+          if (existingIndex >= 0) {
+            nextObjects[existingIndex] = payload.object
+          } else {
+            nextObjects.push(payload.object)
+          }
+        } else if (existingIndex >= 0) {
+          nextObjects.splice(existingIndex, 1)
+        }
+
+        return {
+          ...currentRoom,
+          template: {
+            ...currentRoom.template,
+            objects: nextObjects,
+          },
+        }
+      })
     })
 
     nextSocket.on(serverEvents.roomEnemiesState, (payload: RoomEnemiesStatePayload) => {
@@ -2399,13 +2443,71 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
   const handleNavigate = (target: Position) => {
     const socket = socketRef.current
-    if (!socket || !room || !connected || activeDialogue || activeTouchPrompt || initialSkinSetupOpen) {
+    const activeRoom = roomRef.current
+    if (!socket || !activeRoom || !connected || activeDialogue || activeTouchPrompt || initialSkinSetupOpen) {
       return
     }
 
+    const requestId = navigationRequestIdRef.current + 1
+    navigationRequestIdRef.current = requestId
+
+    setRoom((currentRoom) => {
+      if (!currentRoom || currentRoom.roomId !== activeRoom.roomId) {
+        return currentRoom
+      }
+
+      return {
+        ...currentRoom,
+        players: currentRoom.players.map((player) => {
+          if (player.userId !== session.profile.userId) {
+            return player
+          }
+
+          const direction = resolveMovementDirection(player.position, target)
+          return {
+            ...player,
+            direction,
+            moving: true,
+            animation: `walk-${direction}`,
+            destination: target,
+            route: {
+              start: player.position,
+              target,
+              waypoints: [target],
+            },
+          }
+        }),
+      }
+    })
+
     socket.emit(clientEvents.navigateTo, {
-      roomId: room.roomId,
+      roomId: activeRoom.roomId,
       target,
+    }, (response: { ok: boolean }) => {
+      if (response.ok || navigationRequestIdRef.current !== requestId) {
+        return
+      }
+
+      setRoom((currentRoom) => {
+        if (!currentRoom || currentRoom.roomId !== activeRoom.roomId) {
+          return currentRoom
+        }
+
+        return {
+          ...currentRoom,
+          players: currentRoom.players.map((player) =>
+            player.userId === session.profile.userId
+              ? {
+                  ...player,
+                  moving: false,
+                  animation: `idle-${player.direction}`,
+                  destination: null,
+                  route: null,
+                }
+              : player,
+          ),
+        }
+      })
     })
   }
 

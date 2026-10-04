@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { PLAYER_SPEED } from '@social-sena/shared'
 import type {
   EnemyCombatEncounterStatePayload,
   Position,
@@ -1029,15 +1030,32 @@ function ReactWorld({
         const previousPosition = nextPlayersBySession[player.sessionId] ?? player.position
         const deltaX = player.position.x - previousPosition.x
         const deltaY = player.position.y - previousPosition.y
-        nextPlayersBySession[player.sessionId] = {
-          x: previousPosition.x + deltaX * playerLerp,
-          y: previousPosition.y + deltaY * playerLerp,
+        const isSelf = player.userId === currentUserId
+        const predictedDeltaX = player.destination?.x === undefined
+          ? 0
+          : player.destination.x - previousPosition.x
+        const predictedDeltaY = player.destination?.y === undefined
+          ? 0
+          : player.destination.y - previousPosition.y
+        const predictedDistance = Math.hypot(predictedDeltaX, predictedDeltaY)
+
+        if (isSelf && player.moving && player.destination && predictedDistance > 0.001) {
+          const predictedStep = Math.min((PLAYER_SPEED * delta) / 1000, predictedDistance)
+          nextPlayersBySession[player.sessionId] = {
+            x: previousPosition.x + (predictedDeltaX / predictedDistance) * predictedStep,
+            y: previousPosition.y + (predictedDeltaY / predictedDistance) * predictedStep,
+          }
+        } else {
+          nextPlayersBySession[player.sessionId] = {
+            x: previousPosition.x + deltaX * playerLerp,
+            y: previousPosition.y + deltaY * playerLerp,
+          }
         }
 
         const previousFacing = nextFacingBySession[player.sessionId] ?? 'front-right'
         nextFacingBySession[player.sessionId] = resolveFacingPose(player, previousFacing, {
-          x: deltaX,
-          y: deltaY,
+          x: isSelf && player.moving ? predictedDeltaX : deltaX,
+          y: isSelf && player.moving ? predictedDeltaY : deltaY,
         })
       })
 

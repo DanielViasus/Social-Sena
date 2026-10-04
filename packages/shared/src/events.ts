@@ -37,6 +37,7 @@ export const serverEvents = {
   connectionAccepted: 'connection_accepted',
   roomJoined: 'room_joined',
   roomState: 'room_state',
+  roomObjectStateChanged: 'room_object_state_changed',
   roomEnemiesState: 'room_enemies_state',
   roomEnemyCombatState: 'room_enemy_combat_state',
   playerJoined: 'player_joined',

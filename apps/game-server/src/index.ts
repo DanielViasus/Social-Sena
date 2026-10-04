@@ -69,6 +69,7 @@ import {
   type Position,
   type Presence,
   type RoomState,
+  type RoomTemplate,
   type SkinColorSelections,
   type UserProfile,
 } from '@social-sena/shared'
@@ -155,12 +156,18 @@ const PLAYER_COLLIDER_WIDTH = 68
 const PLAYER_COLLIDER_HEIGHT = 24
 const ENEMY_SIZE = 128
 const ENEMY_HALF_SIZE = ENEMY_SIZE / 2
-const ROUTE_SAMPLE_STEP = 8
 const PATH_GRID_SIZE = 32
 const PATH_SEARCH_MAX_RADIUS = 6
 const PATH_START_SEARCH_MAX_RADIUS = 4
 const PATH_TARGET_SEARCH_MAX_RADIUS = 10
 const PATH_COLLIDER_MARGIN = 2
+
+interface RoomNavigationGeometry {
+  bounds: RectBounds[]
+  blockedCells: Set<string> | null
+}
+
+const roomNavigationGeometryCache = new WeakMap<RoomTemplate, RoomNavigationGeometry>()
 
 function matchesOriginPattern(origin: string, pattern: string) {
   if (pattern === '*') {
@@ -1696,10 +1703,24 @@ function simulateEnemies(room: RoomState, deltaSeconds: number): RoomEnemiesStat
 
 function isBlockedByRoomObjects(room: RoomState, position: Position) {
   const playerBounds = getPlayerColliderBounds(position)
-  return (
-    room.template.objects.some((roomObject) => getObjectNavigationBoundsList(roomObject).some((bounds) => overlapsRect(playerBounds, bounds))) ||
-    (room.template.npcs ?? []).some((roomNpc) => getNpcNavigationBoundsList(roomNpc).some((bounds) => overlapsRect(playerBounds, bounds)))
-  )
+  return getRoomNavigationGeometry(room).bounds.some((bounds) => overlapsRect(playerBounds, bounds))
+}
+
+function getRoomNavigationGeometry(room: RoomState): RoomNavigationGeometry {
+  const cached = roomNavigationGeometryCache.get(room.template)
+  if (cached) {
+    return cached
+  }
+
+  const geometry: RoomNavigationGeometry = {
+    bounds: [
+      ...room.template.objects.flatMap(getObjectNavigationBoundsList),
+      ...(room.template.npcs ?? []).flatMap(getNpcNavigationBoundsList),
+    ],
+    blockedCells: null,
+  }
+  roomNavigationGeometryCache.set(room.template, geometry)
+  return geometry
 }
 
 function expandBoundsForPlayer(bounds: RectBounds): RectBounds {
@@ -1780,36 +1801,9 @@ function segmentIntersectsExpandedBounds(from: Position, to: Position, bounds: R
 }
 
 function isRouteSegmentBlocked(room: RoomState, from: Position, to: Position) {
-  if (
-    room.template.objects.some((roomObject) => getObjectNavigationBoundsList(roomObject).some((bounds) => segmentIntersectsExpandedBounds(from, to, bounds))) ||
-    (room.template.npcs ?? []).some((roomNpc) => getNpcNavigationBoundsList(roomNpc).some((bounds) => segmentIntersectsExpandedBounds(from, to, bounds)))
-  ) {
-    return true
-  }
-
-  const deltaX = to.x - from.x
-  const deltaY = to.y - from.y
-  const distance = Math.hypot(deltaX, deltaY)
-
-  if (distance <= 0.001) {
-    return isBlockedByRoomObjects(room, to)
-  }
-
-  const totalSamples = Math.max(1, Math.ceil(distance / ROUTE_SAMPLE_STEP))
-
-  for (let sampleIndex = 1; sampleIndex <= totalSamples; sampleIndex += 1) {
-    const factor = sampleIndex / totalSamples
-    const samplePosition = clampPositionToRoom(room, {
-      x: from.x + deltaX * factor,
-      y: from.y + deltaY * factor,
-    })
-
-    if (isBlockedByRoomObjects(room, samplePosition)) {
-      return true
-    }
-  }
-
-  return false
+  return getRoomNavigationGeometry(room).bounds.some((bounds) =>
+    segmentIntersectsExpandedBounds(from, to, bounds),
+  )
 }
 
 
@@ -1858,6 +1852,11 @@ function getGridDimensions(room: RoomState) {
 }
 
 function buildBlockedCellSet(room: RoomState) {
+  const geometry = getRoomNavigationGeometry(room)
+  if (geometry.blockedCells) {
+    return geometry.blockedCells
+  }
+
   const { columns, rows } = getGridDimensions(room)
   const blocked = new Set<string>()
 
@@ -1871,6 +1870,7 @@ function buildBlockedCellSet(room: RoomState) {
     }
   }
 
+  geometry.blockedCells = blocked
   return blocked
 }
 
@@ -2107,8 +2107,18 @@ function findPathBetweenCells(
 }
 
 function findPath(room: RoomState, start: Position, destination: Position): PathResult | null {
-  const blocked = buildBlockedCellSet(room)
   const destinationIsNavigable = isPointNavigable(room, destination)
+
+  // La mayoría de los clics tienen línea directa. Resolverlos antes de crear o
+  // consultar la cuadrícula evita pagar el costo de A* para cada movimiento.
+  if (destinationIsNavigable && !isRouteSegmentBlocked(room, start, destination)) {
+    return {
+      resolvedTarget: destination,
+      waypoints: [destination],
+    }
+  }
+
+  const blocked = buildBlockedCellSet(room)
   const targetCell = findNearestWalkableCell(room, destination, blocked, PATH_TARGET_SEARCH_MAX_RADIUS)
 
   if (!targetCell) {
@@ -2796,16 +2806,22 @@ io.on('connection', (socket) => {
     room.players.forEach((roomPlayer) => {
       ensureNavigablePlayerPosition(room, roomPlayer)
       stopPlayer(roomPlayer)
+      io.to(room.roomId).emit(serverEvents.playerMoved, roomPlayer)
     })
-    io.to(room.roomId).emit(serverEvents.roomState, room)
+    io.to(room.roomId).emit(serverEvents.roomObjectStateChanged, {
+      roomId: room.roomId,
+      objectId: roomObject.id,
+      object: room.template.objects.find((candidate) => candidate.id === roomObject.id) ?? null,
+    })
     callback?.({ ok: true, outcome: result.outcome, state: result.state })
   })
 
-  socket.on(clientEvents.navigateTo, (rawPayload) => {
+  socket.on(clientEvents.navigateTo, (rawPayload, callback) => {
     const parsed = navigateToSchema.safeParse(rawPayload)
     const session = sessions.get(socket.id)
 
     if (!parsed.success || !session?.roomId) {
+      callback?.({ ok: false })
       return
     }
 
@@ -2813,6 +2829,7 @@ io.on('connection', (socket) => {
     const player = room?.players.find((presence) => presence.sessionId === socket.id)
 
     if (!room || !player || parsed.data.roomId !== room.roomId) {
+      callback?.({ ok: false })
       return
     }
 
@@ -2820,6 +2837,7 @@ io.on('connection', (socket) => {
     if (routeAccepted) {
       io.to(room.roomId).emit(serverEvents.playerMoved, player)
     }
+    callback?.({ ok: routeAccepted })
   })
 
   socket.on(clientEvents.stopNavigation, (rawPayload) => {
