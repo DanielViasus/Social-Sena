@@ -1,4 +1,5 @@
 import type { RoomEnemyTemplate } from '@social-sena/shared'
+import { memo, type Ref } from 'react'
 import type { WorldNpcFrameDefinition } from './WorldNpc'
 import { getEnemyOverlayAsset, getWorldSpriteAsset } from './worldAssetCatalog'
 
@@ -10,9 +11,10 @@ interface EnemigoProps {
   spriteFrame?: WorldNpcFrameDefinition | null
   flipX?: boolean
   showIcon?: boolean
+  motionElementRef?: Ref<HTMLDivElement>
 }
 
-export function Enemigo({
+function EnemigoComponent({
   enemyTemplate,
   debugEnabled,
   displayX,
@@ -20,6 +22,7 @@ export function Enemigo({
   spriteFrame,
   flipX = false,
   showIcon = false,
+  motionElementRef,
 }: EnemigoProps) {
   const spriteSrc = getWorldSpriteAsset(enemyTemplate.spriteAssetId)
   const iconSrc = getEnemyOverlayAsset(enemyTemplate.iconAssetId)
@@ -61,36 +64,45 @@ export function Enemigo({
         </>
       ) : null}
 
-      {showIcon ? (
-        iconSrc ? (
-          <img
-            src={iconSrc}
-            alt=""
-            aria-hidden="true"
-            draggable={false}
-            className="react-world-enemy-icon"
-            style={{
-              left: `${enemyOffsetX + iconOffsetX}px`,
-              top: `${enemyOffsetY + iconOffsetY}px`,
-              width: `${iconWidth}px`,
-              height: `${iconHeight}px`,
-            }}
-          />
-        ) : (
-          <div
-            className="react-world-enemy-icon react-world-enemy-icon-placeholder"
-            aria-hidden="true"
-            style={{
-              left: `${enemyOffsetX + iconOffsetX}px`,
-              top: `${enemyOffsetY + iconOffsetY}px`,
-              width: `${iconWidth}px`,
-              height: `${iconHeight}px`,
-            }}
-          />
-        )
-      ) : null}
+      <div
+        ref={motionElementRef}
+        className="world-enemy-motion"
+        style={{
+          left: '0px',
+          top: '0px',
+          transform: `translate3d(${enemyOffsetX}px, ${enemyOffsetY}px, 0)`,
+        }}
+      >
+        {showIcon ? (
+          iconSrc ? (
+            <img
+              src={iconSrc}
+              alt=""
+              aria-hidden="true"
+              draggable={false}
+              className="react-world-enemy-icon"
+              style={{
+                left: `${iconOffsetX}px`,
+                top: `${iconOffsetY}px`,
+                width: `${iconWidth}px`,
+                height: `${iconHeight}px`,
+              }}
+            />
+          ) : (
+            <div
+              className="react-world-enemy-icon react-world-enemy-icon-placeholder"
+              aria-hidden="true"
+              style={{
+                left: `${iconOffsetX}px`,
+                top: `${iconOffsetY}px`,
+                width: `${iconWidth}px`,
+                height: `${iconHeight}px`,
+              }}
+            />
+          )
+        ) : null}
 
-      {spriteFrame ? (
+        {spriteFrame ? (
         spriteFrame.sheetUrl &&
         typeof spriteFrame.sheetWidth === 'number' &&
         typeof spriteFrame.sheetHeight === 'number' &&
@@ -101,8 +113,8 @@ export function Enemigo({
           <div
             className="react-world-enemy-sprite"
             style={{
-              left: `${enemyOffsetX}px`,
-              top: `${enemyOffsetY}px`,
+              left: '0px',
+              top: '0px',
               width: `${spriteFrame.frameWidth}px`,
               height: `${spriteFrame.frameHeight}px`,
               overflow: 'hidden',
@@ -129,8 +141,8 @@ export function Enemigo({
             draggable={false}
             className="react-world-enemy-sprite"
             style={{
-              left: `${enemyOffsetX}px`,
-              top: `${enemyOffsetY}px`,
+              left: '0px',
+              top: '0px',
               width: '128px',
               height: '128px',
               transform: flipX ? 'translate(-50%, -50%) scaleX(-1)' : 'translate(-50%, -50%) scaleX(1)',
@@ -140,8 +152,8 @@ export function Enemigo({
           <div
             className="react-world-enemy-placeholder"
             style={{
-              left: `${enemyOffsetX}px`,
-              top: `${enemyOffsetY}px`,
+              left: '0px',
+              top: '0px',
               width: '128px',
               height: '128px',
             }}
@@ -154,8 +166,8 @@ export function Enemigo({
           draggable={false}
           className="react-world-enemy-sprite"
           style={{
-            left: `${enemyOffsetX}px`,
-            top: `${enemyOffsetY}px`,
+          left: '0px',
+          top: '0px',
             width: '128px',
             height: '128px',
             transform: flipX ? 'translate(-50%, -50%) scaleX(-1)' : 'translate(-50%, -50%) scaleX(1)',
@@ -165,13 +177,24 @@ export function Enemigo({
         <div
           className="react-world-enemy-placeholder"
           style={{
-            left: `${enemyOffsetX}px`,
-            top: `${enemyOffsetY}px`,
+          left: '0px',
+          top: '0px',
             width: '128px',
             height: '128px',
           }}
         />
-      )}
+        )}
+      </div>
     </div>
   )
 }
+
+export const Enemigo = memo(
+  EnemigoComponent,
+  (previous, next) =>
+    previous.enemyTemplate === next.enemyTemplate
+    && previous.debugEnabled === next.debugEnabled
+    && previous.spriteFrame?.key === next.spriteFrame?.key
+    && previous.flipX === next.flipX
+    && previous.showIcon === next.showIcon,
+)

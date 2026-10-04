@@ -4,6 +4,7 @@ import type {
   RoomNpcTemplate,
   RoomZIndexReferenceTemplate,
 } from '@social-sena/shared'
+import type { Ref } from 'react'
 
 export interface WorldNpcFrameDefinition {
   key: string
@@ -29,6 +30,7 @@ export interface WorldNpcProps {
   hideIcon?: boolean
   interactive?: boolean
   onInteractClick?: () => void
+  motionElementRef?: Ref<HTMLDivElement>
 }
 
 function colorToCss(value: number | undefined, fallback: string) {
@@ -109,6 +111,7 @@ export function WorldNpc({
   hideIcon = false,
   interactive = false,
   onInteractClick,
+  motionElementRef,
 }: WorldNpcProps) {
   const NPC_ICON_SCALE = 0.6
   const collider = getNpcCollider(npcTemplate)
@@ -152,8 +155,13 @@ export function WorldNpc({
 
   return (
     <div
+      ref={motionElementRef}
       className={`world-npc ${interactive ? 'is-interactive' : ''}`}
-      style={{ left: `${npcTemplate.x}px`, top: `${npcTemplate.y}px` }}
+      style={{
+        left: '0px',
+        top: '0px',
+        transform: `translate3d(${npcTemplate.x}px, ${npcTemplate.y}px, 0)`,
+      }}
     >
       {interactive ? (
         <button

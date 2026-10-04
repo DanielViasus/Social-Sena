@@ -107,6 +107,19 @@ interface ViewportSize {
   height: number
 }
 
+function createInitialWorldRuntimeState(): WorldRuntimeState {
+  return {
+    now: 0,
+    roomStartedAt: 0,
+    cameraX: 0,
+    cameraY: 0,
+    playersBySession: {},
+    facingBySession: {},
+    enemiesById: {},
+    enemyFacingById: {},
+  }
+}
+
 type RenderLayerItem =
   | {
       kind: 'object'
@@ -209,6 +222,7 @@ const COMBAT_INTERACTION_AREA = {
 }
 
 const WORLD_OBJECT_CULL_MARGIN = 256
+const WORLD_REACT_COMMIT_INTERVAL_MS = 1000 / 30
 
 function getCombatEncounterAreaBounds(
   displayX: number,
@@ -571,77 +585,6 @@ function getObjectInteractionAreaBounds(
   }
 }
 
-function expandBoundsForPlayer(bounds: { left: number; right: number; top: number; bottom: number }) {
-  return {
-    left: bounds.left - PLAYER_COLLIDER_WIDTH / 2,
-    right: bounds.right + PLAYER_COLLIDER_WIDTH / 2,
-    top: bounds.top,
-    bottom: bounds.bottom + PLAYER_COLLIDER_HEIGHT,
-  }
-}
-
-function segmentIntersectsExpandedBounds(
-  from: Position,
-  to: Position,
-  bounds: { left: number; right: number; top: number; bottom: number },
-) {
-  const expanded = expandBoundsForPlayer(bounds)
-
-  if (from.x >= expanded.left && from.x <= expanded.right && from.y >= expanded.top && from.y <= expanded.bottom) {
-    return true
-  }
-
-  if (to.x >= expanded.left && to.x <= expanded.right && to.y >= expanded.top && to.y <= expanded.bottom) {
-    return true
-  }
-
-  const deltaX = to.x - from.x
-  const deltaY = to.y - from.y
-  let entry = 0
-  let exit = 1
-
-  const updateInterval = (p: number, q: number) => {
-    if (Math.abs(p) < 0.000001) {
-      return q >= 0
-    }
-
-    const ratio = q / p
-
-    if (p < 0) {
-      if (ratio > exit) {
-        return false
-      }
-      if (ratio > entry) {
-        entry = ratio
-      }
-      return true
-    }
-
-    if (ratio < entry) {
-      return false
-    }
-    if (ratio < exit) {
-      exit = ratio
-    }
-    return true
-  }
-
-  if (!updateInterval(-deltaX, from.x - expanded.left)) {
-    return false
-  }
-  if (!updateInterval(deltaX, expanded.right - from.x)) {
-    return false
-  }
-  if (!updateInterval(-deltaY, from.y - expanded.top)) {
-    return false
-  }
-  if (!updateInterval(deltaY, expanded.bottom - from.y)) {
-    return false
-  }
-
-  return entry <= exit && exit >= 0 && entry <= 1
-}
-
 function getPerspectiveAwareRenderItems(
   objectItems: ObjectRenderLayerItem[],
   teleportViews: Array<{
@@ -936,22 +879,19 @@ function ReactWorld({
   cameraVerticalMargin = 0,
 }: ReactWorldProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null)
+  const surfaceRef = useRef<HTMLDivElement | null>(null)
+  const playerMotionElementsRef = useRef<Map<string, HTMLDivElement>>(new Map())
+  const npcMotionElementsRef = useRef<Map<string, HTMLDivElement>>(new Map())
+  const enemyMotionElementsRef = useRef<Map<string, HTMLDivElement>>(new Map())
   const roomRef = useRef(room)
   const templateRef = useRef(template)
   const touchNpcIdsRef = useRef<Set<string>>(new Set())
   const touchEnemyIdsRef = useRef<Set<string>>(new Set())
-  const runtimeRef = useRef<WorldRuntimeState>({
-    now: performance.now(),
-    roomStartedAt: performance.now(),
-    cameraX: 0,
-    cameraY: 0,
-    playersBySession: {},
-    facingBySession: {},
-    enemiesById: {},
-    enemyFacingById: {},
-  })
+  const runtimeRef = useRef<WorldRuntimeState>(createInitialWorldRuntimeState())
   const [viewportSize, setViewportSize] = useState({ width: 1600, height: 900 })
-  const [runtime, setRuntime] = useState<WorldRuntimeState>(runtimeRef.current)
+  const [runtime, setRuntime] = useState<WorldRuntimeState>(createInitialWorldRuntimeState)
+  const viewportWidth = viewportSize.width
+  const viewportHeight = viewportSize.height
 
   useEffect(() => {
     roomRef.current = room
@@ -1020,7 +960,7 @@ function ReactWorld({
       ? resolveCameraPosition(
           currentPlayer.position,
           activeTemplate,
-          viewportSize,
+          { width: viewportWidth, height: viewportHeight },
           centerWorldWhenSmaller,
           cameraVerticalMargin,
         )
@@ -1045,19 +985,21 @@ function ReactWorld({
     currentUserId,
     room?.roomId,
     template.id,
-    viewportSize.height,
-    viewportSize.width,
+    viewportHeight,
+    viewportWidth,
   ])
 
   useEffect(() => {
     let frameId = 0
     let previousTime = performance.now()
+    let lastReactCommitTime = previousTime
 
     const tick = (now: number) => {
       const delta = now - previousTime
       previousTime = now
 
       const previousState = runtimeRef.current
+      const activeTemplate = templateRef.current
       const nextPlayersBySession: Record<string, AnimatedPlayerPosition> = { ...previousState.playersBySession }
       const nextFacingBySession: Record<string, FacingPose> = { ...previousState.facingBySession }
       const nextEnemiesById: Record<string, AnimatedPlayerPosition> = { ...previousState.enemiesById }
@@ -1127,12 +1069,12 @@ function ReactWorld({
         const animatedCurrentPlayer = nextPlayersBySession[currentPlayer.sessionId] ?? currentPlayer.position
         const nextCamera = resolveCameraPosition(
           animatedCurrentPlayer,
-          template,
-          viewportSize,
+          activeTemplate,
+          { width: viewportWidth, height: viewportHeight },
           centerWorldWhenSmaller,
           cameraVerticalMargin,
         )
-        const cameraLerp = 1 - Math.exp(-delta / template.camera.delayMs)
+        const cameraLerp = 1 - Math.exp(-delta / activeTemplate.camera.delayMs)
 
         nextCameraX = previousState.cameraX + (nextCamera.cameraX - previousState.cameraX) * cameraLerp
         nextCameraY = previousState.cameraY + (nextCamera.cameraY - previousState.cameraY) * cameraLerp
@@ -1150,13 +1092,51 @@ function ReactWorld({
       }
 
       runtimeRef.current = nextState
-      setRuntime(nextState)
+
+      if (surfaceRef.current) {
+        surfaceRef.current.style.transform = `translate3d(${Math.round(-nextCameraX)}px, ${Math.round(-nextCameraY)}px, 0)`
+      }
+
+      Object.entries(nextPlayersBySession).forEach(([sessionId, position]) => {
+        const element = playerMotionElementsRef.current.get(sessionId)
+        if (element) {
+          element.style.transform = `translate3d(${position.x}px, ${position.y}px, 0)`
+        }
+      })
+
+      activeTemplate.npcs?.forEach((npcTemplate) => {
+        const element = npcMotionElementsRef.current.get(npcTemplate.id)
+        if (!element) {
+          return
+        }
+
+        const patrolPosition = getPatrollingNpcPosition(
+          npcTemplate,
+          now,
+          previousState.roomStartedAt,
+          activeTemplate.world,
+        )
+        element.style.transform = `translate3d(${patrolPosition.x}px, ${patrolPosition.y}px, 0)`
+      })
+
+      Object.entries(nextEnemiesById).forEach(([enemyId, position]) => {
+        const enemyTemplate = activeTemplate.enemies?.find((candidate) => candidate.id === enemyId)
+        const element = enemyMotionElementsRef.current.get(enemyId)
+        if (element && enemyTemplate) {
+          element.style.transform = `translate3d(${position.x - enemyTemplate.posicion_relativa_X}px, ${position.y - enemyTemplate.posicion_relativa_Y}px, 0)`
+        }
+      })
+
+      if (now - lastReactCommitTime >= WORLD_REACT_COMMIT_INTERVAL_MS) {
+        lastReactCommitTime = now
+        setRuntime(nextState)
+      }
       frameId = window.requestAnimationFrame(tick)
     }
 
     frameId = window.requestAnimationFrame(tick)
     return () => window.cancelAnimationFrame(frameId)
-  }, [cameraVerticalMargin, centerWorldWhenSmaller, currentUserId, template, viewportSize.height, viewportSize.width])
+  }, [cameraVerticalMargin, centerWorldWhenSmaller, currentUserId, template.id, viewportHeight, viewportWidth])
 
   const playerViews = useMemo(() => {
     return (room?.players ?? []).map((player) => {
@@ -1608,8 +1588,8 @@ function ReactWorld({
     }
 
     const rect = event.currentTarget.getBoundingClientRect()
-    const worldX = runtime.cameraX + (event.clientX - rect.left)
-    const worldY = runtime.cameraY + (event.clientY - rect.top)
+    const worldX = runtimeRef.current.cameraX + (event.clientX - rect.left)
+    const worldY = runtimeRef.current.cameraY + (event.clientY - rect.top)
     const target = {
       x: clamp(worldX, 32, template.world.width - 32),
       y: clamp(worldY, 24, template.world.height - 20),
@@ -1621,6 +1601,7 @@ function ReactWorld({
   return (
     <div ref={viewportRef} className="react-world-viewport" onPointerDown={handleWorldPointerDown}>
       <div
+        ref={surfaceRef}
         className="react-world-surface"
         style={{
           width: `${template.world.width}px`,
@@ -1742,6 +1723,13 @@ function ReactWorld({
                 npcAllowsPointerInteraction && onInteract
                   ? () => onInteract(item.npcTemplate)
                   : undefined,
+              motionElementRef: (element: HTMLDivElement | null) => {
+                if (element) {
+                  npcMotionElementsRef.current.set(item.npcTemplate.id, element)
+                } else {
+                  npcMotionElementsRef.current.delete(item.npcTemplate.id)
+                }
+              },
             }
 
             return (
@@ -1786,6 +1774,13 @@ function ReactWorld({
                   spriteFrame={item.spriteFrame}
                   flipX={item.flipX}
                   showIcon={item.showIcon}
+                  motionElementRef={(element) => {
+                    if (element) {
+                      enemyMotionElementsRef.current.set(item.enemyTemplate.id, element)
+                    } else {
+                      enemyMotionElementsRef.current.delete(item.enemyTemplate.id)
+                    }
+                  }}
                 />
               </div>
             )
@@ -1840,6 +1835,13 @@ function ReactWorld({
                 typingIndicatorText={typingIndicatorText}
                 frame={item.frame}
                 debugEnabled={debugEnabled}
+                motionElementRef={(element) => {
+                  if (element) {
+                    playerMotionElementsRef.current.set(item.player.sessionId, element)
+                  } else {
+                    playerMotionElementsRef.current.delete(item.player.sessionId)
+                  }
+                }}
               />
             </div>
           )

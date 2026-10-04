@@ -1,5 +1,5 @@
 import type { Presence } from '@social-sena/shared'
-import type { CSSProperties } from 'react'
+import { memo, type CSSProperties, type Ref } from 'react'
 import {
   resolveAvatarPreset,
   resolveAvatarPrimaryColor,
@@ -24,6 +24,7 @@ interface WorldPlayerProps {
     flipX: boolean
   }
   debugEnabled: boolean
+  motionElementRef?: Ref<HTMLDivElement>
 }
 
 export const PLAYER_VISUAL_WIDTH = 128
@@ -55,7 +56,7 @@ function getLeaderInitials(displayName: string | null) {
 
   return `${words[0][0] ?? ''}${words[1][0] ?? ''}`.toUpperCase()
 }
-export function WorldPlayer({
+function WorldPlayerComponent({
   player,
   displayX,
   displayY,
@@ -66,6 +67,7 @@ export function WorldPlayer({
   typingIndicatorText = '...',
   frame,
   debugEnabled,
+  motionElementRef,
 }: WorldPlayerProps) {
   const isSpeechActive = Boolean(speechText) || isTyping
   const labelText = isTyping ? typingIndicatorText : speechText || player.displayName
@@ -118,10 +120,12 @@ export function WorldPlayer({
 
   return (
     <div
+      ref={motionElementRef}
       className="react-world-avatar"
       style={{
-        left: `${displayX}px`,
-        top: `${displayY}px`,
+        left: '0px',
+        top: '0px',
+        transform: `translate3d(${displayX}px, ${displayY}px, 0)`,
       }}
     >
       <div className={`react-world-avatar-glow ${isSelf ? 'is-self' : ''}`} />
@@ -190,3 +194,19 @@ export function WorldPlayer({
     </div>
   )
 }
+
+export const WorldPlayer = memo(
+  WorldPlayerComponent,
+  (previous, next) =>
+    previous.player === next.player
+    && previous.isSelf === next.isSelf
+    && previous.playerIdentityMode === next.playerIdentityMode
+    && previous.speechText === next.speechText
+    && previous.isTyping === next.isTyping
+    && previous.typingIndicatorText === next.typingIndicatorText
+    && previous.debugEnabled === next.debugEnabled
+    && previous.frame.preset === next.frame.preset
+    && previous.frame.sheetUrl === next.frame.sheetUrl
+    && previous.frame.texture === next.frame.texture
+    && previous.frame.flipX === next.frame.flipX,
+)

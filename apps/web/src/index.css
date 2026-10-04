@@ -3094,6 +3094,7 @@ button {
   width: 0;
   height: 0;
   pointer-events: none;
+  will-change: transform;
 }
 
 .react-world-avatar-glow {
@@ -3303,6 +3304,7 @@ button {
   width: 0;
   height: 0;
   pointer-events: none;
+  will-change: transform;
 }
 
 .world-npc.is-interactive {
@@ -3995,6 +3997,13 @@ button {
   left: 0;
   top: 0;
   pointer-events: none;
+}
+
+.world-enemy-motion {
+  position: absolute;
+  width: 0;
+  height: 0;
+  will-change: transform;
 }
 
 .world-combat {
