@@ -7,6 +7,7 @@ export const clientEvents = {
   setMovementInput: 'set_movement_input',
   updateSkin: 'update_skin',
   updateAccessRole: 'update_access_role',
+  interactRoomObject: 'interact_room_object',
   saveRoomEditorMap: 'save_room_editor_map',
   loadRoomEditorMap: 'load_room_editor_map',
   listRoomEditorMaps: 'list_room_editor_maps',

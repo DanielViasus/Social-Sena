@@ -15,6 +15,8 @@ import {
   createRoomTemplateFromEditorMap,
   getRoomTemplateById,
   hasMinimumUserRole,
+  interactRoomObjectSchema,
+  interactWithRoomObject,
   registerRoomTemplate,
   inviteToPartySchema,
   joinRoomSchema,
@@ -1061,8 +1063,9 @@ function getOrCreateRoom(roomId: string, templateId: string): RoomState | null {
       return null
     }
 
-    existingRoom.template = latestTemplate
-    existingRoom.name = latestTemplate.name
+    // La plantilla de una instancia activa puede contener estados interactivos
+    // (por ejemplo, puertas abiertas). No se reemplaza al unirse otro jugador.
+    existingRoom.name = existingRoom.template.name
     syncRoomEnemiesForTemplate(existingRoom)
     return existingRoom
   }
@@ -1473,6 +1476,20 @@ function getObjectNavigationBoundsList(roomObject: RoomState['template']['object
     top: bounds.top - PATH_COLLIDER_MARGIN,
     bottom: bounds.bottom + PATH_COLLIDER_MARGIN,
   }))
+}
+
+function getObjectInteractionBounds(roomObject: RoomState['template']['objects'][number]): RectBounds | null {
+  const area = roomObject.interactionArea
+  if (!area) {
+    return null
+  }
+
+  return {
+    left: roomObject.x + area.offsetX - area.width / 2,
+    right: roomObject.x + area.offsetX + area.width / 2,
+    top: roomObject.y + area.offsetY - area.height / 2,
+    bottom: roomObject.y + area.offsetY + area.height / 2,
+  }
 }
 
 function getNpcColliderBoundsList(roomNpc: NonNullable<RoomState['template']['npcs']>[number]): RectBounds[] {
@@ -2745,6 +2762,43 @@ io.on('connection', (socket) => {
     if (party?.leaderUserId === session.profile.userId && transition !== 'follow-leader') {
       await requestPartyLeaderFollowForPartyMembers(session.profile.userId)
     }
+  })
+
+  socket.on(clientEvents.interactRoomObject, (rawPayload, callback) => {
+    const parsed = interactRoomObjectSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+    if (!parsed.success || !session?.roomId) {
+      callback?.({ ok: false, message: 'No fue posible interactuar con el objeto.' })
+      return
+    }
+
+    const room = rooms.get(session.roomId)
+    const player = room?.players.find((presence) => presence.sessionId === socket.id)
+    const roomObject = room?.template.objects.find((candidate) => candidate.id === parsed.data.objectId)
+    if (!room || !player || !roomObject || parsed.data.roomId !== room.roomId) {
+      callback?.({ ok: false, message: 'El objeto ya no está disponible.' })
+      return
+    }
+
+    const interactionBounds = getObjectInteractionBounds(roomObject)
+    if (!interactionBounds || !overlapsRect(getPlayerColliderBounds(player.position), interactionBounds)) {
+      callback?.({ ok: false, message: 'Acércate un poco más para interactuar.' })
+      return
+    }
+
+    const result = interactWithRoomObject(room.template, roomObject.id)
+    if (!result) {
+      callback?.({ ok: false, message: 'Este objeto no tiene estados interactivos.' })
+      return
+    }
+
+    room.template = result.template
+    room.players.forEach((roomPlayer) => {
+      ensureNavigablePlayerPosition(room, roomPlayer)
+      stopPlayer(roomPlayer)
+    })
+    io.to(room.roomId).emit(serverEvents.roomState, room)
+    callback?.({ ok: true, outcome: result.outcome, state: result.state })
   })
 
   socket.on(clientEvents.navigateTo, (rawPayload) => {

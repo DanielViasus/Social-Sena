@@ -1,14 +1,21 @@
 FORMATO DE NOMBRES PARA ASSETS DEL EDITOR DE SALAS
 
-Formato general:
+FORMATO GENERAL
 
-Asset_Categoria_Nombre_DimensionVisual_CeldasOcupadas_DimensionCollider_OffsetCollider_ZIndexOffsetY.extension
+Asset_Categoria_Nombre__A{DimensionVisual}B{CeldasOcupadas}(C{DimensionCollider}D{OffsetCollider})E{ZIndexOffsetY}(F{AreaAviso})(G{OffsetAviso})(H{AreaInteraccion})(I{OffsetInteraccion})(J{ContenedorIcono})(K{OffsetIcono})(S{EstadoInteraccion}).extension
 
-Ejemplo:
+El separador doble __ indica el inicio de los parametros tecnicos.
+Las letras permiten extender el formato sin depender de la posicion de cada parametro.
 
-Asset_Floor_DungeonRock_128x128_1x1_0x0_0x0_0.svg
+EJEMPLO CON UN COLLIDER
 
-ORDEN DE LOS PARAMETROS
+Asset_wall_CornerRock__A128x128B1x1C128x64D0x32E50.svg
+
+EJEMPLO CON DOS COLLIDERS
+
+Asset_wall_CornerRock__A128x128B1x1C128x64D0x32C64x64D64x64E50.svg
+
+PARAMETROS
 
 1. Asset
    Indicador obligatorio que identifica el archivo como un asset del editor.
@@ -28,62 +35,119 @@ ORDEN DE LOS PARAMETROS
    Cualquier otra categoria se interpreta como landmark.
 
 3. Nombre
-   Nombre individual del elemento.
-   No debe contener guiones bajos porque el caracter _ separa los parametros.
+   Nombre individual del elemento. Termina antes del separador doble __.
    Se recomienda usar PascalCase, por ejemplo: DungeonRock, StoneDoor o WoodenTable.
 
-4. DimensionVisual
-   Ancho y alto del sprite expresados en pixeles.
+4. A - DimensionVisual
+   Ancho y alto reales del sprite expresados en pixeles.
 
-   Ejemplo:
-   128x128
+   Ejemplo: A128x128
 
-5. CeldasOcupadas
-   Cantidad de celdas de 128x128 que ocupa el elemento dentro del mapa.
+5. B - CeldasOcupadas
+   Cantidad de celdas de 128x128 que ocupa el elemento.
 
-   Ejemplos:
-   1x1
-   2x1
-   2x3
+   Ejemplos: B1x1, B2x1, B2x3
 
-6. DimensionCollider
-   Ancho y alto del collider expresados en pixeles.
+6. C - DimensionCollider
+   Ancho y alto de un collider expresados en pixeles.
 
-   Ejemplos:
-   128x64  -> crea un collider de 128 por 64 pixeles.
-   0x0     -> el elemento no tendrá collider.
+   Ejemplo: C128x64
 
-7. OffsetCollider
-   Desplazamiento X e Y del collider con respecto al centro del objeto.
+7. D - OffsetCollider
+   Desplazamiento X e Y del collider anterior con respecto al centro del objeto.
    Se permiten valores negativos.
 
-   Ejemplos:
-   0x0
-   0x32
-   -16x24
+   Ejemplos: D0x32, D-16x24, D16x-24
 
-8. ZIndexOffsetY
-   Desplazamiento vertical utilizado por la referencia de profundidad del ObjectDecoration.
-   Se expresa como un único número y puede ser negativo.
+8. E - ZIndexOffsetY
+   Desplazamiento vertical de la referencia de profundidad.
+   Se expresa como un unico numero y puede ser negativo.
 
-   Ejemplos:
-   0
-   48
-   -24
+   Ejemplos: E0, E48, E-24
 
-REGLAS
+9. F - AreaAviso
+   Ancho y alto del area exterior de aviso expresados en celdas de 128x128.
+   Este parametro es opcional y se utiliza para los elementos colocados en la capa Door.
 
-- Cada archivo representa un único asset completo.
-- Las secciones del nombre deben estar separadas con guion bajo (_).
-- Los pares de dimensiones y posiciones utilizan la letra x como separador.
-- El tamaño real de la imagen debe coincidir con DimensionVisual.
-- Un collider 0x0 indica que el objeto es transitable y no bloquea al jugador.
-- El formato admite SVG, PNG y otros formatos de imagen compatibles con el navegador.
+   Ejemplo: F5x5
+
+   Cuando F se omite, el editor aplica automaticamente la regla B + 4:
+   agrega dos celdas a la izquierda, derecha, arriba y abajo.
+   Por ejemplo, B1x1 genera un area F5x5 y B2x1 genera un area F6x5.
+
+10. G - OffsetAviso
+    Desplazamiento X e Y del area de aviso expresado en pixeles.
+    Es opcional y su valor predeterminado es G0x0.
+
+    Ejemplos: G0x0, G-64x0, G0x128
+
+11. H - AreaInteraccion
+    Ancho y alto del area real de interaccion expresados en celdas de 128x128.
+    Este parametro es opcional y se utiliza para los elementos de la capa Door.
+
+    Ejemplo: H3x3
+
+    Cuando H se omite, el editor agrega una celda a cada lado del area B.
+    Por ejemplo, B1x1 genera H3x3 y B2x1 genera H4x3.
+
+12. I - OffsetInteraccion
+    Desplazamiento X e Y del area real de interaccion expresado en pixeles.
+    Es opcional y su valor predeterminado es I0x0.
+
+    Ejemplos: I0x0, I-32x0, I0x64
+
+13. J - ContenedorIcono
+    Ancho y alto del contenedor técnico donde aparecerá el icono de interacción.
+    Sus dimensiones se expresan en pixeles. Es opcional y su valor predeterminado
+    es J128x129.
+
+    Ejemplos: J128x129, J96x96
+
+14. K - OffsetIcono
+    Desplazamiento X e Y del contenedor del icono expresado en pixeles.
+    Es opcional. Si se omite, el contenedor se centra horizontalmente y se coloca
+    inmediatamente encima del sprite.
+
+    Ejemplos: K0x-128, K24x-160
+
+15. S - EstadoInteraccion
+    Estado visual y físico de un elemento interactivo. Es opcional.
+
+    S0 representa el estado cerrado.
+    S1 representa el estado abierto.
+
+    Los dos archivos deben conservar exactamente la misma Categoria y Nombre.
+    Al interactuar, el sistema busca el estado opuesto. Si no existe, el elemento
+    desaparece de la sala.
+
+REGLAS PARA COLLIDERS
+
+- Cada collider se declara como un par consecutivo C...D...
+- Se permiten entre cero y cuatro pares C...D...
+- Para agregar otro collider se repite inmediatamente el par C...D...
+- Un asset sin collider omite completamente los parametros C y D.
+- El primer collider se usa como referencia principal de profundidad.
+- Al invertir un sprite, el offset X de todos sus colliders tambien se invierte.
+- F/G definen el area exterior de aviso y H/I definen el area real de interaccion.
+- F, G, H e I solamente afectan elementos colocados en la capa Door.
+- Las dos areas se muestran en el editor y en el modo debug del juego.
+- J y K solamente afectan elementos colocados en la capa Door.
+- El contenedor del icono no aparece en el editor normal; se visualiza únicamente en debug.
+- Los estados S0 y S1 se agrupan por Categoria y Nombre, no por sus demás parámetros técnicos.
 
 EJEMPLOS VALIDOS
 
-Asset_Floor_DungeonRock_128x128_1x1_0x0_0x0_0.svg
-Asset_Wall_StoneWall_128x128_1x1_128x128_0x0_48.png
-Asset_Door_WoodenDoor_128x256_1x2_96x48_0x96_112.svg
-Asset_Landmark_LargeStatue_256x384_2x3_160x80_0x128_160.png
+Asset_Floor_DungeonRock__A128x128B1x1E0.svg
+Asset_Wall_StoneWall__A128x128B1x1C128x128D0x0E48.png
+Asset_Door_WoodenDoor__A128x256B1x2C96x48D0x96E112.svg
+Asset_Landmark_LargeStatue__A256x384B2x3C160x80D0x128E160.png
+Asset_Wall_DoubleCollider__A256x128B2x1C96x64D-64x32C96x64D64x32E48.svg
+Asset_Door_LargeGate__A256x256B2x2C192x64D0x96E112F8x6G0x-64H4x4I0x0J128x129K0x-193.svg
+Asset_door_DoorCloseRock__A256x183B2x1C256x64D0x60E50S0.svg
+Asset_door_DoorCloseRock__A256x183B2x1C0x0D0x0E50S1.svg
 
+COMPATIBILIDAD
+
+El editor puede seguir leyendo temporalmente la nomenclatura anterior y convierte
+automaticamente su collider unico al nuevo arreglo de colliders. Los archivos nuevos
+deben utilizar exclusivamente el formato descrito en este documento.

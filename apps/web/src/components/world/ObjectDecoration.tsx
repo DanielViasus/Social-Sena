@@ -1,9 +1,39 @@
 import type { RoomColliderTemplate, RoomObjectTemplate, RoomZIndexReferenceTemplate } from '@social-sena/shared'
 
+type ObjectInteractionState = 'out' | 'warning' | 'interaction'
+
+const ALERT_ICON_FRAME_DURATION_MS = 600
+const INTERACTION_ICON_FRAME_DURATION_MS = ALERT_ICON_FRAME_DURATION_MS * 2
+const alertIconModules = import.meta.glob<string>(
+  '../../assets/room-editor/sprites/POP_ALERT_*.svg',
+  { eager: true, import: 'default', query: '?url' },
+)
+const alertIconFrames = Object.entries(alertIconModules)
+  .map(([path, url]) => ({
+    index: Number(/POP_ALERT_(\d+)\.svg$/i.exec(path)?.[1] ?? Number.MAX_SAFE_INTEGER),
+    url,
+  }))
+  .sort((left, right) => left.index - right.index)
+  .map((frame) => frame.url)
+const interactionIconModules = import.meta.glob<string>(
+  '../../assets/room-editor/sprites/POP_INTERACTION_*.svg',
+  { eager: true, import: 'default', query: '?url' },
+)
+const interactionIconFrames = Object.entries(interactionIconModules)
+  .map(([path, url]) => ({
+    index: Number(/POP_INTERACTION_(\d+)\.svg$/i.exec(path)?.[1] ?? Number.MAX_SAFE_INTEGER),
+    url,
+  }))
+  .sort((left, right) => left.index - right.index)
+  .map((frame) => frame.url)
+
 interface ObjectDecorationProps {
   objectTemplate: RoomObjectTemplate
   spriteSrc?: string
   debugEnabled: boolean
+  interactionAreaVisible?: boolean
+  interactionState?: ObjectInteractionState
+  animationTime?: number
   flippedX?: boolean
   zIndex?: number
   spriteFrame?: {
@@ -77,12 +107,29 @@ export function getObjectPerspectiveY(objectTemplate: RoomObjectTemplate) {
   return objectTemplate.y + zIndexRef.offsetY
 }
 
-export function ObjectDecoration({ objectTemplate, spriteSrc, debugEnabled, flippedX, zIndex, spriteFrame }: ObjectDecorationProps) {
+export function ObjectDecoration({
+  objectTemplate,
+  spriteSrc,
+  debugEnabled,
+  interactionAreaVisible = false,
+  interactionState = 'out',
+  animationTime = 0,
+  flippedX,
+  zIndex,
+  spriteFrame,
+}: ObjectDecorationProps) {
   const colliders = getObjectColliders(objectTemplate)
   const referenceCollider = colliders[0]
   const zIndexRef = getObjectZIndexRef(objectTemplate, referenceCollider)
   const hasVisual = Boolean(spriteSrc) || (objectTemplate.opacity ?? 0.72) > 0.02 || objectTemplate.label
   const resolvedFlippedX = flippedX ?? objectTemplate.flippedX ?? false
+  const alertIconSrc = alertIconFrames.length > 0
+    ? alertIconFrames[Math.floor(animationTime / ALERT_ICON_FRAME_DURATION_MS) % alertIconFrames.length]
+    : null
+  const interactionIconSrc = interactionIconFrames.length > 0
+    ? interactionIconFrames[Math.floor(animationTime / INTERACTION_ICON_FRAME_DURATION_MS) % interactionIconFrames.length]
+    : null
+  const activeIconSrc = interactionState === 'interaction' ? interactionIconSrc : alertIconSrc
 
   return (
     <div
@@ -158,6 +205,59 @@ export function ObjectDecoration({ objectTemplate, spriteSrc, debugEnabled, flip
             </div>
           ) : null}
         </>
+      ) : null}
+
+      {(debugEnabled || interactionAreaVisible) && objectTemplate.warningArea ? (
+        <div
+          className="debug-object-warning"
+          style={{
+            left: `${objectTemplate.warningArea.offsetX}px`,
+            top: `${objectTemplate.warningArea.offsetY}px`,
+            width: `${objectTemplate.warningArea.width}px`,
+            height: `${objectTemplate.warningArea.height}px`,
+          }}
+        />
+      ) : null}
+
+      {(debugEnabled || interactionAreaVisible) && objectTemplate.interactionArea ? (
+        <div
+          className="debug-object-interaction"
+          style={{
+            left: `${objectTemplate.interactionArea.offsetX}px`,
+            top: `${objectTemplate.interactionArea.offsetY}px`,
+            width: `${objectTemplate.interactionArea.width}px`,
+            height: `${objectTemplate.interactionArea.height}px`,
+          }}
+        />
+      ) : null}
+
+      {debugEnabled && objectTemplate.interactionIconContainer ? (
+        <div
+          className="debug-object-icon-container"
+          style={{
+            left: `${objectTemplate.interactionIconContainer.offsetX}px`,
+            top: `${objectTemplate.interactionIconContainer.offsetY}px`,
+            width: `${objectTemplate.interactionIconContainer.width}px`,
+            height: `${objectTemplate.interactionIconContainer.height}px`,
+          }}
+        >
+          <span>ICON</span>
+        </div>
+      ) : null}
+
+      {interactionState !== 'out' && objectTemplate.interactionIconContainer && activeIconSrc ? (
+        <img
+          src={activeIconSrc}
+          alt={interactionState === 'interaction' ? 'Interacción disponible' : 'Alerta de interacción'}
+          draggable={false}
+          className="world-decoration-interaction-icon"
+          style={{
+            left: `${objectTemplate.interactionIconContainer.offsetX}px`,
+            top: `${objectTemplate.interactionIconContainer.offsetY}px`,
+            width: `${objectTemplate.interactionIconContainer.width}px`,
+            height: `${objectTemplate.interactionIconContainer.height}px`,
+          }}
+        />
       ) : null}
 
       {debugEnabled ? (

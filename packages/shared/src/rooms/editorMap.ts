@@ -1,21 +1,144 @@
-import type { SavedRoomEditorMap } from '../types'
-import type { RoomObjectKind, RoomObjectTemplate, RoomTemplate } from './types'
+import type { RoomEditorAssetData, RoomEditorPlacementData, SavedRoomEditorMap } from '../types'
+import type {
+  RoomObjectInteractionVariantTemplate,
+  RoomObjectKind,
+  RoomObjectTemplate,
+  RoomTemplate,
+} from './types'
 
 const LAYER_PRIORITY: Record<string, number> = {
   floor: 0,
   walls: 1,
-  'object-decoration': 2,
-  teleports: 3,
+  doors: 2,
+  'object-decoration': 3,
+  teleports: 4,
 }
 
 function resolveKind(layerId: string, category: string): RoomObjectKind {
   if (layerId === 'floor') return 'floor'
   if (layerId === 'walls') return 'wall'
+  if (layerId === 'doors') return 'door'
   if (layerId === 'teleports') return 'portal'
   const normalized = category.toLowerCase()
   if (normalized.includes('floor')) return 'floor'
   if (normalized.includes('wall')) return 'wall'
   return 'landmark'
+}
+
+function createObjectVariant(
+  placement: RoomEditorPlacementData,
+  asset: RoomEditorAssetData,
+  collidersEnabled: boolean,
+): RoomObjectInteractionVariantTemplate {
+  const usesBottomCenterAnchor = asset.frameWidth > 128 || asset.frameHeight > 128
+  const occupiedWidth = asset.occupiedColumns * 128
+  const occupiedHeight = asset.occupiedRows * 128
+  const colliders = collidersEnabled
+    ? asset.colliders.map((collider) => ({
+        ...collider,
+        offsetX: placement.flippedX ? -collider.offsetX : collider.offsetX,
+      }))
+    : []
+  const collider = colliders[0]
+  const warningArea = placement.layerId === 'doors'
+    ? {
+        ...(asset.warningArea ?? {
+          width: (asset.occupiedColumns + 4) * 128,
+          height: (asset.occupiedRows + 4) * 128,
+          offsetX: 0,
+          offsetY: 0,
+        }),
+        offsetX: placement.flippedX
+          ? -(asset.warningArea?.offsetX ?? 0)
+          : asset.warningArea?.offsetX ?? 0,
+      }
+    : undefined
+  const interactionArea = placement.layerId === 'doors'
+    ? {
+        ...(asset.interactionArea ?? {
+          width: (asset.occupiedColumns + 2) * 128,
+          height: (asset.occupiedRows + 2) * 128,
+          offsetX: 0,
+          offsetY: 0,
+        }),
+        offsetX: placement.flippedX
+          ? -(asset.interactionArea?.offsetX ?? 0)
+          : asset.interactionArea?.offsetX ?? 0,
+      }
+    : undefined
+  const interactionIconContainer = placement.layerId === 'doors'
+    ? {
+        ...(asset.interactionIconContainer ?? {
+          width: 128,
+          height: 129,
+          offsetX: 0,
+          offsetY: -Math.round((asset.frameHeight + 129) / 2),
+        }),
+        offsetX: placement.flippedX
+          ? -(asset.interactionIconContainer?.offsetX ?? 0)
+          : asset.interactionIconContainer?.offsetX ?? 0,
+      }
+    : undefined
+
+  return {
+    state: asset.interactionState ?? 0,
+    x: placement.cellX * 128 + (usesBottomCenterAnchor ? occupiedWidth / 2 : asset.frameWidth / 2),
+    y: placement.cellY * 128 + (
+      usesBottomCenterAnchor ? occupiedHeight - asset.frameHeight / 2 : asset.frameHeight / 2
+    ),
+    width: asset.frameWidth,
+    height: asset.frameHeight,
+    spriteAssetId: asset.id,
+    gridFootprint: { columns: asset.occupiedColumns, rows: asset.occupiedRows },
+    collider,
+    colliders,
+    warningArea,
+    interactionArea,
+    interactionIconContainer,
+    zIndexRef: {
+      offsetX: collider?.offsetX ?? 0,
+      offsetY: asset.zIndexOffsetY,
+      width: Math.max(48, collider ? collider.width * 0.45 : asset.frameWidth * 0.35),
+      thickness: 2,
+    },
+  }
+}
+
+export function interactWithRoomObject(
+  template: RoomTemplate,
+  objectId: string,
+): { template: RoomTemplate; outcome: 'toggled' | 'removed'; state?: 0 | 1 } | null {
+  const objectIndex = template.objects.findIndex((roomObject) => roomObject.id === objectId)
+  const roomObject = template.objects[objectIndex]
+  if (!roomObject || roomObject.interactionState === undefined) {
+    return null
+  }
+
+  const nextState: 0 | 1 = roomObject.interactionState === 0 ? 1 : 0
+  const nextVariant = roomObject.interactionVariants?.find((variant) => variant.state === nextState)
+  if (!nextVariant) {
+    return {
+      template: {
+        ...template,
+        objects: template.objects.filter((candidate) => candidate.id !== objectId),
+      },
+      outcome: 'removed',
+    }
+  }
+
+  const { state, ...nextObjectProperties } = nextVariant
+  const nextObjects = [...template.objects]
+  nextObjects[objectIndex] = {
+    ...roomObject,
+    ...nextObjectProperties,
+    interactionState: state,
+  }
+
+  return {
+    template: { ...template, objects: nextObjects },
+    outcome: 'toggled',
+    state,
+  }
 }
 
 export function createRoomTemplateFromEditorMap(map: SavedRoomEditorMap): RoomTemplate {
@@ -24,40 +147,28 @@ export function createRoomTemplateFromEditorMap(map: SavedRoomEditorMap): RoomTe
   const objects = map.document.placements.flatMap((placement): RoomObjectTemplate[] => {
     const asset = assets.get(placement.assetId)
     if (!asset) return []
-    const usesBottomCenterAnchor = asset.frameWidth > 128 || asset.frameHeight > 128
-    const occupiedWidth = asset.occupiedColumns * 128
-    const occupiedHeight = asset.occupiedRows * 128
     const layer = layers.get(placement.layerId)
-    const hasCollider = layer?.collidersEnabled !== false
-      && asset.colliderWidth > 0
-      && asset.colliderHeight > 0
-    const collider = hasCollider ? {
-      offsetX: placement.flippedX ? -asset.colliderOffsetX : asset.colliderOffsetX,
-      offsetY: asset.colliderOffsetY,
-      width: asset.colliderWidth,
-      height: asset.colliderHeight,
-    } : undefined
+    const collidersEnabled = layer?.collidersEnabled !== false
+    const activeVariant = createObjectVariant(placement, asset, collidersEnabled)
+    const { state: variantState, ...activeObjectProperties } = activeVariant
+    const interactionVariants = asset.interactionState === undefined
+      ? undefined
+      : map.document.assets
+          .filter((candidate) => (
+            candidate.category === asset.category
+            && candidate.interactionState !== undefined
+            && candidate.id.replace(/-S[01]$/i, '') === asset.id.replace(/-S[01]$/i, '')
+          ))
+          .map((candidate) => createObjectVariant(placement, candidate, collidersEnabled))
     return [{
       id: `published-${placement.layerId}-${placement.cellX}-${placement.cellY}`,
       kind: resolveKind(placement.layerId, asset.category),
-      x: placement.cellX * 128 + (usesBottomCenterAnchor ? occupiedWidth / 2 : asset.frameWidth / 2),
-      y: placement.cellY * 128 + (
-        usesBottomCenterAnchor ? occupiedHeight - asset.frameHeight / 2 : asset.frameHeight / 2
-      ),
-      width: asset.frameWidth,
-      height: asset.frameHeight,
       opacity: 1,
-      spriteAssetId: asset.id,
       flippedX: placement.flippedX,
       layerOrder: LAYER_PRIORITY[placement.layerId] ?? 2,
-      gridFootprint: { columns: asset.occupiedColumns, rows: asset.occupiedRows },
-      collider,
-      zIndexRef: {
-        offsetX: collider?.offsetX ?? 0,
-        offsetY: asset.zIndexOffsetY,
-        width: Math.max(48, collider ? collider.width * 0.45 : asset.frameWidth * 0.35),
-        thickness: 2,
-      },
+      ...activeObjectProperties,
+      interactionState: asset.interactionState === undefined ? undefined : variantState,
+      interactionVariants,
     }]
   })
 

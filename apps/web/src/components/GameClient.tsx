@@ -2495,6 +2495,25 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
     void ensureAudioUnlocked()
 
+    if (interactable.entityType === 'object') {
+      const socket = socketRef.current
+      if (!socket || !room) {
+        return
+      }
+
+      requestStopMovement()
+      socket.emit(
+        clientEvents.interactRoomObject,
+        { roomId: room.roomId, objectId: interactable.id },
+        (response: { ok: boolean; message?: string }) => {
+          if (!response.ok && response.message) {
+            enqueueActivityNotice('Aviso del sistema', response.message)
+          }
+        },
+      )
+      return
+    }
+
     if (interactable.entityType === 'enemy-combat') {
       requestStopMovement()
       handleRespondToEnemyCombatSupportInvite(interactable.encounterId, 'accept')
@@ -2947,7 +2966,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
         <ReactWorld
           room={room}
           currentUserId={session.profile.userId}
-          template={activeTemplate}
+          template={room?.template ?? activeTemplate}
           enemyCombatEncounters={roomEnemyCombatEncounters}
           onNavigate={handleNavigate}
           debugEnabled={debugEnabled}

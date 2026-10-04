@@ -336,6 +336,13 @@ export interface RoomEditorPlacementData {
   flippedX: boolean
 }
 
+export interface RoomEditorColliderData {
+  width: number
+  height: number
+  offsetX: number
+  offsetY: number
+}
+
 export interface RoomEditorAssetData {
   id: string
   category: string
@@ -343,11 +350,27 @@ export interface RoomEditorAssetData {
   frameHeight: number
   occupiedColumns: number
   occupiedRows: number
-  colliderWidth: number
-  colliderHeight: number
-  colliderOffsetX: number
-  colliderOffsetY: number
+  colliders: RoomEditorColliderData[]
   zIndexOffsetY: number
+  warningArea?: {
+    width: number
+    height: number
+    offsetX: number
+    offsetY: number
+  }
+  interactionArea?: {
+    width: number
+    height: number
+    offsetX: number
+    offsetY: number
+  }
+  interactionIconContainer?: {
+    width: number
+    height: number
+    offsetX: number
+    offsetY: number
+  }
+  interactionState?: 0 | 1
 }
 
 export interface RoomEditorSpawnPointData {

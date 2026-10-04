@@ -28,8 +28,19 @@ const roomEditorSpriteModules = import.meta.glob<string>(
 )
 const roomEditorWorldSprites = Object.fromEntries(
   Object.entries(roomEditorSpriteModules).flatMap(([path, url]) => {
-    const match = /^Asset_([^_]+)_([^_]+)_/.exec(path.split('/').pop() ?? '')
-    return match ? [[`${match[1]}-${match[2]}`, url]] : []
+    const fileName = path.split('/').pop() ?? ''
+    const match = /^Asset_([^_]+)_(.+?)__/.exec(fileName)
+    const interactionState = /S([01])\.[^.]+$/i.exec(fileName)?.[1]
+    if (!match) {
+      return []
+    }
+
+    const baseId = `${match[1]}-${match[2]}`
+    return interactionState === undefined
+      ? [[baseId, url]]
+      : interactionState === '0'
+        ? [[`${baseId}-S0`, url], [baseId, url]]
+        : [[`${baseId}-S1`, url]]
   }),
 )
 

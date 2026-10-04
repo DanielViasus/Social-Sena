@@ -95,6 +95,30 @@ export interface RoomObjectTemplate {
   collider?: RoomColliderTemplate
   colliders?: RoomColliderTemplate[]
   zIndexRef?: RoomZIndexReferenceTemplate
+  warningArea?: RoomInteractionAreaTemplate
+  interactionArea?: RoomInteractionAreaTemplate
+  interactionIconContainer?: RoomInteractionAreaTemplate
+  interactionState?: 0 | 1
+  interactionVariants?: RoomObjectInteractionVariantTemplate[]
+}
+
+export interface RoomObjectInteractionVariantTemplate {
+  state: 0 | 1
+  x: number
+  y: number
+  width: number
+  height: number
+  spriteAssetId?: string
+  gridFootprint?: {
+    columns: number
+    rows: number
+  }
+  collider?: RoomColliderTemplate
+  colliders?: RoomColliderTemplate[]
+  zIndexRef?: RoomZIndexReferenceTemplate
+  warningArea?: RoomInteractionAreaTemplate
+  interactionArea?: RoomInteractionAreaTemplate
+  interactionIconContainer?: RoomInteractionAreaTemplate
 }
 
 export interface RoomNpcTemplate extends RoomInteractableBaseTemplate {

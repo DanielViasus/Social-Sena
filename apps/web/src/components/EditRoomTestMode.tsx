@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type {
-  Direction,
-  Position,
-  Presence,
-  RoomObjectTemplate,
-  RoomState,
-  RoomTemplate,
-  UserProfile,
+import {
+  interactWithRoomObject,
+  type Direction,
+  type Position,
+  type Presence,
+  type RoomObjectTemplate,
+  type RoomState,
+  type RoomTemplate,
+  type UserProfile,
 } from '@social-sena/shared'
-import ReactWorld from './ReactWorld'
+import ReactWorld, { type WorldInteractableTarget } from './ReactWorld'
 import { getObjectColliderBoundsList } from './world/ObjectDecoration'
 import { PLAYER_COLLIDER_HEIGHT, PLAYER_COLLIDER_WIDTH } from './world/WorldPlayer'
 
@@ -91,13 +92,14 @@ export default function EditRoomTestMode({
   debugEnabled,
   resolveObjectSpriteSrc,
 }: EditRoomTestModeProps) {
+  const [runtimeTemplate, setRuntimeTemplate] = useState(template)
   const [player, setPlayer] = useState(() => createPlayer(profile, template.world.spawn))
   const playerRef = useRef(player)
   const pressedKeysRef = useRef(new Set<string>())
   const navigationTargetRef = useRef<Position | null>(null)
   const colliders = useMemo(
-    () => template.objects.flatMap(getObjectColliderBoundsList),
-    [template.objects],
+    () => runtimeTemplate.objects.flatMap(getObjectColliderBoundsList),
+    [runtimeTemplate.objects],
   )
 
   useEffect(() => {
@@ -145,9 +147,9 @@ export default function EditRoomTestMode({
       const bounds = getPlayerBounds(position)
       if (
         bounds.left < 0
-        || bounds.right > template.world.width
+        || bounds.right > runtimeTemplate.world.width
         || bounds.top < 0
-        || bounds.bottom > template.world.height
+        || bounds.bottom > runtimeTemplate.world.height
       ) {
         return false
       }
@@ -194,7 +196,7 @@ export default function EditRoomTestMode({
 
       if (isMoving) {
         const nextX = {
-          x: clamp(currentPlayer.position.x + deltaX, PLAYER_COLLIDER_WIDTH / 2, template.world.width - PLAYER_COLLIDER_WIDTH / 2),
+          x: clamp(currentPlayer.position.x + deltaX, PLAYER_COLLIDER_WIDTH / 2, runtimeTemplate.world.width - PLAYER_COLLIDER_WIDTH / 2),
           y: currentPlayer.position.y,
         }
         if (canOccupy(nextX)) {
@@ -203,7 +205,7 @@ export default function EditRoomTestMode({
 
         const nextY = {
           x: nextPosition.x,
-          y: clamp(currentPlayer.position.y + deltaY, PLAYER_COLLIDER_HEIGHT, template.world.height),
+          y: clamp(currentPlayer.position.y + deltaY, PLAYER_COLLIDER_HEIGHT, runtimeTemplate.world.height),
         }
         if (canOccupy(nextY)) {
           nextPosition = nextY
@@ -240,20 +242,30 @@ export default function EditRoomTestMode({
 
     animationFrame = window.requestAnimationFrame(tick)
     return () => window.cancelAnimationFrame(animationFrame)
-  }, [colliders, template.world.height, template.world.width])
+  }, [colliders, runtimeTemplate.world.height, runtimeTemplate.world.width])
 
   const room = useMemo<RoomState>(() => ({
     roomId: TEST_ROOM_ID,
-    templateId: template.id,
+    templateId: runtimeTemplate.id,
     name: 'Prueba local del editor',
     maxUsers: 1,
-    template,
+    template: runtimeTemplate,
     players: [player],
     enemies: [],
-  }), [player, template])
+  }), [player, runtimeTemplate])
 
   const handleNavigate = useCallback((target: Position) => {
     navigationTargetRef.current = target
+  }, [])
+
+  const handleInteract = useCallback((interactable: WorldInteractableTarget) => {
+    if (interactable.entityType !== 'object') {
+      return
+    }
+
+    setRuntimeTemplate((currentTemplate) => (
+      interactWithRoomObject(currentTemplate, interactable.id)?.template ?? currentTemplate
+    ))
   }, [])
 
   return (
@@ -261,12 +273,13 @@ export default function EditRoomTestMode({
       <ReactWorld
         room={room}
         currentUserId={profile.userId}
-        template={template}
+        template={runtimeTemplate}
         onNavigate={handleNavigate}
+        onInteract={handleInteract}
         debugEnabled={debugEnabled}
         playerIdentityMode="names"
         navigationEnabled
-        interactionEnabled={false}
+        interactionEnabled
         pointerInteractionEnabled={false}
         resolveObjectSpriteSrc={resolveObjectSpriteSrc}
         centerWorldWhenSmaller

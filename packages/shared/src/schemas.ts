@@ -76,6 +76,11 @@ export const updateAccessRoleSchema = z.object({
   role: z.enum(USER_ROLES),
 })
 
+export const interactRoomObjectSchema = z.object({
+  roomId: z.string().min(1),
+  objectId: z.string().min(1),
+})
+
 export const roomEditorLayerSchema = z.object({
   id: z.string().trim().min(1).max(80),
   name: z.string().trim().min(1).max(80),
@@ -91,6 +96,20 @@ export const roomEditorPlacementSchema = z.object({
   flippedX: z.boolean(),
 })
 
+export const roomEditorColliderSchema = z.object({
+  width: z.number().int().min(1).max(4096),
+  height: z.number().int().min(1).max(4096),
+  offsetX: z.number().int().min(-4096).max(4096),
+  offsetY: z.number().int().min(-4096).max(4096),
+})
+
+const roomEditorAreaSchema = z.object({
+  width: z.number().int().min(1).max(8192),
+  height: z.number().int().min(1).max(8192),
+  offsetX: z.number().int().min(-4096).max(4096),
+  offsetY: z.number().int().min(-4096).max(4096),
+})
+
 export const roomEditorAssetSchema = z.object({
   id: z.string().trim().min(1).max(240),
   category: z.string().trim().min(1).max(80),
@@ -98,11 +117,45 @@ export const roomEditorAssetSchema = z.object({
   frameHeight: z.number().int().min(1).max(4096),
   occupiedColumns: z.number().int().min(1).max(32),
   occupiedRows: z.number().int().min(1).max(32),
-  colliderWidth: z.number().int().min(0).max(4096),
-  colliderHeight: z.number().int().min(0).max(4096),
-  colliderOffsetX: z.number().int().min(-4096).max(4096),
-  colliderOffsetY: z.number().int().min(-4096).max(4096),
+  colliders: z.array(roomEditorColliderSchema).max(4).optional(),
+  // Campos heredados: permiten abrir y migrar escenas guardadas con la nomenclatura anterior.
+  colliderWidth: z.number().int().min(0).max(4096).optional(),
+  colliderHeight: z.number().int().min(0).max(4096).optional(),
+  colliderOffsetX: z.number().int().min(-4096).max(4096).optional(),
+  colliderOffsetY: z.number().int().min(-4096).max(4096).optional(),
   zIndexOffsetY: z.number().int().min(-4096).max(4096),
+  warningArea: roomEditorAreaSchema.optional(),
+  interactionArea: roomEditorAreaSchema.optional(),
+  interactionIconContainer: roomEditorAreaSchema.optional(),
+  interactionState: z.union([z.literal(0), z.literal(1)]).optional(),
+}).transform((asset) => {
+  const legacyCollider = asset.colliderWidth
+    && asset.colliderHeight
+    && typeof asset.colliderOffsetX === 'number'
+    && typeof asset.colliderOffsetY === 'number'
+    ? [{
+        width: asset.colliderWidth,
+        height: asset.colliderHeight,
+        offsetX: asset.colliderOffsetX,
+        offsetY: asset.colliderOffsetY,
+      }]
+    : []
+
+  return {
+    id: asset.id,
+    category: asset.category,
+    frameWidth: asset.frameWidth,
+    frameHeight: asset.frameHeight,
+    occupiedColumns: asset.occupiedColumns,
+    occupiedRows: asset.occupiedRows,
+    colliders: asset.colliders ?? legacyCollider,
+    zIndexOffsetY: asset.zIndexOffsetY,
+    // Durante una versión transitoria, interactionArea almacenaba el área exterior F/G.
+    warningArea: asset.warningArea ?? asset.interactionArea,
+    interactionArea: asset.warningArea ? asset.interactionArea : undefined,
+    interactionIconContainer: asset.interactionIconContainer,
+    interactionState: asset.interactionState,
+  }
 })
 
 export const roomEditorSpawnPointSchema = z.object({

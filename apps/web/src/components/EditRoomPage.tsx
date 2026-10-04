@@ -13,6 +13,7 @@ import {
   type ConnectionAcceptedPayload,
   type Position,
   type RoomObjectKind,
+  type RoomObjectInteractionVariantTemplate,
   type RoomObjectTemplate,
   type RoomEditorLayerData,
   type RoomEditorPlacementData,
@@ -55,6 +56,7 @@ type EditorLayer = RoomEditorLayerData
 const REQUIRED_EDITOR_LAYERS: EditorLayer[] = [
   { id: 'floor', name: 'Floor', collidersEnabled: false, required: true },
   { id: 'walls', name: 'Walls', collidersEnabled: true, required: true },
+  { id: 'doors', name: 'Door', collidersEnabled: true, required: true },
   { id: 'object-decoration', name: 'ObjectDecoration', collidersEnabled: true, required: true },
   { id: 'teleports', name: 'Teleports', collidersEnabled: true, required: true },
 ]
@@ -62,12 +64,26 @@ const REQUIRED_EDITOR_LAYERS: EditorLayer[] = [
 const EDITOR_LAYER_PRIORITY: Record<string, number> = {
   floor: 0,
   walls: 1,
-  'object-decoration': 2,
-  teleports: 3,
+  doors: 2,
+  'object-decoration': 3,
+  teleports: 4,
 }
 
 function getEditorLayerPriority(layerId: string) {
   return EDITOR_LAYER_PRIORITY[layerId] ?? EDITOR_LAYER_PRIORITY['object-decoration']
+}
+
+function normalizeEditorLayers(savedLayers: EditorLayer[]) {
+  const savedLayersById = new Map(savedLayers.map((layer) => [layer.id, layer]))
+  const requiredLayerIds = new Set(REQUIRED_EDITOR_LAYERS.map((layer) => layer.id))
+  return [
+    ...REQUIRED_EDITOR_LAYERS.map((requiredLayer) => ({
+      ...requiredLayer,
+      ...savedLayersById.get(requiredLayer.id),
+      required: true,
+    })),
+    ...savedLayers.filter((layer) => !requiredLayerIds.has(layer.id)),
+  ]
 }
 
 type PlacedRoomAsset = RoomEditorPlacementData
@@ -115,52 +131,106 @@ function getObjectKindFromAssetType(assetType: string): RoomObjectKind {
   return 'landmark'
 }
 
-function createPlacedObjectTemplate(
+function createPlacedObjectVariant(
   placement: PlacedRoomAsset,
   asset: RoomEditorAsset,
   collidersEnabled = true,
-): RoomObjectTemplate {
+): RoomObjectInteractionVariantTemplate {
   const usesBottomCenterAnchor = asset.frameWidth > 128 || asset.frameHeight > 128
   const occupiedWidth = asset.occupiedColumns * 128
   const occupiedHeight = asset.occupiedRows * 128
-  const hasCollider = collidersEnabled && asset.colliderWidth > 0 && asset.colliderHeight > 0
-  const collider = hasCollider ? {
-    offsetX: placement.flippedX ? -asset.colliderOffsetX : asset.colliderOffsetX,
-    offsetY: asset.colliderOffsetY,
-    width: asset.colliderWidth,
-    height: asset.colliderHeight,
-  } : undefined
-  const layerKind: Partial<Record<string, RoomObjectKind>> = {
-    floor: 'floor',
-    walls: 'wall',
-    'object-decoration': 'landmark',
-    teleports: 'portal',
-  }
-
+  const colliders = collidersEnabled
+    ? asset.colliders.map((collider) => ({
+        ...collider,
+        offsetX: placement.flippedX ? -collider.offsetX : collider.offsetX,
+      }))
+    : []
+  const collider = colliders[0]
+  const warningArea = placement.layerId === 'doors'
+    ? {
+        ...asset.warningArea,
+        offsetX: placement.flippedX
+          ? -asset.warningArea.offsetX
+          : asset.warningArea.offsetX,
+      }
+    : undefined
+  const interactionArea = placement.layerId === 'doors'
+    ? {
+        ...asset.interactionArea,
+        offsetX: placement.flippedX
+          ? -asset.interactionArea.offsetX
+          : asset.interactionArea.offsetX,
+      }
+    : undefined
+  const interactionIconContainer = placement.layerId === 'doors'
+    ? {
+        ...asset.interactionIconContainer,
+        offsetX: placement.flippedX
+          ? -asset.interactionIconContainer.offsetX
+          : asset.interactionIconContainer.offsetX,
+      }
+    : undefined
   return {
-    id: `editor-object-${placement.layerId}-${placement.cellX}-${placement.cellY}`,
-    kind: layerKind[placement.layerId] ?? getObjectKindFromAssetType(asset.category),
+    state: asset.interactionState ?? 0,
     x: placement.cellX * 128 + (usesBottomCenterAnchor ? occupiedWidth / 2 : asset.frameWidth / 2),
     y: placement.cellY * 128 + (
       usesBottomCenterAnchor ? occupiedHeight - asset.frameHeight / 2 : asset.frameHeight / 2
     ),
     width: asset.frameWidth,
     height: asset.frameHeight,
-    opacity: 1,
     spriteAssetId: asset.id,
-    flippedX: placement.flippedX,
-    layerOrder: getEditorLayerPriority(placement.layerId),
     gridFootprint: {
       columns: asset.occupiedColumns,
       rows: asset.occupiedRows,
     },
     collider,
+    colliders,
+    warningArea,
+    interactionArea,
+    interactionIconContainer,
     zIndexRef: {
       offsetX: collider?.offsetX ?? 0,
       offsetY: asset.zIndexOffsetY,
       width: Math.max(48, collider ? collider.width * 0.45 : asset.frameWidth * 0.35),
       thickness: 2,
     },
+  }
+}
+
+function createPlacedObjectTemplate(
+  placement: PlacedRoomAsset,
+  asset: RoomEditorAsset,
+  availableAssets: RoomEditorAsset[],
+  collidersEnabled = true,
+): RoomObjectTemplate {
+  const variant = createPlacedObjectVariant(placement, asset, collidersEnabled)
+  const layerKind: Partial<Record<string, RoomObjectKind>> = {
+    floor: 'floor',
+    walls: 'wall',
+    doors: 'door',
+    'object-decoration': 'landmark',
+    teleports: 'portal',
+  }
+  const interactionVariants = asset.interactionState === undefined
+    ? undefined
+    : availableAssets
+        .filter((candidate) => (
+          candidate.category === asset.category
+          && candidate.name === asset.name
+          && candidate.interactionState !== undefined
+        ))
+        .map((candidate) => createPlacedObjectVariant(placement, candidate, collidersEnabled))
+  const { state: variantState, ...activeVariant } = variant
+
+  return {
+    id: `editor-object-${placement.layerId}-${placement.cellX}-${placement.cellY}`,
+    kind: layerKind[placement.layerId] ?? getObjectKindFromAssetType(asset.category),
+    opacity: 1,
+    flippedX: placement.flippedX,
+    layerOrder: getEditorLayerPriority(placement.layerId),
+    ...activeVariant,
+    interactionState: asset.interactionState === undefined ? undefined : variantState,
+    interactionVariants,
   }
 }
 
@@ -266,15 +336,16 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
             )
             setMapGridWidth(loadedMap.document.gridWidth)
             setMapGridHeight(loadedMap.document.gridHeight)
-            setLayers(loadedMap.document.layers)
-            setActiveLayerId(loadedMap.document.layers[0]?.id ?? 'floor')
+            const normalizedLayers = normalizeEditorLayers(loadedMap.document.layers)
+            setLayers(normalizedLayers)
+            setActiveLayerId(normalizedLayers[0]?.id ?? 'floor')
             placedAssetsRef.current = loadedMap.document.placements
             setPlacedAssets(loadedMap.document.placements)
             setSpawnPoints(loadedMap.document.spawnPoints)
             assetEditHistoryRef.current = []
             setSelectedMapArea(null)
             setTestSpawn(null)
-            const highestCustomLayerId = loadedMap.document.layers.reduce((highest, layer) => {
+            const highestCustomLayerId = normalizedLayers.reduce((highest, layer) => {
               const match = /^layer-(\d+)$/.exec(layer.id)
               return match ? Math.max(highest, Number(match[1])) : highest
             }, 0)
@@ -500,12 +571,17 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
     getEditorLayerPriority(left.layerId) - getEditorLayerPriority(right.layerId)
   ))
   const assetById = new Map(availableAssets.map((asset) => [asset.id, asset]))
+  availableAssets.forEach((asset) => {
+    if (asset.interactionState === 0) {
+      assetById.set(asset.id.replace(/-S0$/i, ''), asset)
+    }
+  })
   const layerById = new Map(layers.map((layer) => [layer.id, layer]))
   const testObjects = placedAssets.flatMap((placement) => {
     const asset = assetById.get(placement.assetId)
     const layer = layerById.get(placement.layerId)
     return asset
-      ? [createPlacedObjectTemplate(placement, asset, layer?.collidersEnabled ?? true)]
+      ? [createPlacedObjectTemplate(placement, asset, availableAssets, layer?.collidersEnabled ?? true)]
       : []
   })
   const testTemplate: RoomTemplate = {
@@ -791,7 +867,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
   }
 
   const renderPlacedAsset = (placement: PlacedRoomAsset) => {
-    const asset = availableAssets.find((candidate) => candidate.id === placement.assetId)
+    const asset = assetById.get(placement.assetId)
     if (!asset) {
       return null
     }
@@ -800,6 +876,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
     const objectTemplate = createPlacedObjectTemplate(
       placement,
       asset,
+      availableAssets,
       layer?.collidersEnabled ?? true,
     )
 
@@ -809,6 +886,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
         objectTemplate={objectTemplate}
         spriteSrc={asset.url}
         debugEnabled={isDebugEnabled}
+        interactionAreaVisible
         flippedX={placement.flippedX}
         zIndex={getEditorLayerPriority(placement.layerId)}
       />
@@ -854,7 +932,10 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
           gridWidth: mapGridWidth,
           gridHeight: mapGridHeight,
           layers,
-          placements: placedAssetsRef.current,
+          placements: placedAssetsRef.current.map((placement) => ({
+            ...placement,
+            assetId: assetById.get(placement.assetId)?.id ?? placement.assetId,
+          })),
           spawnPoints,
           assets: availableAssets.map((asset) => ({
             id: asset.id,
@@ -863,11 +944,12 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
             frameHeight: asset.frameHeight,
             occupiedColumns: asset.occupiedColumns,
             occupiedRows: asset.occupiedRows,
-            colliderWidth: asset.colliderWidth,
-            colliderHeight: asset.colliderHeight,
-            colliderOffsetX: asset.colliderOffsetX,
-            colliderOffsetY: asset.colliderOffsetY,
+            colliders: asset.colliders,
             zIndexOffsetY: asset.zIndexOffsetY,
+            warningArea: asset.warningArea,
+            interactionArea: asset.interactionArea,
+            interactionIconContainer: asset.interactionIconContainer,
+            interactionState: asset.interactionState,
           })),
         },
         publication: !requiresPublication
@@ -1060,6 +1142,9 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                         <span className="edit-room-asset-name">{assetLabel}</span>
                         <span className="edit-room-asset-size">
                           {asset.occupiedColumns}×{asset.occupiedRows} celdas · {asset.frameWidth}×{asset.frameHeight} px
+                          {asset.interactionState === undefined
+                            ? ''
+                            : ` · S${asset.interactionState} ${asset.interactionState === 0 ? 'cerrado' : 'abierto'}`}
                         </span>
                       </button>
                     )

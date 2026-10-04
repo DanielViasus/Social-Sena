@@ -76,7 +76,13 @@ export interface CombatEncounterInteractable {
   label: string
 }
 
-export type WorldInteractableTarget = RoomInteractableTemplate | CombatEncounterInteractable
+export interface RoomObjectInteractable {
+  entityType: 'object'
+  id: string
+  label: string
+}
+
+export type WorldInteractableTarget = RoomInteractableTemplate | CombatEncounterInteractable | RoomObjectInteractable
 
 interface AnimatedPlayerPosition {
   x: number
@@ -549,6 +555,18 @@ function overlapsRect(
   return !(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom)
 }
 
+function getObjectInteractionAreaBounds(
+  objectTemplate: RoomObjectTemplate,
+  area: NonNullable<RoomObjectTemplate['warningArea']>,
+) {
+  return {
+    left: objectTemplate.x + area.offsetX - area.width / 2,
+    right: objectTemplate.x + area.offsetX + area.width / 2,
+    top: objectTemplate.y + area.offsetY - area.height / 2,
+    bottom: objectTemplate.y + area.offsetY + area.height / 2,
+  }
+}
+
 function expandBoundsForPlayer(bounds: { left: number; right: number; top: number; bottom: number }) {
   return {
     left: bounds.left - PLAYER_COLLIDER_WIDTH / 2,
@@ -927,6 +945,7 @@ function ReactWorld({
 }: ReactWorldProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const roomRef = useRef(room)
+  const templateRef = useRef(template)
   const touchNpcIdsRef = useRef<Set<string>>(new Set())
   const touchEnemyIdsRef = useRef<Set<string>>(new Set())
   const runtimeRef = useRef<WorldRuntimeState>({
@@ -945,6 +964,10 @@ function ReactWorld({
   useEffect(() => {
     roomRef.current = room
   }, [room])
+
+  useEffect(() => {
+    templateRef.current = template
+  }, [template])
 
   useEffect(() => {
     if (!viewportRef.current) {
@@ -968,7 +991,10 @@ function ReactWorld({
   }, [])
 
   useEffect(() => {
-    if (!room) {
+    const activeRoom = roomRef.current
+    const activeTemplate = templateRef.current
+
+    if (!activeRoom) {
       const emptyRuntime: WorldRuntimeState = {
         now: performance.now(),
         roomStartedAt: performance.now(),
@@ -986,22 +1012,22 @@ function ReactWorld({
     }
 
     const playersBySession = Object.fromEntries(
-      room.players.map((player) => [player.sessionId, { x: player.position.x, y: player.position.y }] as const),
+      activeRoom.players.map((player) => [player.sessionId, { x: player.position.x, y: player.position.y }] as const),
     )
     const facingBySession = Object.fromEntries(
-      room.players.map((player) => [player.sessionId, resolveFacingPose(player, 'front-right')] as const),
+      activeRoom.players.map((player) => [player.sessionId, resolveFacingPose(player, 'front-right')] as const),
     )
     const enemiesById = Object.fromEntries(
-      room.enemies.map((enemyState) => [enemyState.enemyId, { x: enemyState.x, y: enemyState.y }] as const),
+      activeRoom.enemies.map((enemyState) => [enemyState.enemyId, { x: enemyState.x, y: enemyState.y }] as const),
     )
     const enemyFacingById = Object.fromEntries(
-      room.enemies.map((enemyState) => [enemyState.enemyId, 'front-right' satisfies FacingPose] as const),
+      activeRoom.enemies.map((enemyState) => [enemyState.enemyId, 'front-right' satisfies FacingPose] as const),
     )
-    const currentPlayer = room.players.find((player) => player.userId === currentUserId) ?? null
+    const currentPlayer = activeRoom.players.find((player) => player.userId === currentUserId) ?? null
     const nextCamera = currentPlayer
       ? resolveCameraPosition(
           currentPlayer.position,
-          template,
+          activeTemplate,
           viewportSize,
           centerWorldWhenSmaller,
           cameraVerticalMargin,
@@ -1021,7 +1047,15 @@ function ReactWorld({
 
     runtimeRef.current = nextRuntime
     setRuntime(nextRuntime)
-  }, [cameraVerticalMargin, centerWorldWhenSmaller, room?.roomId, currentUserId, template, viewportSize])
+  }, [
+    cameraVerticalMargin,
+    centerWorldWhenSmaller,
+    currentUserId,
+    room?.roomId,
+    template.id,
+    viewportSize.height,
+    viewportSize.width,
+  ])
 
   useEffect(() => {
     let frameId = 0
@@ -1167,6 +1201,34 @@ function ReactWorld({
   const currentPlayerBounds = useMemo(
     () => (currentPlayerView ? getPlayerColliderBounds(currentPlayerView.animatedPosition) : null),
     [currentPlayerView],
+  )
+
+  const objectInteractionViews = useMemo(() => {
+    return template.objects.flatMap((objectTemplate) => {
+      if (
+        objectTemplate.interactionState === undefined
+        || !objectTemplate.warningArea
+        || !objectTemplate.interactionArea
+      ) {
+        return []
+      }
+
+      const warningBounds = getObjectInteractionAreaBounds(objectTemplate, objectTemplate.warningArea)
+      const interactionBounds = getObjectInteractionAreaBounds(objectTemplate, objectTemplate.interactionArea)
+      const state: NpcInteractionState =
+        currentPlayerBounds && overlapsRect(currentPlayerBounds, interactionBounds)
+          ? 'interaction'
+          : currentPlayerBounds && overlapsRect(currentPlayerBounds, warningBounds)
+            ? 'warning'
+            : 'out'
+
+      return [{ objectTemplate, state }]
+    })
+  }, [currentPlayerBounds, template.objects])
+
+  const objectInteractionStateById = useMemo(
+    () => new Map(objectInteractionViews.map((view) => [view.objectTemplate.id, view.state] as const)),
+    [objectInteractionViews],
   )
 
   const combatViews = useMemo(() => {
@@ -1345,6 +1407,19 @@ function ReactWorld({
     }
 
     const interactableCandidates = [
+      ...objectInteractionViews
+        .filter((objectView) => objectView.state === 'interaction')
+        .map((objectView) => ({
+          template: {
+            entityType: 'object',
+            id: objectView.objectTemplate.id,
+            label: objectView.objectTemplate.label ?? 'Puerta',
+          } satisfies RoomObjectInteractable,
+          anchor: {
+            x: objectView.objectTemplate.x + (objectView.objectTemplate.interactionArea?.offsetX ?? 0),
+            y: objectView.objectTemplate.y + (objectView.objectTemplate.interactionArea?.offsetY ?? 0),
+          },
+        })),
       ...npcViews
         .filter((npcView) => npcView.state === 'interaction' && npcView.npcTemplate.interactionMode !== 'touch')
         .map((npcView) => ({
@@ -1386,7 +1461,7 @@ function ReactWorld({
         return leftDistance - rightDistance
       })[0] ?? null
     )
-  }, [combatViews, currentPlayerView, npcViews, teleportViews])
+  }, [combatViews, currentPlayerView, npcViews, objectInteractionViews, teleportViews])
 
   useEffect(() => {
     onActiveInteractableChange?.(activeInteractable?.template ?? null)
@@ -1577,9 +1652,17 @@ function ReactWorld({
 
         {renderItems.map((item, index) => {
           if (item.kind === 'object') {
+            const interactionState = objectInteractionStateById.get(item.objectTemplate.id) ?? 'out'
+
             return (
               <div key={item.key} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 20 + index }}>
-                <ObjectDecoration objectTemplate={item.objectTemplate} spriteSrc={item.spriteSrc} debugEnabled={debugEnabled} />
+                <ObjectDecoration
+                  objectTemplate={item.objectTemplate}
+                  spriteSrc={item.spriteSrc}
+                  debugEnabled={debugEnabled}
+                  interactionState={interactionState}
+                  animationTime={runtime.now}
+                />
               </div>
             )
           }
