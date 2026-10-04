@@ -2032,64 +2032,165 @@ function reconstructCellPath(cameFrom: Map<string, string>, endCell: GridCell) {
   return cells.reverse()
 }
 
+interface PathQueueEntry {
+  key: string
+  cell: GridCell
+  score: number
+}
+
+interface CellPathResult {
+  resolvedTarget: Position
+  waypoints: Position[]
+}
+
+function pushPathQueue(queue: PathQueueEntry[], entry: PathQueueEntry) {
+  queue.push(entry)
+  let index = queue.length - 1
+
+  while (index > 0) {
+    const parentIndex = Math.floor((index - 1) / 2)
+    if (queue[parentIndex].score <= queue[index].score) {
+      break
+    }
+
+    ;[queue[parentIndex], queue[index]] = [queue[index], queue[parentIndex]]
+    index = parentIndex
+  }
+}
+
+function popPathQueue(queue: PathQueueEntry[]) {
+  const first = queue[0]
+  const last = queue.pop()
+  if (!first || !last || queue.length === 0) {
+    return first ?? null
+  }
+
+  queue[0] = last
+  let index = 0
+
+  while (true) {
+    const leftIndex = index * 2 + 1
+    const rightIndex = leftIndex + 1
+    let smallestIndex = index
+
+    if (leftIndex < queue.length && queue[leftIndex].score < queue[smallestIndex].score) {
+      smallestIndex = leftIndex
+    }
+    if (rightIndex < queue.length && queue[rightIndex].score < queue[smallestIndex].score) {
+      smallestIndex = rightIndex
+    }
+    if (smallestIndex === index) {
+      break
+    }
+
+    ;[queue[index], queue[smallestIndex]] = [queue[smallestIndex], queue[index]]
+    index = smallestIndex
+  }
+
+  return first
+}
+
+function buildCellWaypoints(
+  room: RoomState,
+  start: Position,
+  cameFrom: Map<string, string>,
+  endCell: GridCell,
+  finalTarget: Position,
+) {
+  const cellPath = reconstructCellPath(cameFrom, endCell)
+  const roughPoints: Position[] = [start]
+
+  for (const cell of cellPath) {
+    const point = getCellCenter(room, cell)
+    const previousPoint = roughPoints[roughPoints.length - 1]
+    if (!isSamePosition(previousPoint, point)) {
+      roughPoints.push(point)
+    }
+  }
+
+  const lastPoint = roughPoints[roughPoints.length - 1]
+  if (!isSamePosition(lastPoint, finalTarget) && !isRouteSegmentBlocked(room, lastPoint, finalTarget)) {
+    roughPoints.push(finalTarget)
+  }
+
+  return roughPoints
+    .slice(1)
+    .filter((point, index, array) => index === 0 || !isSamePosition(point, array[index - 1]))
+}
+
 function findPathBetweenCells(
   room: RoomState,
   blocked: Set<string>,
   start: Position,
-  startCell: GridCell,
+  startCells: Array<{ cell: GridCell; approachCost: number }>,
   targetCell: GridCell,
   destination: Position,
-) {
-  const startKey = createCellKey(startCell)
+): CellPathResult | null {
   const targetKey = createCellKey(targetCell)
-  const openSet = new Set([startKey])
+  const queue: PathQueueEntry[] = []
   const cameFrom = new Map<string, string>()
-  const gScore = new Map<string, number>([[startKey, 0]])
-  const fScore = new Map<string, number>([[startKey, estimateCellDistance(startCell, targetCell)]])
+  const gScore = new Map<string, number>()
+  const fScore = new Map<string, number>()
+  const closed = new Set<string>()
+  let closestCell: GridCell | null = null
+  let closestDistance = Number.POSITIVE_INFINITY
+  let closestPathCost = Number.POSITIVE_INFINITY
+  const initialDistanceToTarget = Math.hypot(start.x - destination.x, start.y - destination.y)
 
-  while (openSet.size > 0) {
-    let currentKey: string | null = null
-    let currentScore = Number.POSITIVE_INFINITY
-
-    for (const candidateKey of openSet) {
-      const score = fScore.get(candidateKey) ?? Number.POSITIVE_INFINITY
-      if (score < currentScore) {
-        currentKey = candidateKey
-        currentScore = score
-      }
+  startCells.forEach(({ cell, approachCost }) => {
+    const key = createCellKey(cell)
+    const normalizedApproachCost = approachCost / PATH_GRID_SIZE
+    const score = normalizedApproachCost + estimateCellDistance(cell, targetCell)
+    if (normalizedApproachCost >= (gScore.get(key) ?? Number.POSITIVE_INFINITY)) {
+      return
     }
 
-    if (!currentKey) {
-      break
+    gScore.set(key, normalizedApproachCost)
+    fScore.set(key, score)
+    pushPathQueue(queue, { key, cell, score })
+  })
+
+  while (queue.length > 0) {
+    const currentEntry = popPathQueue(queue)
+    if (!currentEntry || closed.has(currentEntry.key)) {
+      continue
+    }
+    if (currentEntry.score > (fScore.get(currentEntry.key) ?? Number.POSITIVE_INFINITY) + 0.000001) {
+      continue
+    }
+
+    const currentKey = currentEntry.key
+    const currentCell = currentEntry.cell
+    closed.add(currentKey)
+
+    const currentCenter = getCellCenter(room, currentCell)
+    const distanceToTarget = Math.hypot(
+      currentCenter.x - destination.x,
+      currentCenter.y - destination.y,
+    )
+    const currentG = gScore.get(currentKey) ?? Number.POSITIVE_INFINITY
+    if (
+      distanceToTarget < closestDistance - 0.000001
+      || (Math.abs(distanceToTarget - closestDistance) <= 0.000001 && currentG < closestPathCost)
+    ) {
+      closestCell = currentCell
+      closestDistance = distanceToTarget
+      closestPathCost = currentG
     }
 
     if (currentKey === targetKey) {
-      const cellPath = reconstructCellPath(cameFrom, targetCell)
-      const cellCenters = cellPath.map((cell) => getCellCenter(room, cell))
-      const roughPoints: Position[] = [start]
-
-      for (const point of cellCenters) {
-        const previousPoint = roughPoints[roughPoints.length - 1]
-        if (!isSamePosition(previousPoint, point)) {
-          roughPoints.push(point)
-        }
+      const waypoints = buildCellWaypoints(room, start, cameFrom, targetCell, destination)
+      return {
+        resolvedTarget: destination,
+        waypoints: waypoints.length > 0 ? waypoints : [destination],
       }
-
-      const lastPoint = roughPoints[roughPoints.length - 1]
-      const finalPoints = isSamePosition(lastPoint, destination) || isRouteSegmentBlocked(room, lastPoint, destination)
-        ? roughPoints
-        : [...roughPoints, destination]
-      const waypoints = finalPoints.slice(1).filter((point, index, array) => index === 0 || !isSamePosition(point, array[index - 1]))
-      return waypoints.length > 0 ? waypoints : [destination]
     }
-
-    openSet.delete(currentKey)
-    const [currentColumn, currentRow] = currentKey.split(':').map(Number)
-    const currentCell = { column: currentColumn, row: currentRow }
-    const currentG = gScore.get(currentKey) ?? Number.POSITIVE_INFINITY
 
     for (const neighbor of getNeighborCells(room, currentCell, blocked)) {
       const neighborKey = createCellKey(neighbor.cell)
+      if (closed.has(neighborKey)) {
+        continue
+      }
       const tentativeG = currentG + neighbor.cost
 
       if (tentativeG >= (gScore.get(neighborKey) ?? Number.POSITIVE_INFINITY)) {
@@ -2098,12 +2199,26 @@ function findPathBetweenCells(
 
       cameFrom.set(neighborKey, currentKey)
       gScore.set(neighborKey, tentativeG)
-      fScore.set(neighborKey, tentativeG + estimateCellDistance(neighbor.cell, targetCell))
-      openSet.add(neighborKey)
+      const nextScore = tentativeG + estimateCellDistance(neighbor.cell, targetCell)
+      fScore.set(neighborKey, nextScore)
+      pushPathQueue(queue, { key: neighborKey, cell: neighbor.cell, score: nextScore })
     }
   }
 
-  return null
+  if (!closestCell || closestDistance >= initialDistanceToTarget - 0.000001) {
+    return null
+  }
+
+  const fallbackTarget = getCellCenter(room, closestCell)
+  const waypoints = buildCellWaypoints(room, start, cameFrom, closestCell, fallbackTarget)
+  if (waypoints.length === 0) {
+    return null
+  }
+
+  return {
+    resolvedTarget: fallbackTarget,
+    waypoints,
+  }
 }
 
 function findPath(room: RoomState, start: Position, destination: Position): PathResult | null {
@@ -2119,11 +2234,11 @@ function findPath(room: RoomState, start: Position, destination: Position): Path
   }
 
   const blocked = buildBlockedCellSet(room)
+  // Si el clic cae dentro de un collider muy grande puede no existir un centro
+  // caminable en el radio local. Aun así usamos esa celda como referencia: A*
+  // recorrerá solo el componente accesible y resolverá el borde más cercano.
   const targetCell = findNearestWalkableCell(room, destination, blocked, PATH_TARGET_SEARCH_MAX_RADIUS)
-
-  if (!targetCell) {
-    return null
-  }
+    ?? getCellFromPosition(destination)
 
   const cellTargetCenter = getCellCenter(room, targetCell)
   const resolvedTarget = destinationIsNavigable && !isRouteSegmentBlocked(room, cellTargetCenter, destination)
@@ -2142,23 +2257,13 @@ function findPath(room: RoomState, start: Position, destination: Position): Path
     return null
   }
 
-  const rankedStartCells = candidateStartCells.sort((left, right) => {
-    const leftScore = left.approachCost + estimateCellDistance(left.cell, targetCell)
-    const rightScore = right.approachCost + estimateCellDistance(right.cell, targetCell)
-    return leftScore - rightScore
-  })
-
-  for (const candidate of rankedStartCells) {
-    const path = findPathBetweenCells(room, blocked, start, candidate.cell, targetCell, resolvedTarget)
-    if (path && path.length > 0) {
-      return {
-        resolvedTarget,
-        waypoints: path,
+  const path = findPathBetweenCells(room, blocked, start, candidateStartCells, targetCell, resolvedTarget)
+  return path
+    ? {
+        resolvedTarget: path.resolvedTarget,
+        waypoints: path.waypoints,
       }
-    }
-  }
-
-  return null
+    : null
 }
 
 
