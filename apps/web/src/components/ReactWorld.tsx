@@ -180,6 +180,8 @@ type RenderLayerItem =
       }
     }
 
+type ObjectRenderLayerItem = Extract<RenderLayerItem, { kind: 'object' }>
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
 }
@@ -205,6 +207,8 @@ const COMBAT_INTERACTION_AREA = {
   width: 258,
   height: 222,
 }
+
+const WORLD_OBJECT_CULL_MARGIN = 256
 
 function getCombatEncounterAreaBounds(
   displayX: number,
@@ -639,7 +643,7 @@ function segmentIntersectsExpandedBounds(
 }
 
 function getPerspectiveAwareRenderItems(
-  template: RoomTemplate,
+  objectItems: ObjectRenderLayerItem[],
   teleportViews: Array<{
     teleportTemplate: RoomTeleportTemplate
     state: NpcInteractionState
@@ -689,19 +693,7 @@ function getPerspectiveAwareRenderItems(
       height: number
     }
   }>,
-  resolveObjectSpriteSrc?: (objectTemplate: RoomObjectTemplate) => string | undefined,
 ) {
-  const objectItems: RenderLayerItem[] = template.objects.map((objectTemplate) => ({
-    kind: 'object',
-    key: objectTemplate.id,
-    perspectiveY: objectTemplate.kind === 'floor'
-      ? Number.NEGATIVE_INFINITY
-      : getObjectPerspectiveY(objectTemplate),
-    objectTemplate,
-    spriteSrc: resolveObjectSpriteSrc?.(objectTemplate)
-      ?? (objectTemplate.spriteAssetId ? getWorldSpriteAsset(objectTemplate.spriteAssetId) : undefined),
-  }))
-
   const teleportItems: RenderLayerItem[] = teleportViews.map(({ teleportTemplate, state, spriteSrc, hoverSpriteSrc, iconFrame }) => ({
     kind: 'teleport',
     key: teleportTemplate.id,
@@ -1561,18 +1553,52 @@ function ReactWorld({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [activeInteractable, interactionEnabled, onInteract])
 
+  const objectRenderItems = useMemo<ObjectRenderLayerItem[]>(() => (
+    template.objects.map((objectTemplate) => ({
+      kind: 'object',
+      key: objectTemplate.id,
+      perspectiveY: objectTemplate.kind === 'floor'
+        ? Number.NEGATIVE_INFINITY
+        : getObjectPerspectiveY(objectTemplate),
+      objectTemplate,
+      spriteSrc: resolveObjectSpriteSrc?.(objectTemplate)
+        ?? (objectTemplate.spriteAssetId ? getWorldSpriteAsset(objectTemplate.spriteAssetId) : undefined),
+    }))
+  ), [resolveObjectSpriteSrc, template.objects])
+
+  const visibleObjectRenderItems = useMemo(() => {
+    const viewportLeft = runtime.cameraX - WORLD_OBJECT_CULL_MARGIN
+    const viewportRight = runtime.cameraX + viewportSize.width + WORLD_OBJECT_CULL_MARGIN
+    const viewportTop = runtime.cameraY - WORLD_OBJECT_CULL_MARGIN
+    const viewportBottom = runtime.cameraY + viewportSize.height + WORLD_OBJECT_CULL_MARGIN
+
+    return objectRenderItems.filter(({ objectTemplate }) => {
+      const halfWidth = objectTemplate.width / 2
+      const halfHeight = objectTemplate.height / 2
+      return objectTemplate.x + halfWidth >= viewportLeft
+        && objectTemplate.x - halfWidth <= viewportRight
+        && objectTemplate.y + halfHeight >= viewportTop
+        && objectTemplate.y - halfHeight <= viewportBottom
+    })
+  }, [
+    objectRenderItems,
+    runtime.cameraX,
+    runtime.cameraY,
+    viewportSize.height,
+    viewportSize.width,
+  ])
+
   const renderItems = useMemo(
     () =>
       getPerspectiveAwareRenderItems(
-        template,
+        visibleObjectRenderItems,
         teleportViews,
         visiblePlayerViews,
         npcViews,
         enemyViews,
         combatViews,
-        resolveObjectSpriteSrc,
       ),
-    [combatViews, enemyViews, npcViews, resolveObjectSpriteSrc, template, teleportViews, visiblePlayerViews],
+    [combatViews, enemyViews, npcViews, teleportViews, visibleObjectRenderItems, visiblePlayerViews],
   )
   const backgroundAsset = getRoomBackgroundAsset(template.id)
 
@@ -1661,7 +1687,7 @@ function ReactWorld({
                   spriteSrc={item.spriteSrc}
                   debugEnabled={debugEnabled}
                   interactionState={interactionState}
-                  animationTime={runtime.now}
+                  animationTime={interactionState === 'out' ? 0 : runtime.now}
                 />
               </div>
             )

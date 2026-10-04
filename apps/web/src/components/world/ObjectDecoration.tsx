@@ -1,4 +1,5 @@
 import type { RoomColliderTemplate, RoomObjectTemplate, RoomZIndexReferenceTemplate } from '@social-sena/shared'
+import { memo } from 'react'
 
 type ObjectInteractionState = 'out' | 'warning' | 'interaction'
 
@@ -107,7 +108,7 @@ export function getObjectPerspectiveY(objectTemplate: RoomObjectTemplate) {
   return objectTemplate.y + zIndexRef.offsetY
 }
 
-export function ObjectDecoration({
+export const ObjectDecoration = memo(function ObjectDecoration({
   objectTemplate,
   spriteSrc,
   debugEnabled,
@@ -306,4 +307,4 @@ export function ObjectDecoration({
       ) : null}
     </div>
   )
-}
+})
