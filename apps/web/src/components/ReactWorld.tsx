@@ -13,7 +13,11 @@ import type {
   RoomTemplate
 } from '@social-sena/shared'
 import { resolveAvatarPreset, resolveAvatarSheetUrl } from '../game/avatar/avatarSprites'
-import { ObjectDecoration, getObjectPerspectiveY } from './world/ObjectDecoration'
+import {
+  ObjectDecoration,
+  getObjectNavigationBoundsList,
+  getObjectPerspectiveY,
+} from './world/ObjectDecoration'
 import {
   WorldPlayer,
   getPlayerPerspectiveY,
@@ -224,6 +228,99 @@ const COMBAT_INTERACTION_AREA = {
 
 const WORLD_OBJECT_CULL_MARGIN = 256
 const WORLD_REACT_COMMIT_INTERVAL_MS = 1000 / 30
+const LOCAL_PLAYER_MAX_PREDICTION_LEAD = 48
+
+interface NavigationBounds {
+  left: number
+  right: number
+  top: number
+  bottom: number
+}
+
+const templateNavigationBoundsCache = new WeakMap<RoomTemplate, NavigationBounds[]>()
+
+function getTemplateNavigationBounds(template: RoomTemplate) {
+  const cachedBounds = templateNavigationBoundsCache.get(template)
+  if (cachedBounds) {
+    return cachedBounds
+  }
+
+  const objectBounds = template.objects.flatMap(getObjectNavigationBoundsList)
+  const npcBounds = (template.npcs ?? []).flatMap((npcTemplate) => {
+    const collider = npcTemplate.collider
+    if (!collider || collider.width <= 0 || collider.height <= 0) {
+      return []
+    }
+
+    return [{
+      left: npcTemplate.x + collider.offsetX - collider.width / 2,
+      right: npcTemplate.x + collider.offsetX + collider.width / 2,
+      top: npcTemplate.y + collider.offsetY - collider.height / 2,
+      bottom: npcTemplate.y + collider.offsetY + collider.height / 2,
+    }]
+  })
+  const bounds = [...objectBounds, ...npcBounds]
+  templateNavigationBoundsCache.set(template, bounds)
+  return bounds
+}
+
+function canPlayerOccupyPosition(template: RoomTemplate, position: Position) {
+  const playerBounds = getPlayerColliderBounds(position)
+  if (
+    playerBounds.left < 0
+    || playerBounds.right > template.world.width
+    || playerBounds.top < 0
+    || playerBounds.bottom > template.world.height
+  ) {
+    return false
+  }
+
+  return !getTemplateNavigationBounds(template).some((bounds) => overlapsRect(playerBounds, bounds))
+}
+
+function segmentIntersectsPlayerBounds(from: Position, to: Position, bounds: NavigationBounds) {
+  const expandedBounds = {
+    left: bounds.left - PLAYER_COLLIDER_WIDTH / 2,
+    right: bounds.right + PLAYER_COLLIDER_WIDTH / 2,
+    top: bounds.top,
+    bottom: bounds.bottom + PLAYER_COLLIDER_HEIGHT,
+  }
+  const deltaX = to.x - from.x
+  const deltaY = to.y - from.y
+  let entry = 0
+  let exit = 1
+
+  const updateInterval = (p: number, q: number) => {
+    if (Math.abs(p) < 0.000001) {
+      return q >= 0
+    }
+
+    const ratio = q / p
+    if (p < 0) {
+      if (ratio > exit) return false
+      entry = Math.max(entry, ratio)
+    } else {
+      if (ratio < entry) return false
+      exit = Math.min(exit, ratio)
+    }
+    return true
+  }
+
+  return updateInterval(-deltaX, from.x - expandedBounds.left)
+    && updateInterval(deltaX, expandedBounds.right - from.x)
+    && updateInterval(-deltaY, from.y - expandedBounds.top)
+    && updateInterval(deltaY, expandedBounds.bottom - from.y)
+    && entry <= exit
+    && exit > 0.0001
+    && entry < 0.9999
+}
+
+function canPlayerTraverseSegment(template: RoomTemplate, from: Position, to: Position) {
+  return canPlayerOccupyPosition(template, to)
+    && !getTemplateNavigationBounds(template).some((bounds) =>
+      segmentIntersectsPlayerBounds(from, to, bounds),
+    )
+}
 
 function getCombatEncounterAreaBounds(
   displayX: number,
@@ -884,6 +981,7 @@ function ReactWorld({
   const playerMotionElementsRef = useRef<Map<string, HTMLDivElement>>(new Map())
   const npcMotionElementsRef = useRef<Map<string, HTMLDivElement>>(new Map())
   const enemyMotionElementsRef = useRef<Map<string, HTMLDivElement>>(new Map())
+  const blockedPredictionDestinationRef = useRef<Map<string, string>>(new Map())
   const roomRef = useRef(room)
   const templateRef = useRef(template)
   const touchNpcIdsRef = useRef<Set<string>>(new Set())
@@ -1016,6 +1114,7 @@ function ReactWorld({
         if (!activeSessionIds.has(sessionId)) {
           delete nextPlayersBySession[sessionId]
           delete nextFacingBySession[sessionId]
+          blockedPredictionDestinationRef.current.delete(sessionId)
         }
       })
 
@@ -1038,12 +1137,48 @@ function ReactWorld({
           ? 0
           : player.destination.y - previousPosition.y
         const predictedDistance = Math.hypot(predictedDeltaX, predictedDeltaY)
+        const destinationKey = player.destination
+          ? `${player.destination.x}:${player.destination.y}`
+          : null
+        const blockedDestination = blockedPredictionDestinationRef.current.get(player.sessionId)
 
-        if (isSelf && player.moving && player.destination && predictedDistance > 0.001) {
-          const predictedStep = Math.min((PLAYER_SPEED * delta) / 1000, predictedDistance)
-          nextPlayersBySession[player.sessionId] = {
+        if (!destinationKey || blockedDestination !== destinationKey) {
+          blockedPredictionDestinationRef.current.delete(player.sessionId)
+        }
+
+        if (
+          isSelf
+          && player.moving
+          && player.destination
+          && predictedDistance > 0.001
+          && blockedDestination !== destinationKey
+        ) {
+          const safeDelta = Math.min(delta, 50)
+          const predictedStep = Math.min((PLAYER_SPEED * safeDelta) / 1000, predictedDistance)
+          const proposedPosition = {
             x: previousPosition.x + (predictedDeltaX / predictedDistance) * predictedStep,
             y: previousPosition.y + (predictedDeltaY / predictedDistance) * predictedStep,
+          }
+          const predictionLead = Math.hypot(
+            proposedPosition.x - player.position.x,
+            proposedPosition.y - player.position.y,
+          )
+          const proposedPositionIsNavigable = canPlayerTraverseSegment(
+            activeTemplate,
+            previousPosition,
+            proposedPosition,
+          )
+
+          if (
+            predictionLead <= LOCAL_PLAYER_MAX_PREDICTION_LEAD
+            && proposedPositionIsNavigable
+          ) {
+            nextPlayersBySession[player.sessionId] = proposedPosition
+          } else {
+            if (!proposedPositionIsNavigable && destinationKey) {
+              blockedPredictionDestinationRef.current.set(player.sessionId, destinationKey)
+            }
+            nextPlayersBySession[player.sessionId] = previousPosition
           }
         } else {
           nextPlayersBySession[player.sessionId] = {
