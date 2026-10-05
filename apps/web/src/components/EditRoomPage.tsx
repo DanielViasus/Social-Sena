@@ -54,11 +54,11 @@ function createGlobalRouteSlug(sceneName: string) {
 type EditorLayer = RoomEditorLayerData
 
 const REQUIRED_EDITOR_LAYERS: EditorLayer[] = [
-  { id: 'floor', name: 'Floor', collidersEnabled: false, required: true },
-  { id: 'walls', name: 'Walls', collidersEnabled: true, required: true },
-  { id: 'doors', name: 'Door', collidersEnabled: true, required: true },
-  { id: 'object-decoration', name: 'ObjectDecoration', collidersEnabled: true, required: true },
-  { id: 'teleports', name: 'Teleports', collidersEnabled: true, required: true },
+  { id: 'floor', name: 'Floor', enabled: true, collidersEnabled: false, required: true },
+  { id: 'walls', name: 'Walls', enabled: true, collidersEnabled: true, required: true },
+  { id: 'doors', name: 'Door', enabled: true, collidersEnabled: true, required: true },
+  { id: 'object-decoration', name: 'ObjectDecoration', enabled: true, collidersEnabled: true, required: true },
+  { id: 'teleports', name: 'Teleports', enabled: true, collidersEnabled: true, required: true },
 ]
 
 const EDITOR_LAYER_PRIORITY: Record<string, number> = {
@@ -82,7 +82,9 @@ function normalizeEditorLayers(savedLayers: EditorLayer[]) {
       ...savedLayersById.get(requiredLayer.id),
       required: true,
     })),
-    ...savedLayers.filter((layer) => !requiredLayerIds.has(layer.id)),
+    ...savedLayers
+      .filter((layer) => !requiredLayerIds.has(layer.id))
+      .map((layer) => ({ ...layer, enabled: layer.enabled !== false })),
   ]
 }
 
@@ -248,6 +250,8 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
   const [validationFailed, setValidationFailed] = useState(false)
   const [mapGridWidth, setMapGridWidth] = useState(10)
   const [mapGridHeight, setMapGridHeight] = useState(10)
+  const [mapGridWidthInput, setMapGridWidthInput] = useState('10')
+  const [mapGridHeightInput, setMapGridHeightInput] = useState('10')
   const [mapName, setMapName] = useState('Nueva Escena')
   const [publicationSceneName, setPublicationSceneName] = useState('')
   const [savedMapCode, setSavedMapCode] = useState<string | null>(null)
@@ -336,6 +340,8 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
             )
             setMapGridWidth(loadedMap.document.gridWidth)
             setMapGridHeight(loadedMap.document.gridHeight)
+            setMapGridWidthInput(String(loadedMap.document.gridWidth))
+            setMapGridHeightInput(String(loadedMap.document.gridHeight))
             const normalizedLayers = normalizeEditorLayers(loadedMap.document.layers)
             setLayers(normalizedLayers)
             setActiveLayerId(normalizedLayers[0]?.id ?? 'floor')
@@ -565,11 +571,9 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
           : isTestSpawnToolActive
             ? 'ModoTest'
             : 'ModoSeleccionar'
+  const activeLayerStatusLabel = activeLayer.enabled ? activeToolLabel : 'Deshabilitada'
   const availableAssets = assetCategories.flatMap((category) => category.assets)
   const selectedAsset = availableAssets.find((asset) => asset.id === selectedAssetId) ?? null
-  const visiblePlacedAssets = [...placedAssets].sort((left, right) => (
-    getEditorLayerPriority(left.layerId) - getEditorLayerPriority(right.layerId)
-  ))
   const assetById = new Map(availableAssets.map((asset) => [asset.id, asset]))
   availableAssets.forEach((asset) => {
     if (asset.interactionState === 0) {
@@ -577,10 +581,15 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
     }
   })
   const layerById = new Map(layers.map((layer) => [layer.id, layer]))
+  const visiblePlacedAssets = placedAssets
+    .filter((placement) => layerById.get(placement.layerId)?.enabled !== false)
+    .sort((left, right) => (
+      getEditorLayerPriority(left.layerId) - getEditorLayerPriority(right.layerId)
+    ))
   const testObjects = placedAssets.flatMap((placement) => {
     const asset = assetById.get(placement.assetId)
     const layer = layerById.get(placement.layerId)
-    return asset
+    return asset && layer?.enabled !== false
       ? [createPlacedObjectTemplate(placement, asset, availableAssets, layer?.collidersEnabled ?? true)]
       : []
   })
@@ -625,16 +634,37 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
     )
   }
 
-  const updateGridSize = (
+  const updateGridSizeInput = (
     rawValue: string,
+    inputSetter: (nextValue: string) => void,
     setter: (nextValue: number) => void,
   ) => {
+    inputSetter(rawValue)
+
+    if (rawValue.trim() === '') {
+      return
+    }
+
     const numericValue = Number(rawValue)
-    if (!Number.isFinite(numericValue)) {
+    if (!Number.isFinite(numericValue) || numericValue <= 0) {
       return
     }
 
     setter(Math.min(50, Math.max(1, Math.floor(numericValue))))
+  }
+
+  const commitGridSizeInput = (
+    rawValue: string,
+    inputSetter: (nextValue: string) => void,
+    setter: (nextValue: number) => void,
+  ) => {
+    const numericValue = Number(rawValue)
+    const nextValue = Number.isFinite(numericValue) && numericValue > 0
+      ? Math.min(50, Math.max(1, Math.floor(numericValue)))
+      : 1
+
+    inputSetter(String(nextValue))
+    setter(nextValue)
   }
 
   const updateZoom = (nextZoom: number) => {
@@ -702,7 +732,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
     nextLayerIdRef.current += 1
     setLayers((currentLayers) => [
       ...currentLayers,
-      { id: layerId, name: layerName, collidersEnabled: true },
+      { id: layerId, name: layerName, enabled: true, collidersEnabled: true },
     ])
     setActiveLayerId(layerId)
     setNewLayerName('')
@@ -736,6 +766,33 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
     )))
   }
 
+  const toggleLayerEnabled = (layerId: string) => {
+    const layerToToggle = layers.find((layer) => layer.id === layerId)
+    if (!layerToToggle) {
+      return
+    }
+
+    const nextEnabled = !layerToToggle.enabled
+    setLayers((currentLayers) => currentLayers.map((layer) => (
+      layer.id === layerId
+        ? { ...layer, enabled: nextEnabled }
+        : layer
+    )))
+    setSelectedMapArea(null)
+    setHoveredMapCell(null)
+
+    if (!nextEnabled && activeLayerId === layerId) {
+      const nextActiveLayer = layers.find((layer) => layer.id !== layerId && layer.enabled)
+      if (nextActiveLayer) {
+        setActiveLayerId(nextActiveLayer.id)
+      }
+    }
+
+    setMapPersistenceMessage(
+      `Capa ${layerToToggle.name} ${nextEnabled ? 'habilitada' : 'deshabilitada'}`,
+    )
+  }
+
   const getMapCellFromPointer = (event: ReactPointerEvent<HTMLDivElement>): MapCellPosition => {
     const mapBounds = event.currentTarget.getBoundingClientRect()
     const borderSize = 2 * mapZoom
@@ -762,6 +819,11 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
   }
 
   const applyMapAreaEdit = (area: MapCellArea) => {
+    if (!activeLayer.enabled && (isSelectToolActive || isEraseToolActive || isPaintToolActive)) {
+      setMapPersistenceMessage(`Habilita la capa ${activeLayer.name} para editarla`)
+      return
+    }
+
     if (isSelectToolActive) {
       setSelectedMapArea({
         layerId: activeLayer.id,
@@ -873,6 +935,9 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
     }
 
     const layer = layerById.get(placement.layerId)
+    if (layer?.enabled === false) {
+      return null
+    }
     const objectTemplate = createPlacedObjectTemplate(
       placement,
       asset,
@@ -1008,8 +1073,20 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
               type="number"
               min="1"
               max="50"
-              value={mapGridWidth}
-              onChange={(event) => updateGridSize(event.target.value, setMapGridWidth)}
+              value={mapGridWidthInput}
+              onChange={(event) => updateGridSizeInput(
+                event.target.value,
+                setMapGridWidthInput,
+                setMapGridWidth,
+              )}
+              onBlur={(event) => commitGridSizeInput(
+                event.target.value,
+                setMapGridWidthInput,
+                setMapGridWidth,
+              )}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') event.currentTarget.blur()
+              }}
             />
           </label>
           <label htmlFor="edit-room-grid-y">
@@ -1019,8 +1096,20 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
               type="number"
               min="1"
               max="50"
-              value={mapGridHeight}
-              onChange={(event) => updateGridSize(event.target.value, setMapGridHeight)}
+              value={mapGridHeightInput}
+              onChange={(event) => updateGridSizeInput(
+                event.target.value,
+                setMapGridHeightInput,
+                setMapGridHeight,
+              )}
+              onBlur={(event) => commitGridSizeInput(
+                event.target.value,
+                setMapGridHeightInput,
+                setMapGridHeight,
+              )}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') event.currentTarget.blur()
+              }}
             />
           </label>
           <output>{mapWidthPx} × {mapHeightPx} px</output>
@@ -1157,7 +1246,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
 
         <section className="edit-room-workspace" aria-label="Área de trabajo">
           <div className="edit-room-active-layer-badge">
-            <strong>{activeLayer.name} : {activeToolLabel}</strong>
+            <strong>{activeLayer.name} : {activeLayerStatusLabel}</strong>
           </div>
           <div className="edit-room-canvas-viewport" onScroll={keepGridGuidesVisible}>
             <div className="edit-room-canvas-stage">
@@ -1271,7 +1360,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                       aria-hidden="true"
                     />
                   ) : null}
-                  {isSelectToolActive && draggedMapArea ? (
+                  {activeLayer.enabled && isSelectToolActive && draggedMapArea ? (
                     <span
                       className="edit-room-cell-tool-preview is-select"
                       style={{
@@ -1283,7 +1372,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                       aria-hidden="true"
                     />
                   ) : null}
-                  {isEraseToolActive && (draggedMapArea || hoveredMapCell) ? (
+                  {activeLayer.enabled && isEraseToolActive && (draggedMapArea || hoveredMapCell) ? (
                     <span
                       className="edit-room-cell-tool-preview is-erase"
                       style={{
@@ -1295,7 +1384,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                       aria-hidden="true"
                     />
                   ) : null}
-                  {isPaintToolActive && selectedAsset && (draggedMapArea || hoveredMapCell) ? (
+                  {activeLayer.enabled && isPaintToolActive && selectedAsset && (draggedMapArea || hoveredMapCell) ? (
                     <span
                       className="edit-room-cell-tool-preview is-paint"
                       style={{
@@ -1483,22 +1572,32 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                 {layers.map((layer) => (
                   <div
                     key={layer.id}
-                    className={`edit-room-layer-row${layer.id === activeLayer.id ? ' is-active' : ''}`}
+                    className={`edit-room-layer-row${layer.id === activeLayer.id ? ' is-active' : ''}${layer.enabled ? '' : ' is-disabled'}`}
                     role="listitem"
                   >
                     <button
                       type="button"
+                      className={`edit-room-layer-enabled-toggle${layer.enabled ? ' is-enabled' : ''}`}
+                      aria-label={`${layer.enabled ? 'Deshabilitar' : 'Habilitar'} capa ${layer.name}`}
+                      aria-pressed={layer.enabled}
+                      title={`${layer.enabled ? 'Ocultar' : 'Mostrar'} capa · ${layer.name}`}
+                      onClick={() => toggleLayerEnabled(layer.id)}
+                    >
+                      <span aria-hidden="true">{layer.enabled ? '◉' : '○'}</span>
+                    </button>
+                    <button
+                      type="button"
                       className="edit-room-layer-select"
                       aria-pressed={layer.id === activeLayer.id}
+                      disabled={!layer.enabled}
                       onClick={() => {
                         setActiveLayerId(layer.id)
                         setSelectedMapArea(null)
                       }}
                     >
-                      <span aria-hidden="true" className="edit-room-layer-visibility">◆</span>
                       <span className="edit-room-layer-name">{layer.name}</span>
                       {layer.id === activeLayer.id ? (
-                        <span className="edit-room-layer-mode">: {activeToolLabel}</span>
+                        <span className="edit-room-layer-mode">: {activeLayerStatusLabel}</span>
                       ) : null}
                     </button>
                     <button
@@ -1532,7 +1631,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
       <footer className="edit-room-statusbar">
         <span>Cuadrícula: 128 × 128 px</span>
         <span>
-          {mapGridWidth} × {mapGridHeight} celdas · Zoom {zoomPercentage}% · {activeLayer.name}: {activeToolLabel}
+          {mapGridWidth} × {mapGridHeight} celdas · Zoom {zoomPercentage}% · {activeLayer.name}: {activeLayerStatusLabel}
           {isPaintToolActive && isAssetFlippedX ? ' · X invertido' : ''}
           {isDebugEnabled ? ' · Debug activo' : ''}
         </span>

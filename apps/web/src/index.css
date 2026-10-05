@@ -5815,6 +5815,7 @@ button {
 }
 
 .edit-room-layer-creator button,
+.edit-room-layer-enabled-toggle,
 .edit-room-layer-collider-toggle,
 .edit-room-layer-delete {
   color: #1e1e1e;
@@ -5841,7 +5842,7 @@ button {
 .edit-room-layer-row {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 30px 30px;
+  grid-template-columns: 30px minmax(0, 1fr) 30px 30px;
   border-bottom: 1px solid #111111;
 }
 
@@ -5885,16 +5886,12 @@ button {
   color: #ffffff;
 }
 
-.edit-room-layer-visibility {
-  flex: none;
-  color: #8f8f8f;
-  font-size: 0.4rem;
+.edit-room-layer-row.is-disabled .edit-room-layer-select {
+  opacity: 0.48;
+  cursor: not-allowed;
 }
 
-.edit-room-layer-row.is-active .edit-room-layer-visibility {
-  color: #f2f2f2;
-}
-
+.edit-room-layer-enabled-toggle,
 .edit-room-layer-collider-toggle,
 .edit-room-layer-delete {
   width: 25px;
@@ -5904,6 +5901,17 @@ button {
   padding: 0;
   font-size: 0.64rem;
   line-height: 1;
+}
+
+.edit-room-layer-enabled-toggle {
+  color: #626262;
+  background: #999999;
+}
+
+.edit-room-layer-enabled-toggle.is-enabled {
+  color: #17303a;
+  background: #8bc8d4;
+  border-color: #c8edf2 #417681 #417681 #c8edf2;
 }
 
 .edit-room-layer-collider-toggle {
@@ -5929,6 +5937,7 @@ button {
 }
 
 .edit-room-layer-creator button:active,
+.edit-room-layer-enabled-toggle:active,
 .edit-room-layer-collider-toggle:active,
 .edit-room-layer-delete:active:not(:disabled) {
   border-color: #555555 #eeeeee #eeeeee #555555;

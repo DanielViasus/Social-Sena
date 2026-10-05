@@ -332,6 +332,7 @@ export interface UpdateAccessRolePayload {
 export interface RoomEditorLayerData {
   id: string
   name: string
+  enabled: boolean
   collidersEnabled: boolean
   required?: boolean
 }

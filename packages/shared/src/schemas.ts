@@ -84,6 +84,7 @@ export const interactRoomObjectSchema = z.object({
 export const roomEditorLayerSchema = z.object({
   id: z.string().trim().min(1).max(80),
   name: z.string().trim().min(1).max(80),
+  enabled: z.boolean().default(true),
   collidersEnabled: z.boolean(),
   required: z.boolean().optional(),
 })

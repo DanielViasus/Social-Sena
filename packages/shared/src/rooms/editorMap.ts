@@ -148,6 +148,7 @@ export function createRoomTemplateFromEditorMap(map: SavedRoomEditorMap): RoomTe
     const asset = assets.get(placement.assetId)
     if (!asset) return []
     const layer = layers.get(placement.layerId)
+    if (layer?.enabled === false) return []
     const collidersEnabled = layer?.collidersEnabled !== false
     const activeVariant = createObjectVariant(placement, asset, collidersEnabled)
     const { state: variantState, ...activeObjectProperties } = activeVariant
