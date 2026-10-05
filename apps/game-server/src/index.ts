@@ -148,6 +148,12 @@ interface ActiveEnemyCombatEncounter {
 }
 
 const port = Number(process.env.PORT ?? 3001)
+const serviceRevision = (
+  process.env.RENDER_GIT_COMMIT
+  ?? process.env.GIT_COMMIT_SHA
+  ?? 'local'
+).slice(0, 12)
+const serviceCapabilities = ['player-facing-v1'] as const
 const allowedOriginPatterns = (process.env.CORS_ALLOWED_ORIGINS ?? 'http://localhost:5173')
   .split(',')
   .map((origin) => origin.trim())
@@ -227,7 +233,12 @@ const httpServer = createServer((request, response) => {
 
   if (requestUrl.pathname === '/health') {
     response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
-    response.end(JSON.stringify({ status: 'ok', service: 'social-sena-game-server' }))
+    response.end(JSON.stringify({
+      status: 'ok',
+      service: 'social-sena-game-server',
+      revision: serviceRevision,
+      capabilities: serviceCapabilities,
+    }))
     return
   }
 
@@ -236,6 +247,8 @@ const httpServer = createServer((request, response) => {
     JSON.stringify({
       service: 'social-sena-game-server',
       status: 'running',
+      revision: serviceRevision,
+      capabilities: serviceCapabilities,
       sockets: io.engine.clientsCount,
     }),
   )

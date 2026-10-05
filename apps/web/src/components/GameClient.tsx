@@ -19,6 +19,7 @@ import {
   type PartyOutgoingInviteSummary,
   type PartyStatePayload,
   type PartySummary,
+  type PlayerFacing,
   type Position,
   type Presence,
   type RoomEnemyTemplate,
@@ -128,6 +129,28 @@ function buildMovementInputFromKeyCodes(pressedKeyCodes: Set<string>): MovementI
     left: pressedKeyCodes.has('KeyA') || pressedKeyCodes.has('ArrowLeft'),
     right: pressedKeyCodes.has('KeyD') || pressedKeyCodes.has('ArrowRight'),
   }
+}
+
+function resolveMovementInputFacing(
+  input: MovementInputState,
+  fallback: PlayerFacing = 'front-right',
+): PlayerFacing | null {
+  const horizontal = (input.right ? 1 : 0) - (input.left ? 1 : 0)
+  const vertical = (input.down ? 1 : 0) - (input.up ? 1 : 0)
+
+  if (horizontal === 0 && vertical === 0) {
+    return null
+  }
+
+  const wasFacingLeft = fallback === 'front-left' || fallback === 'back-left'
+  const isLeft = horizontal === 0 ? wasFacingLeft : horizontal < 0
+  const isBack = vertical < 0
+
+  if (isBack) {
+    return isLeft ? 'back-left' : 'back-right'
+  }
+
+  return isLeft ? 'front-left' : 'front-right'
 }
 
 function areMovementInputsEqual(left: MovementInputState, right: MovementInputState) {
@@ -1281,9 +1304,20 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
         if (!currentRoom) return currentRoom
         return {
           ...currentRoom,
-          players: currentRoom.players.map((currentPlayer) =>
-            currentPlayer.sessionId === player.sessionId ? player : currentPlayer,
-          ),
+          players: currentRoom.players.map((currentPlayer) => {
+            if (currentPlayer.sessionId !== player.sessionId) {
+              return currentPlayer
+            }
+
+            const localInputFacing = player.userId === sessionProfileRef.current.userId
+              ? resolveMovementInputFacing(movementInputRef.current, currentPlayer.facing)
+              : null
+            const resolvedFacing = localInputFacing ?? player.facing ?? currentPlayer.facing
+
+            return resolvedFacing && resolvedFacing !== player.facing
+              ? { ...player, facing: resolvedFacing }
+              : player
+          }),
         }
       })
     })
@@ -1604,6 +1638,26 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     if (hasNextMovement && !hadMovement) {
       socket.emit(clientEvents.stopNavigation, {
         roomId: activeRoom.roomId,
+      })
+    }
+
+    if (hasNextMovement) {
+      setRoom((currentRoom) => {
+        if (!currentRoom || currentRoom.roomId !== activeRoom.roomId) {
+          return currentRoom
+        }
+
+        return {
+          ...currentRoom,
+          players: currentRoom.players.map((player) => {
+            if (player.userId !== sessionProfileRef.current.userId) {
+              return player
+            }
+
+            const optimisticFacing = resolveMovementInputFacing(nextInput, player.facing)
+            return optimisticFacing ? { ...player, facing: optimisticFacing } : player
+          }),
+        }
       })
     }
 
