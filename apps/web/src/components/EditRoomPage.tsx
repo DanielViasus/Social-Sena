@@ -1,7 +1,10 @@
 import {
+  useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type PointerEvent as ReactPointerEvent,
   type UIEvent as ReactUIEvent,
 } from 'react'
@@ -23,6 +26,13 @@ import {
   type UserProfile,
 } from '@social-sena/shared'
 import { saveAuthSession, type AuthSession } from '../auth/localSession'
+import eraseToolIconSrc from '../assets/room-editor/sprites/icon_Erase.svg'
+import paintToolIconSrc from '../assets/room-editor/sprites/icon_Paint.svg'
+import selectToolIconSrc from '../assets/room-editor/sprites/icon_Select.svg'
+import testToolIconSrc from '../assets/room-editor/sprites/Icon_Test.svg'
+import zoomActualSizeIconSrc from '../assets/room-editor/sprites/icon_zoom_1_1.svg'
+import zoomInIconSrc from '../assets/room-editor/sprites/icon_zoom_add.svg'
+import zoomOutIconSrc from '../assets/room-editor/sprites/icon_zoom_less.svg'
 import { navigateInApp } from '../hooks/usePathname'
 import { canAccessRoomEditor } from '../rooms/roomEditorAccess'
 import {
@@ -69,8 +79,43 @@ const EDITOR_LAYER_PRIORITY: Record<string, number> = {
   teleports: 4,
 }
 
+const EDITOR_LAYER_COLORS: Record<string, string> = {
+  floor: '#98a078',
+  walls: '#75889b',
+  doors: '#a18469',
+  'object-decoration': '#907b99',
+  teleports: '#619391',
+}
+
+const CUSTOM_EDITOR_LAYER_COLORS = [
+  '#81778f',
+  '#718b7c',
+  '#927b74',
+  '#788397',
+  '#8e806d',
+  '#70898f',
+]
+
 function getEditorLayerPriority(layerId: string) {
   return EDITOR_LAYER_PRIORITY[layerId] ?? EDITOR_LAYER_PRIORITY['object-decoration']
+}
+
+function getEditorLayerColor(layerId: string) {
+  const fixedColor = EDITOR_LAYER_COLORS[layerId]
+  if (fixedColor) {
+    return fixedColor
+  }
+
+  const hash = Array.from(layerId).reduce(
+    (total, character) => ((total * 31) + character.charCodeAt(0)) | 0,
+    0,
+  )
+  return CUSTOM_EDITOR_LAYER_COLORS[Math.abs(hash) % CUSTOM_EDITOR_LAYER_COLORS.length]
+    ?? '#81778f'
+}
+
+function getEditorLayerColorStyle(layerId: string) {
+  return { '--edit-room-layer-color': getEditorLayerColor(layerId) } as CSSProperties
 }
 
 function normalizeEditorLayers(savedLayers: EditorLayer[]) {
@@ -90,6 +135,10 @@ function normalizeEditorLayers(savedLayers: EditorLayer[]) {
 
 type PlacedRoomAsset = RoomEditorPlacementData
 
+function getPlacedAssetKey(placement: PlacedRoomAsset) {
+  return `${placement.layerId}:${placement.cellX}:${placement.cellY}:${placement.assetId}`
+}
+
 interface MapCellPosition {
   x: number
   y: number
@@ -104,6 +153,9 @@ interface MapCellArea {
 
 interface SelectedMapArea extends MapCellArea {
   layerId: string
+  placementKey?: string
+  sourceCellX?: number
+  sourceCellY?: number
 }
 
 function getNormalizedCellArea(start: MapCellPosition, end: MapCellPosition): MapCellArea {
@@ -120,6 +172,29 @@ function isCellInsideArea(cellX: number, cellY: number, area: MapCellArea) {
     && cellX <= area.endX
     && cellY >= area.startY
     && cellY <= area.endY
+}
+
+function getPlacementFootprintArea(
+  placement: PlacedRoomAsset,
+  asset: RoomEditorAsset | undefined,
+): MapCellArea {
+  return {
+    startX: placement.cellX,
+    startY: placement.cellY,
+    endX: placement.cellX + Math.max(1, asset?.occupiedColumns ?? 1) - 1,
+    endY: placement.cellY + Math.max(1, asset?.occupiedRows ?? 1) - 1,
+  }
+}
+
+function getPlacementSelectionArea(
+  placement: PlacedRoomAsset,
+  asset: RoomEditorAsset | undefined,
+): SelectedMapArea {
+  return {
+    layerId: placement.layerId,
+    placementKey: getPlacedAssetKey(placement),
+    ...getPlacementFootprintArea(placement, asset),
+  }
 }
 
 function getObjectKindFromAssetType(assetType: string): RoomObjectKind {
@@ -267,6 +342,9 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
   const [mapZoom, setMapZoom] = useState(1)
   const [layers, setLayers] = useState<EditorLayer[]>(REQUIRED_EDITOR_LAYERS)
   const [activeLayerId, setActiveLayerId] = useState('floor')
+  const [expandedLayerIds, setExpandedLayerIds] = useState<Set<string>>(() => new Set())
+  const [renamingPlacementKey, setRenamingPlacementKey] = useState<string | null>(null)
+  const [placementNameDraft, setPlacementNameDraft] = useState('')
   const [newLayerName, setNewLayerName] = useState('')
   const [assetCategories, setAssetCategories] = useState<RoomEditorAssetCategory[]>([])
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null)
@@ -280,15 +358,25 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
   const [testSpawn, setTestSpawn] = useState<Position | null>(null)
   const [hoveredMapCell, setHoveredMapCell] = useState<MapCellPosition | null>(null)
   const [selectedMapArea, setSelectedMapArea] = useState<SelectedMapArea | null>(null)
+  const [selectedPlacementKeys, setSelectedPlacementKeys] = useState<Set<string>>(() => new Set())
   const [draggedMapArea, setDraggedMapArea] = useState<MapCellArea | null>(null)
   const [isAssetFlippedX, setIsAssetFlippedX] = useState(false)
   const [isDebugEnabled, setIsDebugEnabled] = useState(false)
   const nextLayerIdRef = useRef(1)
   const columnGuidesRef = useRef<HTMLDivElement | null>(null)
   const rowGuidesRef = useRef<HTMLDivElement | null>(null)
+  const canvasViewportRef = useRef<HTMLDivElement | null>(null)
+  const mapScaleFrameRef = useRef<HTMLDivElement | null>(null)
   const placedAssetsRef = useRef<PlacedRoomAsset[]>([])
   const assetEditHistoryRef = useRef<PlacedRoomAsset[][]>([])
   const dragStartCellRef = useRef<MapCellPosition | null>(null)
+  const cancelPlacementRenameRef = useRef(false)
+  const hierarchySelectionAnchorRef = useRef<string | null>(null)
+  const clearEditorSelection = useCallback(() => {
+    setSelectedMapArea(null)
+    setSelectedPlacementKeys(new Set())
+    hierarchySelectionAnchorRef.current = null
+  }, [])
 
   useEffect(() => {
     const socket = io(SERVER_URL, { autoConnect: true })
@@ -345,11 +433,15 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
             const normalizedLayers = normalizeEditorLayers(loadedMap.document.layers)
             setLayers(normalizedLayers)
             setActiveLayerId(normalizedLayers[0]?.id ?? 'floor')
+            setExpandedLayerIds(new Set())
+            setRenamingPlacementKey(null)
+            setPlacementNameDraft('')
+            cancelPlacementRenameRef.current = false
             placedAssetsRef.current = loadedMap.document.placements
             setPlacedAssets(loadedMap.document.placements)
             setSpawnPoints(loadedMap.document.spawnPoints)
             assetEditHistoryRef.current = []
-            setSelectedMapArea(null)
+            clearEditorSelection()
             setTestSpawn(null)
             const highestCustomLayerId = normalizedLayers.reduce((highest, layer) => {
               const match = /^layer-(\d+)$/.exec(layer.id)
@@ -372,7 +464,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
       socketRef.current = null
       socket.disconnect()
     }
-  }, [onSessionChange])
+  }, [clearEditorSelection, onSessionChange])
 
   useEffect(() => {
     let isActive = true
@@ -389,6 +481,21 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
       isActive = false
     }
   }, [])
+
+  useEffect(() => {
+    const placementKey = selectedMapArea?.placementKey
+    if (!placementKey) {
+      return
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>(`[data-editor-placement-key="${CSS.escape(placementKey)}"]`)
+        ?.scrollIntoView({ block: 'nearest' })
+    })
+
+    return () => window.cancelAnimationFrame(frameId)
+  }, [expandedLayerIds, selectedMapArea?.placementKey])
 
   useEffect(() => {
     const handleEditorShortcut = (event: KeyboardEvent) => {
@@ -410,7 +517,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
           setIsEraseToolActive(false)
           setIsSelectToolActive(false)
           setIsSpawnToolActive(false)
-          setSelectedMapArea(null)
+          clearEditorSelection()
         }
         return
       }
@@ -436,20 +543,30 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
           event.preventDefault()
           placedAssetsRef.current = previousAssets
           setPlacedAssets(previousAssets)
+          clearEditorSelection()
         }
         return
       }
 
-      if ((key === 'delete' || key === 'backspace') && selectedMapArea) {
+      if (
+        (key === 'delete' || key === 'backspace')
+        && (selectedPlacementKeys.size > 0 || selectedMapArea)
+      ) {
         event.preventDefault()
-        setSpawnPoints((currentSpawnPoints) => currentSpawnPoints.filter((spawnPoint) => (
-          !isCellInsideArea(spawnPoint.cellX, spawnPoint.cellY, selectedMapArea)
-        )))
         const currentAssets = placedAssetsRef.current
-        const nextAssets = currentAssets.filter((asset) => (
-          asset.layerId !== selectedMapArea.layerId
-          || !isCellInsideArea(asset.cellX, asset.cellY, selectedMapArea)
-        ))
+        const nextAssets = selectedPlacementKeys.size > 0
+          ? currentAssets.filter((asset) => !selectedPlacementKeys.has(getPlacedAssetKey(asset)))
+          : currentAssets.filter((asset) => (
+              !selectedMapArea
+              || asset.layerId !== selectedMapArea.layerId
+              || !isCellInsideArea(asset.cellX, asset.cellY, selectedMapArea)
+            ))
+
+        if (selectedPlacementKeys.size === 0 && selectedMapArea && !selectedMapArea.placementKey) {
+          setSpawnPoints((currentSpawnPoints) => currentSpawnPoints.filter((spawnPoint) => (
+            !isCellInsideArea(spawnPoint.cellX, spawnPoint.cellY, selectedMapArea)
+          )))
+        }
 
         if (nextAssets.length !== currentAssets.length) {
           assetEditHistoryRef.current.push(currentAssets)
@@ -459,6 +576,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
           placedAssetsRef.current = nextAssets
           setPlacedAssets(nextAssets)
         }
+        clearEditorSelection()
         return
       }
 
@@ -468,7 +586,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
         setIsSelectToolActive(true)
         setIsSpawnToolActive(false)
         setIsTestSpawnToolActive(false)
-        setSelectedMapArea(null)
+        clearEditorSelection()
         setDraggedMapArea(null)
         dragStartCellRef.current = null
         return
@@ -481,7 +599,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
         setIsSelectToolActive(false)
         setIsSpawnToolActive(false)
         setIsTestSpawnToolActive(false)
-        setSelectedMapArea(null)
+        clearEditorSelection()
         return
       }
 
@@ -492,7 +610,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
         setIsSelectToolActive(false)
         setIsSpawnToolActive(false)
         setIsTestSpawnToolActive(false)
-        setSelectedMapArea(null)
+        clearEditorSelection()
         return
       }
 
@@ -520,7 +638,68 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
 
     window.addEventListener('keydown', handleEditorShortcut)
     return () => window.removeEventListener('keydown', handleEditorShortcut)
-  }, [selectedAssetId, selectedMapArea, testSpawn])
+  }, [clearEditorSelection, selectedAssetId, selectedMapArea, selectedPlacementKeys, testSpawn])
+
+  const placedAssetsByLayer = useMemo(() => {
+    const groupedPlacements = new Map<string, PlacedRoomAsset[]>()
+
+    placedAssets.forEach((placement) => {
+      const layerPlacements = groupedPlacements.get(placement.layerId) ?? []
+      layerPlacements.push(placement)
+      groupedPlacements.set(placement.layerId, layerPlacements)
+    })
+
+    groupedPlacements.forEach((layerPlacements) => {
+      layerPlacements.sort((left, right) => (
+        left.cellY - right.cellY || left.cellX - right.cellX
+      ))
+    })
+
+    return groupedPlacements
+  }, [placedAssets])
+  const visibleHierarchyPlacementKeys = useMemo(() => layers.flatMap((layer) => (
+    layer.enabled && expandedLayerIds.has(layer.id)
+      ? (placedAssetsByLayer.get(layer.id) ?? []).map(getPlacedAssetKey)
+      : []
+  )), [expandedLayerIds, layers, placedAssetsByLayer])
+  const availableAssets = useMemo(
+    () => assetCategories.flatMap((category) => category.assets),
+    [assetCategories],
+  )
+  const assetById = useMemo(() => {
+    const indexedAssets = new Map(availableAssets.map((asset) => [asset.id, asset]))
+    availableAssets.forEach((asset) => {
+      if (asset.interactionState === 0) {
+        indexedAssets.set(asset.id.replace(/-S0$/i, ''), asset)
+      }
+    })
+    return indexedAssets
+  }, [availableAssets])
+  const layerById = useMemo(
+    () => new Map(layers.map((layer) => [layer.id, layer])),
+    [layers],
+  )
+  const selectedPlacementAreas = useMemo(() => placedAssets.flatMap((placement) => {
+    const placementKey = getPlacedAssetKey(placement)
+    const layer = layerById.get(placement.layerId)
+    if (!selectedPlacementKeys.has(placementKey) || layer?.enabled === false) {
+      return []
+    }
+
+    return [getPlacementSelectionArea(placement, assetById.get(placement.assetId))]
+  }), [assetById, layerById, placedAssets, selectedPlacementKeys])
+  const visiblePlacedAssets = useMemo(() => placedAssets
+    .filter((placement) => layerById.get(placement.layerId)?.enabled !== false)
+    .sort((left, right) => (
+      getEditorLayerPriority(left.layerId) - getEditorLayerPriority(right.layerId)
+    )), [layerById, placedAssets])
+  const testObjects = useMemo(() => placedAssets.flatMap((placement) => {
+    const asset = assetById.get(placement.assetId)
+    const layer = layerById.get(placement.layerId)
+    return asset && layer?.enabled !== false
+      ? [createPlacedObjectTemplate(placement, asset, availableAssets, layer?.collidersEnabled ?? true)]
+      : []
+  }), [assetById, availableAssets, layerById, placedAssets])
 
   if (!resolvedProfile && !validationFailed) {
     return <main className="edit-room-page" aria-label="Validando acceso al editor" />
@@ -572,27 +751,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
             ? 'ModoTest'
             : 'ModoSeleccionar'
   const activeLayerStatusLabel = activeLayer.enabled ? activeToolLabel : 'Deshabilitada'
-  const availableAssets = assetCategories.flatMap((category) => category.assets)
   const selectedAsset = availableAssets.find((asset) => asset.id === selectedAssetId) ?? null
-  const assetById = new Map(availableAssets.map((asset) => [asset.id, asset]))
-  availableAssets.forEach((asset) => {
-    if (asset.interactionState === 0) {
-      assetById.set(asset.id.replace(/-S0$/i, ''), asset)
-    }
-  })
-  const layerById = new Map(layers.map((layer) => [layer.id, layer]))
-  const visiblePlacedAssets = placedAssets
-    .filter((placement) => layerById.get(placement.layerId)?.enabled !== false)
-    .sort((left, right) => (
-      getEditorLayerPriority(left.layerId) - getEditorLayerPriority(right.layerId)
-    ))
-  const testObjects = placedAssets.flatMap((placement) => {
-    const asset = assetById.get(placement.assetId)
-    const layer = layerById.get(placement.layerId)
-    return asset && layer?.enabled !== false
-      ? [createPlacedObjectTemplate(placement, asset, availableAssets, layer?.collidersEnabled ?? true)]
-      : []
-  })
   const testTemplate: RoomTemplate = {
     id: 'edit-room-test',
     routeSegment: 'edit-room-test',
@@ -700,6 +859,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
           || asset.cellX !== nextAsset.cellX
           || asset.cellY !== nextAsset.cellY
           || asset.flippedX !== nextAsset.flippedX
+          || asset.name !== nextAsset.name
       })
 
     if (!didChange) {
@@ -752,6 +912,20 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
     placedAssetsRef.current = remainingPlacedAssets
     assetEditHistoryRef.current = []
     setPlacedAssets(remainingPlacedAssets)
+    setExpandedLayerIds((currentLayerIds) => {
+      if (!currentLayerIds.has(layerId)) {
+        return currentLayerIds
+      }
+      const nextLayerIds = new Set(currentLayerIds)
+      nextLayerIds.delete(layerId)
+      return nextLayerIds
+    })
+    if (
+      selectedMapArea?.layerId === layerId
+      || selectedPlacementAreas.some((area) => area.layerId === layerId)
+    ) {
+      clearEditorSelection()
+    }
     if (activeLayerId === layerId) {
       const nextActiveLayer = remainingLayers[Math.min(layerIndex, remainingLayers.length - 1)]
       setActiveLayerId(nextActiveLayer.id)
@@ -766,6 +940,18 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
     )))
   }
 
+  const toggleLayerExpanded = (layerId: string) => {
+    setExpandedLayerIds((currentLayerIds) => {
+      const nextLayerIds = new Set(currentLayerIds)
+      if (nextLayerIds.has(layerId)) {
+        nextLayerIds.delete(layerId)
+      } else {
+        nextLayerIds.add(layerId)
+      }
+      return nextLayerIds
+    })
+  }
+
   const toggleLayerEnabled = (layerId: string) => {
     const layerToToggle = layers.find((layer) => layer.id === layerId)
     if (!layerToToggle) {
@@ -778,7 +964,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
         ? { ...layer, enabled: nextEnabled }
         : layer
     )))
-    setSelectedMapArea(null)
+    clearEditorSelection()
     setHoveredMapCell(null)
 
     if (!nextEnabled && activeLayerId === layerId) {
@@ -791,6 +977,145 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
     setMapPersistenceMessage(
       `Capa ${layerToToggle.name} ${nextEnabled ? 'habilitada' : 'deshabilitada'}`,
     )
+  }
+
+  const selectLayerPlacement = (
+    placement: PlacedRoomAsset,
+    modifiers: { toggle?: boolean; range?: boolean } = {},
+  ) => {
+    const layer = layerById.get(placement.layerId)
+    if (layer?.enabled === false) {
+      return
+    }
+
+    setActiveLayerId(placement.layerId)
+    setIsPaintToolActive(false)
+    setIsEraseToolActive(false)
+    setIsSelectToolActive(true)
+    setIsSpawnToolActive(false)
+    setIsTestSpawnToolActive(false)
+    setExpandedLayerIds((currentLayerIds) => {
+      if (currentLayerIds.has(placement.layerId)) {
+        return currentLayerIds
+      }
+      const nextLayerIds = new Set(currentLayerIds)
+      nextLayerIds.add(placement.layerId)
+      return nextLayerIds
+    })
+    const asset = assetById.get(placement.assetId)
+    const placementKey = getPlacedAssetKey(placement)
+    const placementArea = getPlacementSelectionArea(placement, asset)
+    const anchorKey = hierarchySelectionAnchorRef.current
+    const anchorIndex = anchorKey
+      ? visibleHierarchyPlacementKeys.indexOf(anchorKey)
+      : -1
+    const placementIndex = visibleHierarchyPlacementKeys.indexOf(placementKey)
+
+    if (modifiers.range && anchorIndex >= 0 && placementIndex >= 0) {
+      const rangeStart = Math.min(anchorIndex, placementIndex)
+      const rangeEnd = Math.max(anchorIndex, placementIndex)
+      const rangeKeys = visibleHierarchyPlacementKeys.slice(rangeStart, rangeEnd + 1)
+
+      setSelectedPlacementKeys((currentKeys) => {
+        const nextKeys = modifiers.toggle ? new Set(currentKeys) : new Set<string>()
+        rangeKeys.forEach((key) => nextKeys.add(key))
+        return nextKeys
+      })
+      setSelectedMapArea(placementArea)
+    } else if (modifiers.toggle) {
+      const nextKeys = new Set(selectedPlacementKeys)
+      if (nextKeys.has(placementKey)) {
+        nextKeys.delete(placementKey)
+      } else {
+        nextKeys.add(placementKey)
+      }
+      setSelectedPlacementKeys(nextKeys)
+
+      if (nextKeys.has(placementKey)) {
+        setSelectedMapArea(placementArea)
+        hierarchySelectionAnchorRef.current = placementKey
+      } else {
+        const nextPrimaryKey = Array.from(nextKeys).at(-1) ?? null
+        const nextPrimaryPlacement = nextPrimaryKey
+          ? placedAssetsRef.current.find((currentPlacement) => (
+              getPlacedAssetKey(currentPlacement) === nextPrimaryKey
+            ))
+          : undefined
+
+        setSelectedMapArea(nextPrimaryPlacement
+          ? getPlacementSelectionArea(
+              nextPrimaryPlacement,
+              assetById.get(nextPrimaryPlacement.assetId),
+            )
+          : null)
+        hierarchySelectionAnchorRef.current = nextPrimaryKey
+      }
+    } else {
+      setSelectedPlacementKeys(new Set([placementKey]))
+      setSelectedMapArea(placementArea)
+      hierarchySelectionAnchorRef.current = placementKey
+    }
+    setHoveredMapCell(null)
+
+    window.requestAnimationFrame(() => {
+      const viewport = canvasViewportRef.current
+      const mapFrame = mapScaleFrameRef.current
+      if (!viewport || !mapFrame) {
+        return
+      }
+
+      const occupiedColumns = asset?.occupiedColumns ?? 1
+      const occupiedRows = asset?.occupiedRows ?? 1
+      const placementCenterX = (placement.cellX * 128 + occupiedColumns * 64) * mapZoom
+      const placementCenterY = (placement.cellY * 128 + occupiedRows * 64) * mapZoom
+      viewport.scrollTo({
+        left: Math.max(0, mapFrame.offsetLeft + placementCenterX - viewport.clientWidth / 2),
+        top: Math.max(0, mapFrame.offsetTop + placementCenterY - viewport.clientHeight / 2),
+        behavior: 'smooth',
+      })
+    })
+  }
+
+  const startRenamingPlacement = (placement: PlacedRoomAsset, defaultName: string) => {
+    if (layerById.get(placement.layerId)?.enabled === false) {
+      return
+    }
+
+    selectLayerPlacement(placement)
+    cancelPlacementRenameRef.current = false
+    setRenamingPlacementKey(getPlacedAssetKey(placement))
+    setPlacementNameDraft(placement.name ?? defaultName)
+  }
+
+  const finishRenamingPlacement = (placement: PlacedRoomAsset, defaultName: string) => {
+    if (cancelPlacementRenameRef.current) {
+      cancelPlacementRenameRef.current = false
+      setRenamingPlacementKey(null)
+      setPlacementNameDraft('')
+      return
+    }
+
+    const normalizedName = placementNameDraft.trim()
+    const nextName = normalizedName && normalizedName !== defaultName
+      ? normalizedName
+      : undefined
+
+    commitPlacedAssetEdit((currentAssets) => currentAssets.map((currentPlacement) => (
+      getPlacedAssetKey(currentPlacement) === getPlacedAssetKey(placement)
+        ? { ...currentPlacement, name: nextName }
+        : currentPlacement
+    )))
+    setRenamingPlacementKey(null)
+    setPlacementNameDraft('')
+    setMapPersistenceMessage(nextName
+      ? `Elemento renombrado como ${nextName}`
+      : 'Se restauró el nombre original del elemento')
+  }
+
+  const cancelRenamingPlacement = () => {
+    cancelPlacementRenameRef.current = true
+    setRenamingPlacementKey(null)
+    setPlacementNameDraft('')
   }
 
   const getMapCellFromPointer = (event: ReactPointerEvent<HTMLDivElement>): MapCellPosition => {
@@ -818,17 +1143,95 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
     }
   }
 
+  const selectPlacementAtCell = (cell: MapCellPosition) => {
+    const candidates: Array<{
+      placement: PlacedRoomAsset
+      asset: RoomEditorAsset
+      placementIndex: number
+    }> = []
+
+    placedAssetsRef.current.forEach((placement, placementIndex) => {
+      const layer = layerById.get(placement.layerId)
+      const asset = assetById.get(placement.assetId)
+      if (
+        layer?.enabled === true
+        && asset
+        && isCellInsideArea(cell.x, cell.y, getPlacementFootprintArea(placement, asset))
+      ) {
+        candidates.push({ placement, asset, placementIndex })
+      }
+    })
+
+    candidates.sort((left, right) => (
+      getEditorLayerPriority(right.placement.layerId)
+      - getEditorLayerPriority(left.placement.layerId)
+      || right.placementIndex - left.placementIndex
+    ))
+
+    if (candidates.length === 0) {
+      setSelectedPlacementKeys(new Set())
+      hierarchySelectionAnchorRef.current = null
+      setSelectedMapArea({
+        layerId: activeLayer.id,
+        startX: cell.x,
+        startY: cell.y,
+        endX: cell.x,
+        endY: cell.y,
+        sourceCellX: cell.x,
+        sourceCellY: cell.y,
+      })
+      return
+    }
+
+    const isSameCell = selectedMapArea?.sourceCellX === cell.x
+      && selectedMapArea.sourceCellY === cell.y
+    const selectedCandidateIndex = isSameCell && selectedMapArea?.placementKey
+      ? candidates.findIndex(({ placement }) => (
+          getPlacedAssetKey(placement) === selectedMapArea.placementKey
+        ))
+      : -1
+    const nextCandidate = candidates[(selectedCandidateIndex + 1) % candidates.length]
+    const { placement, asset } = nextCandidate
+
+    setActiveLayerId(placement.layerId)
+    setExpandedLayerIds((currentLayerIds) => {
+      if (currentLayerIds.has(placement.layerId)) {
+        return currentLayerIds
+      }
+      const nextLayerIds = new Set(currentLayerIds)
+      nextLayerIds.add(placement.layerId)
+      return nextLayerIds
+    })
+    const placementKey = getPlacedAssetKey(placement)
+    setSelectedPlacementKeys(new Set([placementKey]))
+    hierarchySelectionAnchorRef.current = placementKey
+    setSelectedMapArea({
+      layerId: placement.layerId,
+      placementKey,
+      sourceCellX: cell.x,
+      sourceCellY: cell.y,
+      ...getPlacementFootprintArea(placement, asset),
+    })
+  }
+
   const applyMapAreaEdit = (area: MapCellArea) => {
-    if (!activeLayer.enabled && (isSelectToolActive || isEraseToolActive || isPaintToolActive)) {
+    if (!activeLayer.enabled && (isEraseToolActive || isPaintToolActive)) {
       setMapPersistenceMessage(`Habilita la capa ${activeLayer.name} para editarla`)
       return
     }
 
     if (isSelectToolActive) {
-      setSelectedMapArea({
-        layerId: activeLayer.id,
-        ...area,
-      })
+      const isSingleCell = area.startX === area.endX && area.startY === area.endY
+      if (isSingleCell) {
+        selectPlacementAtCell({ x: area.startX, y: area.startY })
+      } else {
+        setSelectedPlacementKeys(new Set())
+        hierarchySelectionAnchorRef.current = null
+        setSelectedMapArea({
+          layerId: activeLayer.id,
+          ...area,
+        })
+      }
       return
     }
 
@@ -901,9 +1304,6 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
     const startCell = getMapCellFromPointer(event)
     dragStartCellRef.current = startCell
     setDraggedMapArea(getNormalizedCellArea(startCell, startCell))
-    if (isSelectToolActive) {
-      setSelectedMapArea(null)
-    }
     event.currentTarget.setPointerCapture(event.pointerId)
   }
 
@@ -1172,7 +1572,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                     setIsEraseToolActive(false)
                     setIsSelectToolActive(false)
                     setIsTestSpawnToolActive(false)
-                    setSelectedMapArea(null)
+                    clearEditorSelection()
                   }}
                 >
                   <span className="edit-room-asset-preview edit-room-spawn-preview" aria-hidden="true">
@@ -1213,7 +1613,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                           setIsSelectToolActive(false)
                           setIsSpawnToolActive(false)
                           setIsTestSpawnToolActive(false)
-                          setSelectedMapArea(null)
+                          clearEditorSelection()
                         }}
                       >
                         <span className="edit-room-asset-preview" aria-hidden="true">
@@ -1245,12 +1645,20 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
         </aside>
 
         <section className="edit-room-workspace" aria-label="Área de trabajo">
-          <div className="edit-room-active-layer-badge">
+          <div
+            className="edit-room-active-layer-badge"
+            style={getEditorLayerColorStyle(activeLayer.id)}
+          >
             <strong>{activeLayer.name} : {activeLayerStatusLabel}</strong>
           </div>
-          <div className="edit-room-canvas-viewport" onScroll={keepGridGuidesVisible}>
+          <div
+            ref={canvasViewportRef}
+            className="edit-room-canvas-viewport"
+            onScroll={keepGridGuidesVisible}
+          >
             <div className="edit-room-canvas-stage">
               <div
+                ref={mapScaleFrameRef}
                 className="edit-room-map-scale-frame"
                 style={{
                   width: `${scaledMapWidthPx}px`,
@@ -1307,7 +1715,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                       setIsSelectToolActive(true)
                       setIsSpawnToolActive(false)
                       setIsTestSpawnToolActive(false)
-                      setSelectedMapArea(null)
+                      clearEditorSelection()
                       cancelMapDrag()
                     }
                   }}
@@ -1348,22 +1756,40 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                       aria-hidden="true"
                     />
                   ) : null}
-                  {selectedMapArea?.layerId === activeLayer.id ? (
+                  {selectedPlacementAreas.map((area) => (
                     <span
+                      key={`selected-${area.placementKey}`}
                       className="edit-room-cell-tool-preview is-select"
                       style={{
-                        left: `${selectedMapArea.startX * 128}px`,
-                        top: `${selectedMapArea.startY * 128}px`,
-                        width: `${(selectedMapArea.endX - selectedMapArea.startX + 1) * 128}px`,
-                        height: `${(selectedMapArea.endY - selectedMapArea.startY + 1) * 128}px`,
+                        ...getEditorLayerColorStyle(area.layerId),
+                        left: `${area.startX * 128}px`,
+                        top: `${area.startY * 128}px`,
+                        width: `${(area.endX - area.startX + 1) * 128}px`,
+                        height: `${(area.endY - area.startY + 1) * 128}px`,
                       }}
                       aria-hidden="true"
                     />
-                  ) : null}
+                  ))}
+                  {selectedMapArea
+                    && !selectedMapArea.placementKey
+                    && selectedMapArea.layerId === activeLayer.id ? (
+                      <span
+                        className="edit-room-cell-tool-preview is-select"
+                        style={{
+                          ...getEditorLayerColorStyle(selectedMapArea.layerId),
+                          left: `${selectedMapArea.startX * 128}px`,
+                          top: `${selectedMapArea.startY * 128}px`,
+                          width: `${(selectedMapArea.endX - selectedMapArea.startX + 1) * 128}px`,
+                          height: `${(selectedMapArea.endY - selectedMapArea.startY + 1) * 128}px`,
+                        }}
+                        aria-hidden="true"
+                      />
+                    ) : null}
                   {activeLayer.enabled && isSelectToolActive && draggedMapArea ? (
                     <span
                       className="edit-room-cell-tool-preview is-select"
                       style={{
+                        ...getEditorLayerColorStyle(activeLayer.id),
                         left: `${draggedMapArea.startX * 128}px`,
                         top: `${draggedMapArea.startY * 128}px`,
                         width: `${(draggedMapArea.endX - draggedMapArea.startX + 1) * 128}px`,
@@ -1435,78 +1861,102 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                             ? 'Elegir respawn'
                             : 'Seleccionar'}
                 </output>
-                <button
-                  type="button"
-                  className={isPaintToolActive ? 'is-active' : ''}
-                  aria-pressed={isPaintToolActive}
-                  onClick={() => {
-                    const nextIsActive = !isPaintToolActive
-                    setIsPaintToolActive(nextIsActive)
-                    setIsEraseToolActive(false)
-                    setIsSelectToolActive(!nextIsActive)
-                    setIsSpawnToolActive(false)
-                    setIsTestSpawnToolActive(false)
-                    setSelectedMapArea(null)
-                  }}
-                >
-                  Pintar
-                </button>
-                <button
-                  type="button"
-                  className={isEraseToolActive ? 'is-active is-erase' : ''}
-                  aria-pressed={isEraseToolActive}
-                  onClick={() => {
-                    const nextIsActive = !isEraseToolActive
-                    setIsEraseToolActive(nextIsActive)
-                    setIsPaintToolActive(false)
-                    setIsSelectToolActive(!nextIsActive)
-                    setIsSpawnToolActive(false)
-                    setIsTestSpawnToolActive(false)
-                    setSelectedMapArea(null)
-                  }}
-                >
-                  Borrar
-                </button>
-                <button
-                  type="button"
-                  className={isSelectToolActive ? 'is-active is-select' : ''}
-                  aria-pressed={isSelectToolActive}
-                  onClick={() => {
-                    setIsSelectToolActive(true)
-                    setIsPaintToolActive(false)
-                    setIsEraseToolActive(false)
-                    setIsSpawnToolActive(false)
-                    setIsTestSpawnToolActive(false)
-                  }}
-                >
-                  Seleccionar
-                </button>
-                <button
-                  type="button"
-                  className={isTestSpawnToolActive ? 'is-active is-test' : ''}
-                  aria-pressed={isTestSpawnToolActive}
-                  onClick={() => {
-                    const nextIsActive = !isTestSpawnToolActive
-                    setIsTestSpawnToolActive(nextIsActive)
-                    setIsPaintToolActive(false)
-                    setIsEraseToolActive(false)
-                    setIsSelectToolActive(!nextIsActive)
-                    setIsSpawnToolActive(false)
-                    setSelectedMapArea(null)
-                  }}
-                >
-                  Test: elegir respawn
-                </button>
-                <small>
-                  {isSpawnToolActive
-                    ? `Spawn seleccionado · ${spawnPoints.length > 0 ? 'reubica el punto actual' : 'elige una celda'}`
-                    : selectedAsset
-                      ? `${formatAssetLabel(selectedAsset.name)} seleccionado · ${isAssetFlippedX ? 'Invertido X' : 'Normal'}`
-                      : 'Selecciona un asset de la paleta'}
-                </small>
-                <small className="edit-room-tool-shortcuts">
-                  W: pintar · D: borrar · S: seleccionar · Del/Backspace: borrar selección · R: invertir X · T: probar/salir · P: debug · ⌘/Ctrl+Z: deshacer · Esc: seleccionar
-                </small>
+                <div className="edit-room-primary-tool-controls">
+                  <button
+                    type="button"
+                    className={isSelectToolActive ? 'is-active is-select' : ''}
+                    aria-label="Seleccionar"
+                    aria-pressed={isSelectToolActive}
+                    data-tool-tooltip="Seleccionar (S)"
+                    onClick={() => {
+                      setIsSelectToolActive(true)
+                      setIsPaintToolActive(false)
+                      setIsEraseToolActive(false)
+                      setIsSpawnToolActive(false)
+                      setIsTestSpawnToolActive(false)
+                    }}
+                  >
+                    <img
+                      className="edit-room-primary-icon is-select-icon"
+                      src={selectToolIconSrc}
+                      alt=""
+                      aria-hidden="true"
+                      draggable={false}
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    className={isPaintToolActive ? 'is-active' : ''}
+                    aria-label="Pintar"
+                    aria-pressed={isPaintToolActive}
+                    data-tool-tooltip="Pintar (W)"
+                    onClick={() => {
+                      const nextIsActive = !isPaintToolActive
+                      setIsPaintToolActive(nextIsActive)
+                      setIsEraseToolActive(false)
+                      setIsSelectToolActive(!nextIsActive)
+                      setIsSpawnToolActive(false)
+                      setIsTestSpawnToolActive(false)
+                      clearEditorSelection()
+                    }}
+                  >
+                    <img
+                      className="edit-room-primary-icon"
+                      src={paintToolIconSrc}
+                      alt=""
+                      aria-hidden="true"
+                      draggable={false}
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    className={isEraseToolActive ? 'is-active is-erase' : ''}
+                    aria-label="Borrar"
+                    aria-pressed={isEraseToolActive}
+                    data-tool-tooltip="Borrar (D)"
+                    onClick={() => {
+                      const nextIsActive = !isEraseToolActive
+                      setIsEraseToolActive(nextIsActive)
+                      setIsPaintToolActive(false)
+                      setIsSelectToolActive(!nextIsActive)
+                      setIsSpawnToolActive(false)
+                      setIsTestSpawnToolActive(false)
+                      clearEditorSelection()
+                    }}
+                  >
+                    <img
+                      className="edit-room-primary-icon"
+                      src={eraseToolIconSrc}
+                      alt=""
+                      aria-hidden="true"
+                      draggable={false}
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    className={isTestSpawnToolActive ? 'is-active is-test' : ''}
+                    aria-label="Elegir punto de aparición para la prueba"
+                    aria-pressed={isTestSpawnToolActive}
+                    data-tool-tooltip="Test (T)"
+                    onClick={() => {
+                      const nextIsActive = !isTestSpawnToolActive
+                      setIsTestSpawnToolActive(nextIsActive)
+                      setIsPaintToolActive(false)
+                      setIsEraseToolActive(false)
+                      setIsSelectToolActive(!nextIsActive)
+                      setIsSpawnToolActive(false)
+                      clearEditorSelection()
+                    }}
+                  >
+                    <img
+                      className="edit-room-primary-icon"
+                      src={testToolIconSrc}
+                      alt=""
+                      aria-hidden="true"
+                      draggable={false}
+                    />
+                  </button>
+                </div>
               </section>
 
               <section className="edit-room-tool-group" aria-label="Herramienta de zoom">
@@ -1516,28 +1966,46 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                   <button
                     type="button"
                     aria-label="Alejar mapa"
-                    title="Alejar mapa"
+                    data-tool-tooltip="Alejar mapa"
                     disabled={mapZoom <= MIN_ZOOM}
                     onClick={() => updateZoom(mapZoom - ZOOM_STEP)}
                   >
-                    −
+                    <img
+                      className="edit-room-zoom-icon"
+                      src={zoomOutIconSrc}
+                      alt=""
+                      aria-hidden="true"
+                      draggable={false}
+                    />
                   </button>
                   <button
                     type="button"
                     aria-label="Restablecer zoom"
-                    title="Restablecer zoom"
+                    data-tool-tooltip="Restablecer zoom (1:1)"
                     onClick={() => updateZoom(1)}
                   >
-                    1:1
+                    <img
+                      className="edit-room-zoom-icon"
+                      src={zoomActualSizeIconSrc}
+                      alt=""
+                      aria-hidden="true"
+                      draggable={false}
+                    />
                   </button>
                   <button
                     type="button"
                     aria-label="Acercar mapa"
-                    title="Acercar mapa"
+                    data-tool-tooltip="Acercar mapa"
                     disabled={mapZoom >= MAX_ZOOM}
                     onClick={() => updateZoom(mapZoom + ZOOM_STEP)}
                   >
-                    +
+                    <img
+                      className="edit-room-zoom-icon"
+                      src={zoomInIconSrc}
+                      alt=""
+                      aria-hidden="true"
+                      draggable={false}
+                    />
                   </button>
                 </div>
               </section>
@@ -1569,59 +2037,168 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
               </form>
 
               <div className="edit-room-layer-list" role="list" aria-label="Capas disponibles">
-                {layers.map((layer) => (
-                  <div
-                    key={layer.id}
-                    className={`edit-room-layer-row${layer.id === activeLayer.id ? ' is-active' : ''}${layer.enabled ? '' : ' is-disabled'}`}
-                    role="listitem"
-                  >
-                    <button
-                      type="button"
-                      className={`edit-room-layer-enabled-toggle${layer.enabled ? ' is-enabled' : ''}`}
-                      aria-label={`${layer.enabled ? 'Deshabilitar' : 'Habilitar'} capa ${layer.name}`}
-                      aria-pressed={layer.enabled}
-                      title={`${layer.enabled ? 'Ocultar' : 'Mostrar'} capa · ${layer.name}`}
-                      onClick={() => toggleLayerEnabled(layer.id)}
+                {layers.map((layer) => {
+                  const layerPlacements = placedAssetsByLayer.get(layer.id) ?? []
+                  const isExpanded = expandedLayerIds.has(layer.id)
+                  const childListId = `edit-room-layer-children-${layer.id}`
+
+                  return (
+                    <div
+                      key={layer.id}
+                      className={`edit-room-layer-node${layer.enabled ? '' : ' is-disabled'}`}
+                      style={getEditorLayerColorStyle(layer.id)}
+                      role="listitem"
                     >
-                      <span aria-hidden="true">{layer.enabled ? '◉' : '○'}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="edit-room-layer-select"
-                      aria-pressed={layer.id === activeLayer.id}
-                      disabled={!layer.enabled}
-                      onClick={() => {
-                        setActiveLayerId(layer.id)
-                        setSelectedMapArea(null)
-                      }}
-                    >
-                      <span className="edit-room-layer-name">{layer.name}</span>
-                      {layer.id === activeLayer.id ? (
-                        <span className="edit-room-layer-mode">: {activeLayerStatusLabel}</span>
+                      <div
+                        className={`edit-room-layer-row${layer.id === activeLayer.id ? ' is-active' : ''}${layer.enabled ? '' : ' is-disabled'}`}
+                      >
+                        <button
+                          type="button"
+                          className={`edit-room-layer-enabled-toggle${layer.enabled ? ' is-enabled' : ''}`}
+                          aria-label={`${layer.enabled ? 'Deshabilitar' : 'Habilitar'} capa ${layer.name}`}
+                          aria-pressed={layer.enabled}
+                          title={`${layer.enabled ? 'Ocultar' : 'Mostrar'} capa · ${layer.name}`}
+                          onClick={() => toggleLayerEnabled(layer.id)}
+                        >
+                          <span aria-hidden="true">{layer.enabled ? '◉' : '○'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="edit-room-layer-disclosure"
+                          aria-label={`${isExpanded ? 'Contraer' : 'Expandir'} capa ${layer.name}, ${layerPlacements.length} elementos`}
+                          aria-expanded={isExpanded}
+                          aria-controls={childListId}
+                          title={`${isExpanded ? 'Contraer' : 'Mostrar'} elementos de ${layer.name}`}
+                          onClick={() => toggleLayerExpanded(layer.id)}
+                        >
+                          <span aria-hidden="true">{isExpanded ? '▾' : '▸'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="edit-room-layer-select"
+                          aria-pressed={layer.id === activeLayer.id}
+                          disabled={!layer.enabled}
+                          onClick={() => {
+                            setActiveLayerId(layer.id)
+                            clearEditorSelection()
+                          }}
+                        >
+                          <span className="edit-room-layer-icon-slot" aria-hidden="true" />
+                          <span className="edit-room-layer-name">{layer.name}</span>
+                          {layer.id === activeLayer.id ? (
+                            <span className="edit-room-layer-mode">: {activeLayerStatusLabel}</span>
+                          ) : null}
+                        </button>
+                        <button
+                          type="button"
+                          className={`edit-room-layer-collider-toggle${layer.collidersEnabled ? ' is-enabled' : ''}`}
+                          aria-label={`${layer.collidersEnabled ? 'Desactivar' : 'Activar'} colliders de ${layer.name}`}
+                          aria-pressed={layer.collidersEnabled}
+                          title={`Colliders ${layer.collidersEnabled ? 'activos' : 'desactivados'} · ${layer.name}`}
+                          onClick={() => toggleLayerColliders(layer.id)}
+                        >
+                          C
+                        </button>
+                        <button
+                          type="button"
+                          className="edit-room-layer-delete"
+                          aria-label={`Eliminar capa ${layer.name}`}
+                          title={layer.required ? 'Capa base del editor' : `Eliminar ${layer.name}`}
+                          disabled={layer.required}
+                          onClick={() => deleteLayer(layer.id)}
+                        >
+                          ×
+                        </button>
+                      </div>
+
+                      {isExpanded ? (
+                        <div
+                          id={childListId}
+                          className="edit-room-layer-children"
+                          role="group"
+                          aria-label={`Elementos de ${layer.name}`}
+                        >
+                          {layerPlacements.length === 0 ? (
+                            <p className="edit-room-layer-empty">Sin elementos</p>
+                          ) : layerPlacements.map((placement, placementIndex) => {
+                            const asset = assetById.get(placement.assetId)
+                            const assetLabel = formatAssetLabel(asset?.name ?? placement.assetId)
+                            const displayName = placement.name ?? assetLabel
+                            const placementKey = getPlacedAssetKey(placement)
+                            const isRenaming = renamingPlacementKey === placementKey
+                            const isSelected = selectedPlacementKeys.has(placementKey)
+                              || (!selectedMapArea?.placementKey
+                                && selectedMapArea?.layerId === layer.id
+                                && isCellInsideArea(placement.cellX, placement.cellY, selectedMapArea)
+                              )
+
+                            return isRenaming ? (
+                              <div
+                                key={placementKey}
+                                className="edit-room-layer-child is-selected is-renaming"
+                                data-editor-placement-key={placementKey}
+                              >
+                                <span className="edit-room-layer-child-icon" aria-hidden="true">
+                                  {placement.flippedX ? '◈' : '◆'}
+                                </span>
+                                <input
+                                  className="edit-room-layer-child-name-input"
+                                  value={placementNameDraft}
+                                  maxLength={80}
+                                  autoFocus
+                                  aria-label={`Nuevo nombre para ${displayName}`}
+                                  onFocus={(event) => event.currentTarget.select()}
+                                  onChange={(event) => setPlacementNameDraft(event.target.value)}
+                                  onBlur={() => finishRenamingPlacement(placement, assetLabel)}
+                                  onKeyDown={(event) => {
+                                    event.stopPropagation()
+                                    if (event.key === 'Enter') {
+                                      event.preventDefault()
+                                      finishRenamingPlacement(placement, assetLabel)
+                                    } else if (event.key === 'Escape') {
+                                      event.preventDefault()
+                                      cancelRenamingPlacement()
+                                    }
+                                  }}
+                                />
+                                <span className="edit-room-layer-child-position">
+                                  X{placement.cellX + 1} Y{placement.cellY + 1}
+                                </span>
+                              </div>
+                            ) : (
+                              <button
+                                key={`${placementKey}-${placementIndex}`}
+                                type="button"
+                                className={`edit-room-layer-child${isSelected ? ' is-selected' : ''}`}
+                                disabled={!layer.enabled}
+                                aria-label={`${displayName}, columna ${placement.cellX + 1}, fila ${placement.cellY + 1}`}
+                                aria-pressed={isSelected}
+                                data-editor-placement-key={placementKey}
+                                title={`${displayName} · X${placement.cellX + 1} Y${placement.cellY + 1}${placement.flippedX ? ' · Invertido X' : ''} · ⌘/Ctrl clic agrega o quita · Shift clic selecciona un rango · Doble clic para renombrar`}
+                                onClick={(event) => selectLayerPlacement(placement, {
+                                  toggle: event.metaKey || event.ctrlKey,
+                                  range: event.shiftKey,
+                                })}
+                                onDoubleClick={(event) => {
+                                  event.preventDefault()
+                                  startRenamingPlacement(placement, assetLabel)
+                                }}
+                              >
+                                <span className="edit-room-layer-child-icon" aria-hidden="true">
+                                  {placement.flippedX ? '◈' : '◆'}
+                                </span>
+                                <span className="edit-room-layer-child-name">{displayName}</span>
+                                <span className="edit-room-layer-child-position">
+                                  X{placement.cellX + 1} Y{placement.cellY + 1}
+                                </span>
+                              </button>
+                            )
+                          })}
+                        </div>
                       ) : null}
-                    </button>
-                    <button
-                      type="button"
-                      className={`edit-room-layer-collider-toggle${layer.collidersEnabled ? ' is-enabled' : ''}`}
-                      aria-label={`${layer.collidersEnabled ? 'Desactivar' : 'Activar'} colliders de ${layer.name}`}
-                      aria-pressed={layer.collidersEnabled}
-                      title={`Colliders ${layer.collidersEnabled ? 'activos' : 'desactivados'} · ${layer.name}`}
-                      onClick={() => toggleLayerColliders(layer.id)}
-                    >
-                      C
-                    </button>
-                    <button
-                      type="button"
-                      className="edit-room-layer-delete"
-                      aria-label={`Eliminar capa ${layer.name}`}
-                      title={layer.required ? 'Capa base del editor' : `Eliminar ${layer.name}`}
-                      disabled={layer.required}
-                      onClick={() => deleteLayer(layer.id)}
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
+                    </div>
+                  )
+                })}
               </div>
             </div>
           </section>

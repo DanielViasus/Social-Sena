@@ -95,6 +95,7 @@ export const roomEditorPlacementSchema = z.object({
   cellX: z.number().int().min(0).max(49),
   cellY: z.number().int().min(0).max(49),
   flippedX: z.boolean(),
+  name: z.string().trim().min(1).max(80).optional(),
 })
 
 export const roomEditorColliderSchema = z.object({

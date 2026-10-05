@@ -343,6 +343,7 @@ export interface RoomEditorPlacementData {
   cellX: number
   cellY: number
   flippedX: boolean
+  name?: string
 }
 
 export interface RoomEditorColliderData {

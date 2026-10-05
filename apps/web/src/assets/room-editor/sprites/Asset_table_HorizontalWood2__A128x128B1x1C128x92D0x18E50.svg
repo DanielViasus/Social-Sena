@@ -1,0 +1,55 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0_772_220120)">
+<rect width="128" height="4" transform="matrix(1 0 0 -1 0 5)" fill="#333333"/>
+<rect width="128" height="4" transform="matrix(1 0 0 -1 0 124)" fill="#333333"/>
+<rect width="128" height="9" transform="matrix(1 0 0 -1 0 120)" fill="#4F311F"/>
+<rect width="128" height="30" transform="matrix(1 0 0 -1 0 107)" fill="#5D3722"/>
+<rect width="128" height="5" transform="matrix(1 0 0 -1 0 77)" fill="#62412D"/>
+<rect width="128" height="67" transform="matrix(1 0 0 -1 0 72)" fill="#714E38"/>
+<rect width="128" height="57" transform="matrix(1 0 0 -1 0 66)" fill="#614331"/>
+<rect width="129" height="4" transform="matrix(1 0 0 -1 -1 111)" fill="#62412D"/>
+<rect width="128" height="2" transform="matrix(1 0 0 -1 0 112)" fill="black" fill-opacity="0.17"/>
+<rect width="128" height="2" transform="matrix(1 0 0 -1 0 108)" fill="black" fill-opacity="0.17"/>
+<rect width="128" height="2" transform="matrix(1 0 0 -1 0 120)" fill="black" fill-opacity="0.17"/>
+<rect width="17" height="21" transform="matrix(1 0 0 -1 -9 103)" fill="black" fill-opacity="0.11"/>
+<rect width="4" height="4" transform="matrix(1 0 0 -1 4 86)" fill="#5D3722"/>
+<rect width="4" height="4" transform="matrix(1 0 0 -1 4 103)" fill="#5D3722"/>
+<rect width="5" height="13" transform="matrix(1 0 0 -1 -3 99)" fill="#5D3722"/>
+<rect width="17" height="21" transform="matrix(1 0 0 -1 21 103)" fill="black" fill-opacity="0.11"/>
+<rect width="4" height="4" transform="matrix(1 0 0 -1 34 86)" fill="#5D3722"/>
+<rect width="4" height="4" transform="matrix(1 0 0 -1 34 103)" fill="#5D3722"/>
+<rect width="4" height="4" transform="matrix(1 0 0 -1 21 103)" fill="#5D3722"/>
+<rect width="4" height="4" transform="matrix(1 0 0 -1 21 86)" fill="#5D3722"/>
+<rect width="5" height="13" transform="matrix(1 0 0 -1 27 99)" fill="#5D3722"/>
+<path d="M62 103H66V92H64H62V103Z" fill="black" fill-opacity="0.11"/>
+<path d="M58 92H70V80H64H58V92Z" fill="black" fill-opacity="0.11"/>
+<rect width="2" height="2" transform="matrix(1 0 0 -1 58 82)" fill="#5D3722"/>
+<rect width="2" height="2" transform="matrix(1 0 0 -1 58 92)" fill="#5D3722"/>
+<rect width="2" height="2" transform="matrix(1 0 0 -1 65 103)" fill="#5D3722"/>
+<rect width="2" height="2" transform="matrix(1 0 0 -1 61 103)" fill="#5D3722"/>
+<rect width="2" height="2" transform="matrix(1 0 0 -1 68 92)" fill="#5D3722"/>
+<rect width="2" height="6" transform="matrix(1 0 0 -1 65 98)" fill="#5D3722"/>
+<rect width="2" height="6" transform="matrix(1 0 0 -1 61 98)" fill="#5D3722"/>
+<rect width="2" height="2" transform="matrix(1 0 0 -1 58 84)" fill="#5D3722"/>
+<rect width="2" height="2" transform="matrix(1 0 0 -1 60 82)" fill="#5D3722"/>
+<rect width="2" height="2" transform="matrix(1 0 0 -1 68 82)" fill="#5D3722"/>
+<rect width="2" height="2" transform="matrix(1 0 0 -1 68 84)" fill="#5D3722"/>
+<rect width="2" height="2" transform="matrix(1 0 0 -1 66 82)" fill="#5D3722"/>
+<rect width="2" height="2" transform="matrix(1 0 0 -1 63 87)" fill="#5D3722"/>
+<rect width="17" height="21" transform="matrix(1 0 0 -1 90 103)" fill="black" fill-opacity="0.11"/>
+<rect width="4" height="4" transform="matrix(1 0 0 -1 103 86)" fill="#5D3722"/>
+<rect width="4" height="4" transform="matrix(1 0 0 -1 103 103)" fill="#5D3722"/>
+<rect width="4" height="4" transform="matrix(1 0 0 -1 90 103)" fill="#5D3722"/>
+<rect width="4" height="4" transform="matrix(1 0 0 -1 90 86)" fill="#5D3722"/>
+<rect width="5" height="13" transform="matrix(1 0 0 -1 96 99)" fill="#5D3722"/>
+<rect width="17" height="21" transform="matrix(1 0 0 -1 120 103)" fill="black" fill-opacity="0.11"/>
+<rect width="4" height="4" transform="matrix(1 0 0 -1 120 103)" fill="#5D3722"/>
+<rect width="4" height="4" transform="matrix(1 0 0 -1 120 86)" fill="#5D3722"/>
+<rect width="5" height="13" transform="matrix(1 0 0 -1 126 99)" fill="#5D3722"/>
+</g>
+<defs>
+<clipPath id="clip0_772_220120">
+<rect width="128" height="128" fill="white"/>
+</clipPath>
+</defs>
+</svg>
