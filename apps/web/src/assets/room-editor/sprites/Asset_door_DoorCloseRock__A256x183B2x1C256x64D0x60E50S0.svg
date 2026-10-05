@@ -1,9 +1,9 @@
-<svg shape-rendering="crispEdges" width="256" height="183" viewBox="0 0 256 183" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg width="256" height="183" viewBox="0 0 256 183" fill="none" xmlns="http://www.w3.org/2000/svg">
 <rect x="56" y="92" width="72" height="77" fill="#A25F44"/>
 <rect x="56" y="169" width="72" height="4" fill="#3D3B38"/>
 <rect x="100" y="92" width="4" height="77" fill="#2A4038" fill-opacity="0.6"/>
 <rect x="92" y="92" width="4" height="77" fill="#2A4038" fill-opacity="0.6"/>
-<rect x="56" y="173" width="72" height="6" fill="#2A4038" fill-opacity="0.6"/>
+<rect x="56" y="173" width="72" height="6" fill="#2E334E" fill-opacity="0.6"/>
 <rect x="96" y="92" width="4" height="77" fill="#3D3B38"/>
 <rect y="115" width="63" height="68" fill="#50534B"/>
 <rect y="123" width="12" height="4" fill="#5A5D55"/>
@@ -138,7 +138,7 @@
 <rect width="72" height="4" transform="matrix(-1 0 0 1 200 169)" fill="#3D3B38"/>
 <rect width="4" height="77" transform="matrix(-1 0 0 1 156 92)" fill="#2A4038" fill-opacity="0.6"/>
 <rect width="4" height="77" transform="matrix(-1 0 0 1 164 92)" fill="#2A4038" fill-opacity="0.6"/>
-<rect width="72" height="6" transform="matrix(-1 0 0 1 200 173)" fill="#2A4038" fill-opacity="0.6"/>
+<rect width="72" height="6" transform="matrix(-1 0 0 1 200 173)" fill="#2E334E" fill-opacity="0.6"/>
 <rect width="4" height="77" transform="matrix(-1 0 0 1 160 92)" fill="#3D3B38"/>
 <rect width="63" height="68" transform="matrix(-1 0 0 1 256 115)" fill="#50534B"/>
 <rect width="12" height="4" transform="matrix(-1 0 0 1 256 123)" fill="#5A5D55"/>
