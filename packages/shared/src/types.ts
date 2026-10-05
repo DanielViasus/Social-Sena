@@ -1,6 +1,7 @@
 import type { RoomEnemyState, RoomObjectTemplate, RoomTemplate } from './rooms/types'
 
 export type Direction = 'up' | 'down' | 'left' | 'right'
+export type PlayerFacing = 'front-right' | 'front-left' | 'back-right' | 'back-left'
 export type SkinColorSelections = Record<string, string>
 
 export const USER_ROLES = ['visitor', 'user', 'mage', 'admin', 'developer'] as const
@@ -185,6 +186,7 @@ export interface Presence {
   level: number
   position: Position
   direction: Direction
+  facing?: PlayerFacing
   moving: boolean
   skinId: string
   skinColors: SkinColorSelections

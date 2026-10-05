@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   interactWithRoomObject,
   type Direction,
+  type PlayerFacing,
   type Position,
   type Presence,
   type RoomObjectTemplate,
@@ -44,6 +45,7 @@ function createPlayer(profile: UserProfile, spawn: Position): Presence {
     level: 1,
     position: spawn,
     direction: 'down',
+    facing: 'front-right',
     moving: false,
     skinId: profile.skinId,
     skinColors: profile.skinColors,
@@ -84,6 +86,26 @@ function resolveDirection(deltaX: number, deltaY: number, fallback: Direction): 
   }
 
   return fallback
+}
+
+function resolveFacing(
+  deltaX: number,
+  deltaY: number,
+  fallback: PlayerFacing = 'front-right',
+): PlayerFacing {
+  if (Math.abs(deltaX) < 0.001 && Math.abs(deltaY) < 0.001) {
+    return fallback
+  }
+
+  const wasFacingLeft = fallback === 'front-left' || fallback === 'back-left'
+  const isLeft = Math.abs(deltaX) < 0.001 ? wasFacingLeft : deltaX < 0
+  const isBack = deltaY < 0 && Math.abs(deltaY) >= Math.abs(deltaX) * 0.65
+
+  if (isBack) {
+    return isLeft ? 'back-left' : 'back-right'
+  }
+
+  return isLeft ? 'front-left' : 'front-right'
 }
 
 export default function EditRoomTestMode({
@@ -223,6 +245,9 @@ export default function EditRoomTestMode({
         direction: isMoving
           ? resolveDirection(directionX, directionY, currentPlayer.direction)
           : currentPlayer.direction,
+        facing: isMoving
+          ? resolveFacing(directionX, directionY, currentPlayer.facing)
+          : currentPlayer.facing,
         moving: didMove,
         animation: didMove ? 'walk' : 'idle',
         destination: didMove

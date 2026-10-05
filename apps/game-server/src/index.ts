@@ -64,6 +64,7 @@ import {
   type Direction,
   type FriendRequestSummary,
   type FriendSummary,
+  type PlayerFacing,
   type PlayerInventory,
   type PlayerProgress,
   type Position,
@@ -368,6 +369,13 @@ function findOrCreateRoomForPartyPlacement(
 
 function hasMovementInput(input: SessionState['movementInput']) {
   return input.up || input.down || input.left || input.right
+}
+
+function getMovementInputVector(input: SessionState['movementInput']) {
+  return {
+    horizontal: (input.right ? 1 : 0) - (input.left ? 1 : 0),
+    vertical: (input.down ? 1 : 0) - (input.up ? 1 : 0),
+  }
 }
 
 function sessionsHasUser(userId: string) {
@@ -1164,6 +1172,7 @@ function buildPresence(
     level: progress.level,
     position: { ...spawnPosition },
     direction: 'down',
+    facing: 'front-right',
     moving: false,
     skinId: profile.skinId,
     skinColors: { ...(profile.skinColors ?? {}) },
@@ -2283,6 +2292,11 @@ function ensureNavigablePlayerPosition(room: RoomState, player: Presence) {
 }
 
 function setPlayerDestination(player: Presence, destination: Position) {
+  player.facing = resolvePlayerFacing(
+    destination.x - player.position.x,
+    destination.y - player.position.y,
+    player.facing,
+  )
   player.destination = destination
   player.direction = resolveDirection(player.position, destination)
   player.animation = `walk-${player.direction}`
@@ -2315,6 +2329,26 @@ function resolveDirection(from: Position, to: Position): Direction {
   }
 
   return deltaY >= 0 ? 'down' : 'up'
+}
+
+function resolvePlayerFacing(
+  deltaX: number,
+  deltaY: number,
+  fallback: PlayerFacing = 'front-right',
+): PlayerFacing {
+  if (Math.abs(deltaX) < 0.001 && Math.abs(deltaY) < 0.001) {
+    return fallback
+  }
+
+  const wasFacingLeft = fallback === 'front-left' || fallback === 'back-left'
+  const isLeft = Math.abs(deltaX) < 0.001 ? wasFacingLeft : deltaX < 0
+  const isBack = deltaY < 0 && Math.abs(deltaY) >= Math.abs(deltaX) * 0.65
+
+  if (isBack) {
+    return isLeft ? 'back-left' : 'back-right'
+  }
+
+  return isLeft ? 'front-left' : 'front-right'
 }
 
 function updateRoute(room: RoomState, player: Presence, target: Position) {
@@ -2354,8 +2388,7 @@ function movePlayerWithKeyboard(room: RoomState, player: Presence, session: Sess
     return
   }
 
-  const horizontal = (session.movementInput.right ? 1 : 0) - (session.movementInput.left ? 1 : 0)
-  const vertical = (session.movementInput.down ? 1 : 0) - (session.movementInput.up ? 1 : 0)
+  const { horizontal, vertical } = getMovementInputVector(session.movementInput)
 
   if (horizontal === 0 && vertical === 0) {
     stopPlayer(player)
@@ -2402,14 +2435,18 @@ function movePlayerWithKeyboard(room: RoomState, player: Presence, session: Sess
     nextPosition = yOnlyPosition
   }
 
+  const didMove = !isSamePosition(nextPosition, player.position)
+  const facingDeltaX = didMove ? nextPosition.x - player.position.x : horizontal
+  const facingDeltaY = didMove ? nextPosition.y - player.position.y : vertical
   const targetDirection = resolveDirection(player.position, {
-    x: player.position.x + horizontal,
-    y: player.position.y + vertical,
+    x: player.position.x + facingDeltaX,
+    y: player.position.y + facingDeltaY,
   })
 
   player.direction = targetDirection
+  player.facing = resolvePlayerFacing(facingDeltaX, facingDeltaY, player.facing)
 
-  if (isSamePosition(nextPosition, player.position)) {
+  if (!didMove) {
     player.moving = false
     player.animation = `idle-${player.direction}`
     return
@@ -2991,7 +3028,18 @@ io.on('connection', (socket) => {
     session.keyboardControlling = hasMovementInput(nextInput)
 
     if (session.keyboardControlling) {
-      stopPlayer(player)
+      const { horizontal, vertical } = getMovementInputVector(nextInput)
+      if (!wasKeyboardControlling || (horizontal === 0 && vertical === 0)) {
+        stopPlayer(player)
+      }
+      if (horizontal !== 0 || vertical !== 0) {
+        player.direction = resolveDirection(player.position, {
+          x: player.position.x + horizontal,
+          y: player.position.y + vertical,
+        })
+        player.facing = resolvePlayerFacing(horizontal, vertical, player.facing)
+        player.animation = `${player.moving ? 'walk' : 'idle'}-${player.direction}`
+      }
       io.to(room.roomId).emit(serverEvents.playerMoved, player)
       return
     }

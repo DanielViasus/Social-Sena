@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { PLAYER_SPEED } from '@social-sena/shared'
 import type {
   EnemyCombatEncounterStatePayload,
+  PlayerFacing,
   Position,
   Presence,
   RoomEnemyTemplate,
@@ -94,7 +95,7 @@ interface AnimatedPlayerPosition {
   y: number
 }
 
-type FacingPose = 'front-right' | 'front-left' | 'back-right' | 'back-left'
+type FacingPose = PlayerFacing
 
 interface WorldRuntimeState {
   now: number
@@ -353,10 +354,27 @@ function resolveFacingPoseFromVector(deltaX: number, deltaY: number): FacingPose
   return isLeft ? 'front-left' : 'front-right'
 }
 
+function resolveFacingPoseFromDirection(
+  direction: Presence['direction'],
+  fallback: FacingPose,
+): FacingPose {
+  const wasFacingLeft = fallback === 'front-left' || fallback === 'back-left'
+
+  switch (direction) {
+    case 'left':
+      return 'front-left'
+    case 'right':
+      return 'front-right'
+    case 'up':
+      return wasFacingLeft ? 'back-left' : 'back-right'
+    case 'down':
+      return wasFacingLeft ? 'front-left' : 'front-right'
+  }
+}
+
 function resolveFacingPose(
   player: Presence,
   fallback: FacingPose,
-  movementVector?: { x: number; y: number },
 ): FacingPose {
   if (player.moving && player.destination) {
     const deltaX = player.destination.x - player.position.x
@@ -367,14 +385,10 @@ function resolveFacingPose(
     }
   }
 
-  if (
-    movementVector &&
-    (Math.abs(movementVector.x) >= 0.001 || Math.abs(movementVector.y) >= 0.001)
-  ) {
-    return resolveFacingPoseFromVector(movementVector.x, movementVector.y)
-  }
-
-  return fallback
+  // El movimiento por teclado no crea un `destination`. El servidor conserva
+  // la pose completa para distinguir, por ejemplo, W+A de W+D aunque ambas
+  // combinaciones tengan `direction: up`.
+  return player.facing ?? resolveFacingPoseFromDirection(player.direction, fallback)
 }
 
 function resolveCameraPosition(
@@ -1211,10 +1225,7 @@ function ReactWorld({
         ) > 0.05
 
         const previousFacing = nextFacingBySession[player.sessionId] ?? 'front-right'
-        nextFacingBySession[player.sessionId] = resolveFacingPose(player, previousFacing, {
-          x: isSelf && player.moving ? predictedDeltaX : deltaX,
-          y: isSelf && player.moving ? predictedDeltaY : deltaY,
-        })
+        nextFacingBySession[player.sessionId] = resolveFacingPose(player, previousFacing)
       })
 
       targetEnemies.forEach((enemyState) => {
