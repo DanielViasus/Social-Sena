@@ -18,6 +18,7 @@ import {
   interactRoomObjectSchema,
   interactWithRoomObject,
   registerRoomTemplate,
+  resolveRoomEntrySpawn,
   inviteToPartySchema,
   joinRoomSchema,
   loadRoomEditorMapSchema,
@@ -2921,8 +2922,15 @@ io.on('connection', (socket) => {
       return
     }
 
+    const previousRoom = previousRoomId ? rooms.get(previousRoomId) : undefined
+    const sourcePath = previousRoom ? `/${previousRoom.template.routeSegment}` : undefined
+    const resolvedSpawnPosition = parsed.data.spawnPosition
+      ?? (transition === 'teleport'
+        ? resolveRoomEntrySpawn(room.template, sourcePath)
+        : undefined)
+
     await removeSessionPresenceFromCurrentRoom(socket, session)
-    await joinSessionToRoom(socket, session, room, parsed.data.spawnPosition)
+    await joinSessionToRoom(socket, session, room, resolvedSpawnPosition)
 
     if (party?.leaderUserId === session.profile.userId && transition !== 'follow-leader') {
       await requestPartyLeaderFollowForPartyMembers(session.profile.userId)

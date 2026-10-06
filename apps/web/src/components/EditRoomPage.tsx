@@ -279,6 +279,48 @@ function normalizeTeleportTargetPath(rawValue: string) {
   }
 }
 
+function parseSpawnSourcePaths(rawValue: string) {
+  const sourceTokens = rawValue
+    .trim()
+    .replace(/^\/all\s*:/i, '/all;')
+    .split(';')
+    .map((value) => value.trim())
+    .filter(Boolean)
+  const normalizedPaths: string[] = []
+
+  for (const sourceToken of sourceTokens) {
+    const normalizedPath = normalizeTeleportTargetPath(sourceToken)
+    if (normalizedPath === null) return null
+    const pathname = normalizedPath.split(/[?#]/, 1)[0] ?? ''
+    if (!pathname) continue
+    if (pathname.length > 240) return null
+    if (!normalizedPaths.some((path) => path.toLowerCase() === pathname.toLowerCase())) {
+      normalizedPaths.push(pathname)
+    }
+    if (normalizedPaths.length > 40) return null
+  }
+
+  return normalizedPaths
+}
+
+function createSpawnPointId(spawnPoints: RoomEditorSpawnPointData[]) {
+  if (!spawnPoints.some((spawnPoint) => spawnPoint.id === DEFAULT_SPAWN_ID)) {
+    return DEFAULT_SPAWN_ID
+  }
+
+  let spawnIndex = 2
+  while (spawnPoints.some((spawnPoint) => spawnPoint.id === `spawn-${spawnIndex}`)) {
+    spawnIndex += 1
+  }
+  return `spawn-${spawnIndex}`
+}
+
+function getSpawnSourcePaths(spawnPoint: RoomEditorSpawnPointData) {
+  return spawnPoint.sourcePaths
+    ?? spawnPoint.entryKey?.split(';').map((path) => path.trim()).filter(Boolean)
+    ?? []
+}
+
 function getObjectKindFromAssetType(assetType: string): RoomObjectKind {
   const normalizedType = assetType.toLocaleLowerCase()
 
@@ -386,7 +428,7 @@ function createPlacedObjectTemplate(
   return {
     id: `editor-object-${placement.layerId}-${placement.cellX}-${placement.cellY}`,
     kind: layerKind[placement.layerId] ?? getObjectKindFromAssetType(asset.category),
-    opacity: 1,
+    opacity: asset.id === TELEPORT_EDITOR_ASSET_ID ? 0 : 1,
     flippedX: placement.flippedX,
     layerOrder: getEditorLayerPriority(placement.layerId),
     ...activeVariant,
@@ -424,7 +466,7 @@ function createPlacedTeleportTemplate(
     height: variant.height,
     fillColor: 0x496a73,
     strokeColor: 0xa8dcdf,
-    opacity: 1,
+    opacity: placement.assetId === TELEPORT_EDITOR_ASSET_ID ? 0 : 1,
     spriteAssetId: placement.assetId === TELEPORT_EDITOR_ASSET_ID ? undefined : placement.assetId,
     collider,
     zIndexRef,
@@ -498,6 +540,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
   const [isSpawnToolActive, setIsSpawnToolActive] = useState(false)
   const [isTestSpawnToolActive, setIsTestSpawnToolActive] = useState(false)
   const [spawnPoints, setSpawnPoints] = useState<RoomEditorSpawnPointData[]>([])
+  const [selectedSpawnId, setSelectedSpawnId] = useState<string | null>(null)
   const [testSpawn, setTestSpawn] = useState<Position | null>(null)
   const [hoveredMapCell, setHoveredMapCell] = useState<MapCellPosition | null>(null)
   const [selectedMapArea, setSelectedMapArea] = useState<SelectedMapArea | null>(null)
@@ -518,6 +561,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
   const clearEditorSelection = useCallback(() => {
     setSelectedMapArea(null)
     setSelectedPlacementKeys(new Set())
+    setSelectedSpawnId(null)
     hierarchySelectionAnchorRef.current = null
   }, [])
 
@@ -691,6 +735,16 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
         return
       }
 
+      if ((key === 'delete' || key === 'backspace') && selectedSpawnId) {
+        event.preventDefault()
+        setSpawnPoints((currentSpawnPoints) => currentSpawnPoints.filter((spawnPoint) => (
+          spawnPoint.id !== selectedSpawnId
+        )))
+        setMapPersistenceMessage('Spawn eliminado')
+        clearEditorSelection()
+        return
+      }
+
       if (
         (key === 'delete' || key === 'backspace')
         && (selectedPlacementKeys.size > 0 || selectedMapArea)
@@ -781,7 +835,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
 
     window.addEventListener('keydown', handleEditorShortcut)
     return () => window.removeEventListener('keydown', handleEditorShortcut)
-  }, [clearEditorSelection, selectedAssetId, selectedMapArea, selectedPlacementKeys, testSpawn])
+  }, [clearEditorSelection, selectedAssetId, selectedMapArea, selectedPlacementKeys, selectedSpawnId, testSpawn])
 
   const placedAssetsByLayer = useMemo(() => {
     const groupedPlacements = new Map<string, PlacedRoomAsset[]>()
@@ -849,6 +903,9 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
   const selectedDetailColliders = selectedDetailPlacement
     ? selectedDetailPlacement.colliders ?? selectedDetailAsset?.colliders ?? []
     : []
+  const selectedSpawnPoint = selectedSpawnId
+    ? spawnPoints.find((spawnPoint) => spawnPoint.id === selectedSpawnId) ?? null
+    : null
   const visiblePlacedAssets = useMemo(() => placedAssets
     .filter((placement) => layerById.get(placement.layerId)?.enabled !== false)
     .sort((left, right) => (
@@ -1246,6 +1303,96 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
     )
   }
 
+  const updateSelectedSpawnPoint = (
+    update: (spawnPoint: RoomEditorSpawnPointData) => RoomEditorSpawnPointData,
+    message: string,
+  ) => {
+    if (!selectedSpawnPoint) return
+
+    setSpawnPoints((currentSpawnPoints) => currentSpawnPoints.map((spawnPoint) => (
+      spawnPoint.id === selectedSpawnPoint.id ? update(spawnPoint) : spawnPoint
+    )))
+    setMapPersistenceMessage(message)
+  }
+
+  const commitSelectedSpawnCoordinate = (axis: 'x' | 'y', rawValue: string) => {
+    if (!selectedSpawnPoint) return 1
+
+    const currentCell = axis === 'x' ? selectedSpawnPoint.cellX : selectedSpawnPoint.cellY
+    const maximumCell = axis === 'x' ? mapGridWidth : mapGridHeight
+    const nextVisibleCell = normalizeEditorInteger(
+      rawValue,
+      1,
+      maximumCell,
+      currentCell + 1,
+    )
+    const nextCell = nextVisibleCell - 1
+    const nextCellX = axis === 'x' ? nextCell : selectedSpawnPoint.cellX
+    const nextCellY = axis === 'y' ? nextCell : selectedSpawnPoint.cellY
+    const overlapsAnotherSpawn = spawnPoints.some((spawnPoint) => (
+      spawnPoint.id !== selectedSpawnPoint.id
+      && spawnPoint.cellX === nextCellX
+      && spawnPoint.cellY === nextCellY
+    ))
+    if (overlapsAnotherSpawn) {
+      setMapPersistenceMessage('Esa celda ya contiene otro Spawn.')
+      return currentCell + 1
+    }
+
+    updateSelectedSpawnPoint(
+      (spawnPoint) => ({
+        ...spawnPoint,
+        cellX: axis === 'x' ? nextCell : spawnPoint.cellX,
+        cellY: axis === 'y' ? nextCell : spawnPoint.cellY,
+      }),
+      `Spawn actualizado · ${axis.toUpperCase()}${nextVisibleCell}`,
+    )
+    return nextVisibleCell
+  }
+
+  const commitSelectedSpawnSourcePaths = (rawValue: string) => {
+    if (!selectedSpawnPoint) return ''
+
+    const normalizedPaths = parseSpawnSourcePaths(rawValue)
+    if (normalizedPaths === null) {
+      setMapPersistenceMessage('Una o más URLs de origen no son válidas.')
+      return getSpawnSourcePaths(selectedSpawnPoint).join(';')
+    }
+
+    const duplicatedPath = normalizedPaths.find((path) => spawnPoints.some((spawnPoint) => (
+      spawnPoint.id !== selectedSpawnPoint.id
+      && getSpawnSourcePaths(spawnPoint).some((candidatePath) => (
+        candidatePath.toLowerCase() === path.toLowerCase()
+      ))
+    )))
+    if (duplicatedPath) {
+      setMapPersistenceMessage(`La URL ${duplicatedPath} ya pertenece a otro Spawn.`)
+      return getSpawnSourcePaths(selectedSpawnPoint).join(';')
+    }
+
+    updateSelectedSpawnPoint(
+      (spawnPoint) => ({
+        ...spawnPoint,
+        entryKey: undefined,
+        sourcePaths: normalizedPaths,
+      }),
+      normalizedPaths.length > 0
+        ? `Orígenes del Spawn actualizados · ${normalizedPaths.join(';')}`
+        : 'Spawn sin URLs de origen',
+    )
+    return normalizedPaths.join(';')
+  }
+
+  const deleteSelectedSpawnPoint = () => {
+    if (!selectedSpawnPoint) return
+
+    setSpawnPoints((currentSpawnPoints) => currentSpawnPoints.filter((spawnPoint) => (
+      spawnPoint.id !== selectedSpawnPoint.id
+    )))
+    setMapPersistenceMessage('Spawn eliminado')
+    clearEditorSelection()
+  }
+
   const createLayer = () => {
     const requestedName = newLayerName.trim()
     const fallbackName = `Capa ${nextLayerIdRef.current}`
@@ -1359,6 +1506,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
       return
     }
 
+    setSelectedSpawnId(null)
     setActiveLayerId(placement.layerId)
     setIsPaintToolActive(false)
     setIsEraseToolActive(false)
@@ -1515,6 +1663,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
   }
 
   const selectPlacementAtCell = (cell: MapCellPosition) => {
+    setSelectedSpawnId(null)
     const candidates: Array<{
       placement: PlacedRoomAsset
       asset: RoomEditorAsset
@@ -1617,16 +1766,45 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
     }
 
     if (isSpawnToolActive) {
-      setSpawnPoints([{
-        id: DEFAULT_SPAWN_ID,
+      const existingSpawn = spawnPoints.find((spawnPoint) => (
+        spawnPoint.cellX === area.endX && spawnPoint.cellY === area.endY
+      ))
+      if (existingSpawn) {
+        setSelectedSpawnId(existingSpawn.id)
+        setMapPersistenceMessage('Ese punto ya contiene un Spawn')
+        return
+      }
+      if (spawnPoints.length >= 20) {
+        setMapPersistenceMessage('La escena admite un máximo de 20 Spawns')
+        return
+      }
+
+      const spawnPoint: RoomEditorSpawnPointData = {
+        id: createSpawnPointId(spawnPoints),
         cellX: area.endX,
         cellY: area.endY,
-      }])
-      setMapPersistenceMessage('Spawn asignado · guarda la escena para conservarlo')
+        sourcePaths: spawnPoints.length === 0 ? ['/all'] : [],
+      }
+      setSpawnPoints((currentSpawnPoints) => [...currentSpawnPoints, spawnPoint])
+      setSelectedMapArea(null)
+      setSelectedPlacementKeys(new Set())
+      hierarchySelectionAnchorRef.current = null
+      setSelectedSpawnId(spawnPoint.id)
+      setMapPersistenceMessage(
+        spawnPoints.length === 0
+          ? 'Spawn general asignado a /all'
+          : 'Spawn agregado · configura sus URLs de origen en Detalles',
+      )
       return
     }
 
     if (isEraseToolActive) {
+      if (
+        selectedSpawnPoint
+        && isCellInsideArea(selectedSpawnPoint.cellX, selectedSpawnPoint.cellY, area)
+      ) {
+        setSelectedSpawnId(null)
+      }
       setSpawnPoints((currentSpawnPoints) => currentSpawnPoints.filter((spawnPoint) => (
         !isCellInsideArea(spawnPoint.cellX, spawnPoint.cellY, area)
       )))
@@ -1923,13 +2101,17 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
               <span>Detalles</span>
               {selectedPlacementKeys.size > 1 ? (
                 <output>{selectedPlacementKeys.size} seleccionados</output>
+              ) : selectedSpawnPoint ? (
+                <output>Spawn</output>
               ) : null}
             </header>
             <div
               className="edit-room-panel-body edit-room-details-body"
               style={selectedDetailPlacement
                 ? getEditorLayerColorStyle(selectedDetailPlacement.layerId)
-                : undefined}
+                : selectedSpawnPoint
+                  ? ({ '--edit-room-layer-color': '#68e7de' } as CSSProperties)
+                  : undefined}
             >
               {selectedDetailPlacement ? (
                 <div
@@ -2152,6 +2334,109 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                     )}
                   </section>
                 </div>
+              ) : selectedSpawnPoint ? (
+                <div
+                  key={`${selectedSpawnPoint.id}-${selectedSpawnPoint.cellX}-${selectedSpawnPoint.cellY}-${getSpawnSourcePaths(selectedSpawnPoint).join(';')}`}
+                  className="edit-room-details-content edit-room-spawn-details"
+                >
+                  <dl className="edit-room-details-fields">
+                    <div className="edit-room-details-field is-name">
+                      <dt>Salas de origen</dt>
+                      <dd>
+                        <input
+                          type="text"
+                          className="edit-room-details-input"
+                          defaultValue={getSpawnSourcePaths(selectedSpawnPoint).join(';')}
+                          maxLength={2048}
+                          placeholder="/all;/SmallRoom;/castle"
+                          aria-label="URLs de origen del Spawn"
+                          onBlur={(event) => {
+                            event.currentTarget.value = commitSelectedSpawnSourcePaths(
+                              event.currentTarget.value,
+                            )
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault()
+                              event.currentTarget.blur()
+                            } else if (event.key === 'Escape') {
+                              event.preventDefault()
+                              event.currentTarget.value = getSpawnSourcePaths(selectedSpawnPoint).join(';')
+                              event.currentTarget.blur()
+                            }
+                          }}
+                        />
+                      </dd>
+                    </div>
+                    <div className="edit-room-details-field">
+                      <dt>Posición X</dt>
+                      <dd>
+                        <input
+                          type="number"
+                          className="edit-room-details-input"
+                          min="1"
+                          max={mapGridWidth}
+                          defaultValue={selectedSpawnPoint.cellX + 1}
+                          aria-label="Posición X del Spawn"
+                          onBlur={(event) => {
+                            event.currentTarget.value = String(
+                              commitSelectedSpawnCoordinate('x', event.currentTarget.value),
+                            )
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault()
+                              event.currentTarget.blur()
+                            } else if (event.key === 'Escape') {
+                              event.preventDefault()
+                              event.currentTarget.value = String(selectedSpawnPoint.cellX + 1)
+                              event.currentTarget.blur()
+                            }
+                          }}
+                        />
+                      </dd>
+                    </div>
+                    <div className="edit-room-details-field">
+                      <dt>Posición Y</dt>
+                      <dd>
+                        <input
+                          type="number"
+                          className="edit-room-details-input"
+                          min="1"
+                          max={mapGridHeight}
+                          defaultValue={selectedSpawnPoint.cellY + 1}
+                          aria-label="Posición Y del Spawn"
+                          onBlur={(event) => {
+                            event.currentTarget.value = String(
+                              commitSelectedSpawnCoordinate('y', event.currentTarget.value),
+                            )
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault()
+                              event.currentTarget.blur()
+                            } else if (event.key === 'Escape') {
+                              event.preventDefault()
+                              event.currentTarget.value = String(selectedSpawnPoint.cellY + 1)
+                              event.currentTarget.blur()
+                            }
+                          }}
+                        />
+                      </dd>
+                    </div>
+                  </dl>
+
+                  <p className="edit-room-spawn-rule">
+                    Separa las rutas con ;. Una coincidencia exacta tiene prioridad sobre /all.
+                  </p>
+                  <button
+                    type="button"
+                    className="edit-room-spawn-delete"
+                    onClick={deleteSelectedSpawnPoint}
+                  >
+                    Eliminar Spawn
+                  </button>
+                </div>
               ) : (
                 <p className="edit-room-details-empty">Selecciona un elemento para ver sus detalles.</p>
               )}
@@ -2175,7 +2460,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                   className={`edit-room-asset-tile edit-room-spawn-asset${isSpawnToolActive ? ' is-selected' : ''}`}
                   aria-label="Asignar punto de aparición de jugadores"
                   aria-pressed={isSpawnToolActive}
-                  title="Spawn de jugadores · máximo 1 por escena"
+                  title="Spawns de jugadores · máximo 20 por escena"
                   onClick={() => {
                     setSelectedAssetId(null)
                     setIsSpawnToolActive(true)
@@ -2186,12 +2471,10 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                     clearEditorSelection()
                   }}
                 >
-                  <span className="edit-room-asset-preview edit-room-spawn-preview" aria-hidden="true">
-                    <span>◆</span>
-                  </span>
+                  <span className="edit-room-asset-preview edit-room-spawn-preview" aria-hidden="true" />
                   <span className="edit-room-asset-name">Spawn</span>
                   <span className="edit-room-asset-size">
-                    {spawnPoints.length > 0 ? 'Ubicado · 1 máximo' : 'Sin ubicar · 1 máximo'}
+                    {spawnPoints.length} ubicados · máximo 20
                   </span>
                 </button>
                 <button
@@ -2212,9 +2495,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                     clearEditorSelection()
                   }}
                 >
-                  <span className="edit-room-asset-preview edit-room-teleport-preview" aria-hidden="true">
-                    <span>⇢</span>
-                  </span>
+                  <span className="edit-room-asset-preview edit-room-teleport-preview" aria-hidden="true" />
                   <span className="edit-room-asset-name">Teleport</span>
                   <span className="edit-room-asset-size">1×1 celda · múltiples por sala</span>
                 </button>
@@ -2359,18 +2640,32 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                   {visiblePlacedAssets.map(renderPlacedAsset)}
                   <span className="edit-room-grid-guide-overlay" aria-hidden="true" />
                   {spawnPoints.map((spawnPoint) => (
-                    <span
+                    <button
+                      type="button"
                       key={spawnPoint.id}
-                      className="edit-room-spawn-marker"
+                      className={`edit-room-spawn-marker${selectedSpawnId === spawnPoint.id ? ' is-selected' : ''}`}
                       style={{
                         left: `${spawnPoint.cellX * 128}px`,
                         top: `${spawnPoint.cellY * 128}px`,
+                        pointerEvents: isSelectToolActive ? 'auto' : 'none',
                       }}
-                      title="Punto de aparición de jugadores"
-                    >
-                      <span aria-hidden="true">◆</span>
-                      <strong>SPAWN</strong>
-                    </span>
+                      aria-label={`Seleccionar Spawn en X${spawnPoint.cellX + 1} Y${spawnPoint.cellY + 1}`}
+                      aria-pressed={selectedSpawnId === spawnPoint.id}
+                      title={`Spawn · ${getSpawnSourcePaths(spawnPoint).join(';') || 'sin URLs de origen'}`}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setIsPaintToolActive(false)
+                        setIsEraseToolActive(false)
+                        setIsSelectToolActive(true)
+                        setIsSpawnToolActive(false)
+                        setIsTestSpawnToolActive(false)
+                        setSelectedMapArea(null)
+                        setSelectedPlacementKeys(new Set())
+                        hierarchySelectionAnchorRef.current = null
+                        setSelectedSpawnId(spawnPoint.id)
+                      }}
+                    />
                   ))}
                   {isSpawnToolActive && hoveredMapCell ? (
                     <span
@@ -2457,10 +2752,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                       }}
                       aria-hidden="true"
                     >
-                      {!draggedMapArea ? (
-                        selectedAsset.id === TELEPORT_EDITOR_ASSET_ID ? (
-                          <span className="edit-room-teleport-paint-preview">⇢</span>
-                        ) : (
+                      {!draggedMapArea && selectedAsset.id !== TELEPORT_EDITOR_ASSET_ID ? (
                           <img
                             className="edit-room-paint-preview-sprite"
                             src={selectedAsset.url}
@@ -2472,7 +2764,6 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                               transform: isAssetFlippedX ? 'scaleX(-1)' : undefined,
                             }}
                           />
-                        )
                       ) : null}
                     </span>
                   ) : null}

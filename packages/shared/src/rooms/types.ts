@@ -208,8 +208,15 @@ export interface RoomWorldTemplate {
   width: number
   height: number
   spawn: Position
+  entrySpawns?: RoomEntrySpawnTemplate[]
   backgroundColor: number
   gridColor: number
+}
+
+export interface RoomEntrySpawnTemplate {
+  id: string
+  position: Position
+  sourcePaths: string[]
 }
 
 export interface RoomTemplate {

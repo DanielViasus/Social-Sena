@@ -2663,7 +2663,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       }
     }
 
-    transitionToRoom(targetTemplate.id, targetTemplate.world.spawn)
+    transitionToRoom(targetTemplate.id)
   })
 
   const handleEnemyTouchInteract = useEffectEvent((enemyTemplate: RoomEnemyTemplate) => {

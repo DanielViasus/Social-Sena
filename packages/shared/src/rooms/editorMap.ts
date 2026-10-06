@@ -15,6 +15,29 @@ const LAYER_PRIORITY: Record<string, number> = {
   teleports: 4,
 }
 
+function normalizeEntryPath(path: string) {
+  const pathname = path.split(/[?#]/, 1)[0]?.trim() ?? ''
+  if (!pathname) return ''
+  const withLeadingSlash = pathname.startsWith('/') ? pathname : `/${pathname}`
+  return (withLeadingSlash.replace(/\/+$/, '') || '/').toLowerCase()
+}
+
+export function resolveRoomEntrySpawn(template: RoomTemplate, sourcePath?: string) {
+  const entrySpawns = template.world.entrySpawns ?? []
+  const normalizedSourcePath = sourcePath ? normalizeEntryPath(sourcePath) : ''
+  const exactSpawn = normalizedSourcePath
+    ? entrySpawns.find((entrySpawn) => entrySpawn.sourcePaths.some((path) => (
+        normalizeEntryPath(path) === normalizedSourcePath
+      )))
+    : undefined
+  const fallbackSpawn = entrySpawns.find((entrySpawn) => entrySpawn.sourcePaths.some((path) => (
+    normalizeEntryPath(path) === '/all'
+  )))
+  const resolvedPosition = exactSpawn?.position ?? fallbackSpawn?.position ?? template.world.spawn
+
+  return { ...resolvedPosition }
+}
+
 function resolveKind(layerId: string, category: string): RoomObjectKind {
   if (layerId === 'floor') return 'floor'
   if (layerId === 'walls') return 'wall'
@@ -169,7 +192,7 @@ export function createRoomTemplateFromEditorMap(map: SavedRoomEditorMap): RoomTe
     return [{
       id: `published-${placement.layerId}-${placement.cellX}-${placement.cellY}`,
       kind: resolveKind(placement.layerId, asset.category),
-      opacity: 1,
+      opacity: placement.assetId === 'component-teleport' ? 0 : 1,
       flippedX: placement.flippedX,
       layerOrder: LAYER_PRIORITY[placement.layerId] ?? 2,
       ...activeObjectProperties,
@@ -240,13 +263,23 @@ export function createRoomTemplateFromEditorMap(map: SavedRoomEditorMap): RoomTe
     }]
   })
 
-  const defaultSpawn = map.document.spawnPoints.find((spawnPoint) => spawnPoint.id === 'default')
-    ?? map.document.spawnPoints[0]
-  const spawn = defaultSpawn
-    ? {
-        x: Math.min(map.document.gridWidth - 1, defaultSpawn.cellX) * 128 + 64,
-        y: Math.min(map.document.gridHeight - 1, defaultSpawn.cellY) * 128 + 96,
-      }
+  const entrySpawns = map.document.spawnPoints.map((spawnPoint) => ({
+    id: spawnPoint.id,
+    position: {
+      x: Math.min(map.document.gridWidth - 1, spawnPoint.cellX) * 128 + 64,
+      y: Math.min(map.document.gridHeight - 1, spawnPoint.cellY) * 128 + 96,
+    },
+    sourcePaths: spawnPoint.sourcePaths
+      ?? spawnPoint.entryKey?.split(';').map((path) => path.trim()).filter(Boolean)
+      ?? [],
+  }))
+  const defaultEntrySpawn = entrySpawns.find((entrySpawn) => (
+    entrySpawn.sourcePaths.some((path) => normalizeEntryPath(path) === '/all')
+  ))
+    ?? entrySpawns.find((entrySpawn) => entrySpawn.id === 'default')
+    ?? entrySpawns[0]
+  const spawn = defaultEntrySpawn
+    ? { ...defaultEntrySpawn.position }
     : { x: 64, y: 64 }
 
   return {
@@ -258,6 +291,7 @@ export function createRoomTemplateFromEditorMap(map: SavedRoomEditorMap): RoomTe
       width: map.document.gridWidth * 128,
       height: map.document.gridHeight * 128,
       spawn,
+      entrySpawns,
       backgroundColor: 0x3a3a3a,
       gridColor: 0x666666,
     },

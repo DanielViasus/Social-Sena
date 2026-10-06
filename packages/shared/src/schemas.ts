@@ -167,6 +167,9 @@ export const roomEditorSpawnPointSchema = z.object({
   cellX: z.number().int().min(0).max(49),
   cellY: z.number().int().min(0).max(49),
   entryKey: z.string().trim().min(1).max(80).optional(),
+  sourcePaths: z.array(
+    z.string().trim().startsWith('/').min(1).max(240),
+  ).max(40).optional(),
 })
 
 export const roomEditorDocumentSchema = z.object({
@@ -176,8 +179,7 @@ export const roomEditorDocumentSchema = z.object({
   layers: z.array(roomEditorLayerSchema).min(1).max(40),
   placements: z.array(roomEditorPlacementSchema).max(10000),
   assets: z.array(roomEditorAssetSchema).max(1000).default([]),
-  // Se conserva como colección para admitir varias entradas en el futuro.
-  // El editor actual limita la creación a un único punto predeterminado.
+  // Una escena puede resolver distintos puntos de entrada según la sala de origen.
   spawnPoints: z.array(roomEditorSpawnPointSchema).max(20).default([]),
 })
 

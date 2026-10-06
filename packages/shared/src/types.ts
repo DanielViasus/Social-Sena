@@ -390,6 +390,7 @@ export interface RoomEditorSpawnPointData {
   cellX: number
   cellY: number
   entryKey?: string
+  sourcePaths?: string[]
 }
 
 export interface RoomEditorDocument {

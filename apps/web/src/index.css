@@ -5401,6 +5401,32 @@ button {
   padding: 8px;
 }
 
+.edit-room-spawn-rule {
+  margin: 0;
+  color: #9da7a7;
+  font-size: 0.34rem;
+  line-height: 1.6;
+}
+
+.edit-room-spawn-delete {
+  justify-self: start;
+  min-height: 30px;
+  padding: 5px 9px;
+  color: #451717;
+  font: inherit;
+  font-size: 0.37rem;
+  background: #c98d8d;
+  border: 2px solid;
+  border-color: #f0caca #6f3f3f #6f3f3f #f0caca;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.edit-room-spawn-delete:active {
+  border-color: #6f3f3f #f0caca #f0caca #6f3f3f;
+  transform: translate(1px, 1px);
+}
+
 .edit-room-assets-empty {
   margin: 16px;
   color: #9d9d9d;
@@ -5513,16 +5539,7 @@ button {
 }
 
 .edit-room-spawn-preview {
-  display: grid;
-  place-items: center;
-  color: #d8fbff;
-  background: radial-gradient(circle, #4cb7c3 0 20%, #22535d 21% 42%, #242b2d 43%);
-}
-
-.edit-room-spawn-preview > span {
-  font-size: 1.35rem;
-  line-height: 1;
-  filter: drop-shadow(0 3px 0 #102d33);
+  color: transparent;
 }
 
 .edit-room-spawn-asset.is-selected {
@@ -5531,18 +5548,7 @@ button {
 }
 
 .edit-room-teleport-preview {
-  display: grid;
-  place-items: center;
-  color: #d9f8f5;
-  background:
-    radial-gradient(circle, rgba(104, 220, 215, 0.88) 0 16%, rgba(55, 130, 137, 0.92) 17% 34%, transparent 35%),
-    #202b2d;
-}
-
-.edit-room-teleport-preview > span {
-  font-size: 1.25rem;
-  line-height: 1;
-  filter: drop-shadow(0 3px 0 #173e42);
+  color: transparent;
 }
 
 .edit-room-teleport-asset.is-selected {
@@ -5855,30 +5861,22 @@ button {
   z-index: 110;
   width: 128px;
   height: 128px;
+  padding: 0;
   display: grid;
   place-items: center;
-  align-content: center;
-  gap: 8px;
-  color: #e7ffff;
-  background: radial-gradient(circle, rgba(66, 205, 196, 0.32) 0 22%, transparent 23%);
+  background: transparent;
+  border: 0;
   outline: 3px dashed rgba(104, 231, 222, 0.9);
   outline-offset: -7px;
-  pointer-events: none;
+  font: inherit;
+  cursor: pointer;
+  pointer-events: auto;
 }
 
-.edit-room-spawn-marker > span {
-  font-size: 1.3rem;
-  line-height: 1;
-  filter: drop-shadow(0 3px 0 #184745);
-}
-
-.edit-room-spawn-marker > strong {
-  padding: 4px 6px;
-  color: #dffffd;
-  font-size: 0.34rem;
-  letter-spacing: 0.08em;
-  background: rgba(18, 58, 57, 0.88);
-  border: 1px solid #8ce8e2;
+.edit-room-spawn-marker.is-selected {
+  background: rgba(103, 244, 234, 0.12);
+  outline-color: #efffff;
+  box-shadow: inset 0 0 0 5px rgba(97, 147, 145, 0.52);
 }
 
 .edit-room-paint-preview-sprite {
@@ -5891,18 +5889,6 @@ button {
   background-repeat: no-repeat;
   image-rendering: pixelated;
   transform-origin: center;
-}
-
-.edit-room-teleport-paint-preview {
-  position: absolute;
-  inset: 8px;
-  display: grid;
-  place-items: center;
-  color: rgba(217, 248, 245, 0.88);
-  font-size: 2rem;
-  line-height: 1;
-  background: radial-gradient(circle, rgba(97, 147, 145, 0.72) 0 34%, rgba(32, 61, 65, 0.52) 35% 56%, transparent 57%);
-  filter: drop-shadow(0 4px 0 rgba(23, 62, 66, 0.72));
 }
 
 .edit-room-tools-body {
