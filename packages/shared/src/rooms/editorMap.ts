@@ -3,6 +3,7 @@ import type {
   RoomObjectInteractionVariantTemplate,
   RoomObjectKind,
   RoomObjectTemplate,
+  RoomTeleportTemplate,
   RoomTemplate,
 } from './types'
 
@@ -33,14 +34,16 @@ function createObjectVariant(
   const usesBottomCenterAnchor = asset.frameWidth > 128 || asset.frameHeight > 128
   const occupiedWidth = asset.occupiedColumns * 128
   const occupiedHeight = asset.occupiedRows * 128
+  const placementColliders = placement.colliders ?? asset.colliders
   const colliders = collidersEnabled
-    ? asset.colliders.map((collider) => ({
+    ? placementColliders.map((collider) => ({
         ...collider,
         offsetX: placement.flippedX ? -collider.offsetX : collider.offsetX,
       }))
     : []
   const collider = colliders[0]
-  const warningArea = placement.layerId === 'doors'
+  const isInteractablePlacement = placement.layerId === 'doors' || placement.layerId === 'teleports'
+  const warningArea = isInteractablePlacement
     ? {
         ...(asset.warningArea ?? {
           width: (asset.occupiedColumns + 4) * 128,
@@ -53,7 +56,7 @@ function createObjectVariant(
           : asset.warningArea?.offsetX ?? 0,
       }
     : undefined
-  const interactionArea = placement.layerId === 'doors'
+  const interactionArea = isInteractablePlacement
     ? {
         ...(asset.interactionArea ?? {
           width: (asset.occupiedColumns + 2) * 128,
@@ -66,7 +69,7 @@ function createObjectVariant(
           : asset.interactionArea?.offsetX ?? 0,
       }
     : undefined
-  const interactionIconContainer = placement.layerId === 'doors'
+  const interactionIconContainer = isInteractablePlacement
     ? {
         ...(asset.interactionIconContainer ?? {
           width: 128,
@@ -145,6 +148,8 @@ export function createRoomTemplateFromEditorMap(map: SavedRoomEditorMap): RoomTe
   const assets = new Map(map.document.assets.map((asset) => [asset.id, asset]))
   const layers = new Map(map.document.layers.map((layer) => [layer.id, layer]))
   const objects = map.document.placements.flatMap((placement): RoomObjectTemplate[] => {
+    if (placement.layerId === 'teleports') return []
+
     const asset = assets.get(placement.assetId)
     if (!asset) return []
     const layer = layers.get(placement.layerId)
@@ -170,6 +175,68 @@ export function createRoomTemplateFromEditorMap(map: SavedRoomEditorMap): RoomTe
       ...activeObjectProperties,
       interactionState: asset.interactionState === undefined ? undefined : variantState,
       interactionVariants,
+    }]
+  })
+
+  const teleports = map.document.placements.flatMap((placement): RoomTeleportTemplate[] => {
+    if (placement.layerId !== 'teleports' || !placement.teleportTargetPath) return []
+
+    const asset = assets.get(placement.assetId)
+    if (!asset) return []
+    const layer = layers.get(placement.layerId)
+    if (layer?.enabled === false) return []
+
+    const variant = createObjectVariant(
+      placement,
+      asset,
+      layer?.collidersEnabled !== false,
+    )
+    const iconContainer = variant.interactionIconContainer
+    const centerToBottomOffset = variant.height / 2
+    const collider = variant.collider
+      ? { ...variant.collider, offsetY: variant.collider.offsetY - centerToBottomOffset }
+      : undefined
+    const zIndexRef = variant.zIndexRef
+      ? { ...variant.zIndexRef, offsetY: variant.zIndexRef.offsetY - centerToBottomOffset }
+      : undefined
+
+    return [{
+      entityType: 'teleport',
+      id: `published-teleport-${placement.cellX}-${placement.cellY}`,
+      label: placement.name,
+      x: variant.x,
+      y: variant.y + centerToBottomOffset,
+      width: variant.width,
+      height: variant.height,
+      fillColor: 0x496a73,
+      strokeColor: 0xa8dcdf,
+      opacity: 1,
+      spriteAssetId: placement.assetId === 'component-teleport' ? undefined : placement.assetId,
+      collider,
+      zIndexRef,
+      warningArea: variant.warningArea
+        ? { ...variant.warningArea, offsetY: variant.warningArea.offsetY - centerToBottomOffset }
+        : undefined,
+      interactionArea: variant.interactionArea
+        ? { ...variant.interactionArea, offsetY: variant.interactionArea.offsetY - centerToBottomOffset }
+        : undefined,
+      iconWarningAssetIds: [
+        'room-editor-pop-alert-0',
+        'room-editor-pop-alert-1',
+        'room-editor-pop-alert-2',
+        'room-editor-pop-alert-3',
+      ],
+      iconInteractionAssetIds: [
+        'room-editor-pop-interaction-0',
+        'room-editor-pop-interaction-1',
+      ],
+      iconFrameDurationMs: 600,
+      iconOffsetX: iconContainer?.offsetX ?? 0,
+      iconOffsetY: (iconContainer?.offsetY ?? -129) - centerToBottomOffset,
+      iconWidth: iconContainer?.width ?? 128,
+      iconHeight: iconContainer?.height ?? 129,
+      interactionId: `editor-teleport-${placement.cellX}-${placement.cellY}`,
+      teleportTarget: { routePath: placement.teleportTargetPath },
     }]
   })
 
@@ -204,7 +271,7 @@ export function createRoomTemplateFromEditorMap(map: SavedRoomEditorMap): RoomTe
     },
     objects,
     npcs: [],
-    teleports: [],
+    teleports,
     enemies: [],
   }
 }

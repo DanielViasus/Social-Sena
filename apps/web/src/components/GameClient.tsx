@@ -4,8 +4,11 @@ import {
   clientEvents,
   serverEvents,
   DEFAULT_AUDIO_SETTINGS,
+  createRoomTemplateFromEditorMap,
   getRoomTemplateById,
+  getRoomTemplateByRoute,
   normalizeAudioSettings,
+  registerRoomTemplate,
   type ActivityNoticePayload,
   type AudioSettings,
   type ChatMessage,
@@ -28,6 +31,7 @@ import {
   type RoomEnemiesStatePayload,
   type RoomObjectStateChangedPayload,
   type RoomState,
+  type SavedRoomEditorMap,
   type SkinColorSelections,
   type SocialStatePayload,
   type RoomTransitionRequestedPayload,
@@ -2614,6 +2618,54 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
   })
 
+  const transitionToRoutePath = useEffectEvent(async (routePath: string) => {
+    let targetUrl: URL
+    try {
+      targetUrl = new URL(routePath, window.location.origin)
+    } catch {
+      enqueueActivityNotice('Teleport no disponible', 'La URL de destino no es válida.')
+      return
+    }
+
+    if (targetUrl.origin !== window.location.origin) {
+      enqueueActivityNotice('Teleport no disponible', 'El destino debe pertenecer a este juego.')
+      return
+    }
+
+    const normalizedPath = targetUrl.pathname.replace(/\/+$/, '') || '/'
+    const routeSegment = normalizedPath.split('/').filter(Boolean)[0]
+    if (!routeSegment) {
+      enqueueActivityNotice('Teleport no disponible', 'La URL de destino está incompleta.')
+      return
+    }
+
+    let targetTemplate = getRoomTemplateByRoute(routeSegment)
+    if (!targetTemplate || targetTemplate.id.startsWith('editor-map-')) {
+      try {
+        const endpoint = new URL('/api/editor-rooms/resolve', SERVER_URL)
+        endpoint.searchParams.set('path', normalizedPath)
+        const response = await fetch(endpoint)
+        const result = response.ok
+          ? await response.json() as { ok: boolean; map?: SavedRoomEditorMap }
+          : null
+
+        if (!result?.ok || !result.map) {
+          enqueueActivityNotice('Teleport no disponible', 'La sala de destino no existe o no está publicada.')
+          return
+        }
+
+        targetTemplate = createRoomTemplateFromEditorMap(result.map)
+        registerRoomTemplate(targetTemplate)
+      } catch (error) {
+        console.warn('[teleport] No fue posible resolver la sala de destino.', error)
+        enqueueActivityNotice('Teleport no disponible', 'No fue posible cargar la sala de destino.')
+        return
+      }
+    }
+
+    transitionToRoom(targetTemplate.id, targetTemplate.world.spawn)
+  })
+
   const handleEnemyTouchInteract = useEffectEvent((enemyTemplate: RoomEnemyTemplate) => {
     const socket = socketRef.current
     if (
@@ -2677,7 +2729,12 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     }
 
     if (interactable.teleportTarget) {
-      transitionToRoom(interactable.teleportTarget.templateId, interactable.teleportTarget.position)
+      const targetRoutePath = interactable.teleportTarget.routePath
+      if (typeof targetRoutePath === 'string') {
+        void transitionToRoutePath(targetRoutePath)
+      } else {
+        transitionToRoom(interactable.teleportTarget.templateId, interactable.teleportTarget.position)
+      }
       return
     }
 

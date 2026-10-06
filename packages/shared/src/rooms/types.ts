@@ -23,10 +23,17 @@ export interface RoomInteractionAreaTemplate {
   height: number
 }
 
-export interface RoomTeleportTargetTemplate {
-  templateId: string
-  position?: Position
-}
+export type RoomTeleportTargetTemplate =
+  | {
+      templateId: string
+      position?: Position
+      routePath?: never
+    }
+  | {
+      routePath: string
+      templateId?: never
+      position?: Position
+    }
 
 export interface RoomSpriteFrameTemplate {
   key: string

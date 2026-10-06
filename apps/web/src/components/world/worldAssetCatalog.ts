@@ -21,6 +21,12 @@ import npcAlert2 from '../../assets/npc/icons/alert/ALERT_2.svg'
 import npcAlert3 from '../../assets/npc/icons/alert/ALERT_3.svg'
 import npcInteractionE0 from '../../assets/npc/icons/interaction/INTERACTION_E_0.svg'
 import npcInteractionE1 from '../../assets/npc/icons/interaction/INTERACTION_E_1.svg'
+import roomEditorPopAlert0 from '../../assets/room-editor/sprites/POP_ALERT_0.svg'
+import roomEditorPopAlert1 from '../../assets/room-editor/sprites/POP_ALERT_1.svg'
+import roomEditorPopAlert2 from '../../assets/room-editor/sprites/POP_ALERT_2.svg'
+import roomEditorPopAlert3 from '../../assets/room-editor/sprites/POP_ALERT_3.svg'
+import roomEditorPopInteraction0 from '../../assets/room-editor/sprites/POP_INTERACTION_0.svg'
+import roomEditorPopInteraction1 from '../../assets/room-editor/sprites/POP_INTERACTION_1.svg'
 
 const roomEditorSpriteModules = import.meta.glob<string>(
   '../../assets/room-editor/sprites/Asset_*',
@@ -73,6 +79,12 @@ export const NPC_SPRITES: Record<string, string> = {
   'npc-alert-3': npcAlert3,
   'npc-interaction-e-0': npcInteractionE0,
   'npc-interaction-e-1': npcInteractionE1,
+  'room-editor-pop-alert-0': roomEditorPopAlert0,
+  'room-editor-pop-alert-1': roomEditorPopAlert1,
+  'room-editor-pop-alert-2': roomEditorPopAlert2,
+  'room-editor-pop-alert-3': roomEditorPopAlert3,
+  'room-editor-pop-interaction-0': roomEditorPopInteraction0,
+  'room-editor-pop-interaction-1': roomEditorPopInteraction1,
 }
 
 export const ENEMY_SPRITES: Record<string, string> = {

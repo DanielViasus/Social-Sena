@@ -10,6 +10,7 @@ import {
   type RoomTemplate,
   type UserProfile,
 } from '@social-sena/shared'
+import { navigateInApp } from '../hooks/usePathname'
 import ReactWorld, { type WorldInteractableTarget } from './ReactWorld'
 import { getObjectColliderBoundsList } from './world/ObjectDecoration'
 import { PLAYER_COLLIDER_HEIGHT, PLAYER_COLLIDER_WIDTH } from './world/WorldPlayer'
@@ -284,6 +285,14 @@ export default function EditRoomTestMode({
   }, [])
 
   const handleInteract = useCallback((interactable: WorldInteractableTarget) => {
+    if (interactable.entityType === 'teleport') {
+      const targetRoutePath = interactable.teleportTarget.routePath
+      if (typeof targetRoutePath === 'string') {
+        navigateInApp(targetRoutePath)
+        return
+      }
+    }
+
     if (interactable.entityType !== 'object') {
       return
     }

@@ -344,6 +344,8 @@ export interface RoomEditorPlacementData {
   cellY: number
   flippedX: boolean
   name?: string
+  colliders?: RoomEditorColliderData[]
+  teleportTargetPath?: string
 }
 
 export interface RoomEditorColliderData {

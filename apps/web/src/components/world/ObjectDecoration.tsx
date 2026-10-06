@@ -32,7 +32,6 @@ interface ObjectDecorationProps {
   objectTemplate: RoomObjectTemplate
   spriteSrc?: string
   debugEnabled: boolean
-  interactionAreaVisible?: boolean
   interactionState?: ObjectInteractionState
   animationTime?: number
   flippedX?: boolean
@@ -112,7 +111,6 @@ export const ObjectDecoration = memo(function ObjectDecoration({
   objectTemplate,
   spriteSrc,
   debugEnabled,
-  interactionAreaVisible = false,
   interactionState = 'out',
   animationTime = 0,
   flippedX,
@@ -208,7 +206,7 @@ export const ObjectDecoration = memo(function ObjectDecoration({
         </>
       ) : null}
 
-      {(debugEnabled || interactionAreaVisible) && objectTemplate.warningArea ? (
+      {debugEnabled && objectTemplate.warningArea ? (
         <div
           className="debug-object-warning"
           style={{
@@ -220,7 +218,7 @@ export const ObjectDecoration = memo(function ObjectDecoration({
         />
       ) : null}
 
-      {(debugEnabled || interactionAreaVisible) && objectTemplate.interactionArea ? (
+      {debugEnabled && objectTemplate.interactionArea ? (
         <div
           className="debug-object-interaction"
           style={{

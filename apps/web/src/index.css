@@ -5144,10 +5144,12 @@ button {
   background: #303030;
 }
 
-.edit-room-assets-panel {
+.edit-room-inspector-sidebar {
   grid-column: 3;
   grid-row: 1 / 3;
   min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
   overflow: hidden;
   border-left: 3px solid #121212;
 }
@@ -5174,6 +5176,229 @@ button {
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
   border: 0;
+}
+
+.edit-room-details-panel > header {
+  justify-content: space-between;
+}
+
+.edit-room-details-panel > header output {
+  color: #bdbdbd;
+  font-size: 0.36rem;
+  text-transform: none;
+}
+
+.edit-room-details-panel {
+  border-bottom: 3px solid #121212;
+}
+
+.edit-room-details-body {
+  min-height: 0;
+  overflow: auto;
+}
+
+.edit-room-details-content {
+  display: grid;
+  gap: 12px;
+  padding: 10px;
+}
+
+.edit-room-details-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin: 0;
+}
+
+.edit-room-details-field {
+  min-width: 0;
+  padding: 7px 8px 7px 10px;
+  background: #222222;
+  border: 1px solid #454545;
+  box-shadow: inset 3px 0 0 var(--edit-room-layer-color, #9399a3);
+}
+
+.edit-room-details-field.is-name {
+  grid-column: 1 / -1;
+}
+
+.edit-room-details-field dt {
+  margin-bottom: 5px;
+  color: #929292;
+  font-size: 0.32rem;
+  text-transform: uppercase;
+}
+
+.edit-room-details-field dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: #efefef;
+  font-size: 0.45rem;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edit-room-details-input,
+.edit-room-details-collider-fields input {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 3px 6px;
+  color: #eeeeee;
+  font: inherit;
+  font-size: 0.4rem;
+  background: #181818;
+  border: 2px solid;
+  border-color: #101010 #555555 #555555 #101010;
+  border-radius: 0;
+  outline: 0;
+}
+
+.edit-room-details-input:focus,
+.edit-room-details-collider-fields input:focus {
+  border-color: var(--edit-room-layer-color, #9399a3);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--edit-room-layer-color, #9399a3) 55%, #ffffff);
+}
+
+.edit-room-details-colliders {
+  min-width: 0;
+  padding-top: 10px;
+  border-top: 1px solid #4b4b4b;
+}
+
+.edit-room-details-colliders > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.edit-room-details-colliders > header {
+  margin-bottom: 7px;
+  color: #d9d9d9;
+  font-size: 0.39rem;
+  text-transform: uppercase;
+}
+
+.edit-room-details-colliders > header output {
+  min-width: 22px;
+  padding: 2px 4px;
+  color: #ececec;
+  font-size: 0.34rem;
+  text-align: center;
+  background: #383838;
+  border: 1px solid #5d5d5d;
+}
+
+.edit-room-details-collider-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.edit-room-details-collider-actions button,
+.edit-room-details-collider > header button {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: #202020;
+  font: inherit;
+  font-size: 0.55rem;
+  line-height: 1;
+  background: #b8b8b8;
+  border: 2px solid;
+  border-color: #eeeeee #555555 #555555 #eeeeee;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.edit-room-details-collider-actions button:active,
+.edit-room-details-collider > header button:active {
+  border-color: #555555 #eeeeee #eeeeee #555555;
+  transform: translate(1px, 1px);
+}
+
+.edit-room-details-collider-actions button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.edit-room-details-collider-list {
+  display: grid;
+  gap: 4px;
+}
+
+.edit-room-details-collider {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+  padding: 7px 8px;
+  color: #a9a9a9;
+  font-size: 0.34rem;
+  background: #242424;
+  border-left: 3px solid var(--edit-room-layer-color, #9399a3);
+}
+
+.edit-room-details-collider > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.edit-room-details-collider > header strong {
+  color: #dddddd;
+  font-size: 0.36rem;
+  font-weight: 400;
+}
+
+.edit-room-details-collider > header button {
+  width: 22px;
+  height: 22px;
+  color: #4e1717;
+  background: #c48a8a;
+  border-color: #efc1c1 #744242 #744242 #efc1c1;
+}
+
+.edit-room-details-collider-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.edit-room-details-collider-fields label {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.edit-room-details-collider-fields label > span {
+  overflow: hidden;
+  color: #8f8f8f;
+  font-size: 0.29rem;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edit-room-details-empty,
+.edit-room-details-empty-collider {
+  margin: 0;
+  color: #858585;
+  font-size: 0.4rem;
+  line-height: 1.6;
+}
+
+.edit-room-details-empty {
+  padding: 14px;
+}
+
+.edit-room-details-empty-collider {
+  padding: 8px;
 }
 
 .edit-room-assets-empty {
@@ -5303,6 +5528,26 @@ button {
 .edit-room-spawn-asset.is-selected {
   border-color: #b8f6f2 #4a8885 #4a8885 #b8f6f2;
   box-shadow: inset 0 0 0 2px #6badaa;
+}
+
+.edit-room-teleport-preview {
+  display: grid;
+  place-items: center;
+  color: #d9f8f5;
+  background:
+    radial-gradient(circle, rgba(104, 220, 215, 0.88) 0 16%, rgba(55, 130, 137, 0.92) 17% 34%, transparent 35%),
+    #202b2d;
+}
+
+.edit-room-teleport-preview > span {
+  font-size: 1.25rem;
+  line-height: 1;
+  filter: drop-shadow(0 3px 0 #173e42);
+}
+
+.edit-room-teleport-asset.is-selected {
+  border-color: #b8f6f2 #4a8885 #4a8885 #b8f6f2;
+  box-shadow: inset 0 0 0 2px #619391;
 }
 
 .edit-room-asset-name {
@@ -5646,6 +5891,18 @@ button {
   background-repeat: no-repeat;
   image-rendering: pixelated;
   transform-origin: center;
+}
+
+.edit-room-teleport-paint-preview {
+  position: absolute;
+  inset: 8px;
+  display: grid;
+  place-items: center;
+  color: rgba(217, 248, 245, 0.88);
+  font-size: 2rem;
+  line-height: 1;
+  background: radial-gradient(circle, rgba(97, 147, 145, 0.72) 0 34%, rgba(32, 61, 65, 0.52) 35% 56%, transparent 57%);
+  filter: drop-shadow(0 4px 0 rgba(23, 62, 66, 0.72));
 }
 
 .edit-room-tools-body {

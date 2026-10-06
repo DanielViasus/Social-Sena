@@ -18,6 +18,8 @@ import {
   type RoomObjectKind,
   type RoomObjectInteractionVariantTemplate,
   type RoomObjectTemplate,
+  type RoomTeleportTemplate,
+  type RoomEditorColliderData,
   type RoomEditorLayerData,
   type RoomEditorPlacementData,
   type RoomEditorSpawnPointData,
@@ -50,6 +52,41 @@ const MAX_ZOOM = 2
 const ZOOM_STEP = 0.25
 const MAX_EDIT_HISTORY = 100
 const DEFAULT_SPAWN_ID = 'default'
+const TELEPORT_EDITOR_ASSET_ID = 'component-teleport'
+
+const TELEPORT_EDITOR_ASSET: RoomEditorAsset = {
+  id: TELEPORT_EDITOR_ASSET_ID,
+  fileName: TELEPORT_EDITOR_ASSET_ID,
+  category: 'Teleport',
+  name: 'Teleport',
+  frameWidth: 128,
+  frameHeight: 128,
+  occupiedColumns: 1,
+  occupiedRows: 1,
+  colliders: [],
+  zIndexOffsetY: 48,
+  warningArea: {
+    width: 5 * 128,
+    height: 5 * 128,
+    offsetX: 0,
+    offsetY: 0,
+  },
+  interactionArea: {
+    width: 3 * 128,
+    height: 3 * 128,
+    offsetX: 0,
+    offsetY: 0,
+  },
+  interactionIconContainer: {
+    width: 128,
+    height: 129,
+    offsetX: 0,
+    offsetY: -129,
+  },
+  sourceWidth: 128,
+  sourceHeight: 128,
+  url: '',
+}
 
 function createGlobalRouteSlug(sceneName: string) {
   const words = sceneName
@@ -197,6 +234,51 @@ function getPlacementSelectionArea(
   }
 }
 
+function arePlacementCollidersEqual(
+  left: RoomEditorColliderData[] | undefined,
+  right: RoomEditorColliderData[] | undefined,
+) {
+  if (left === right) return true
+  if (!left || !right || left.length !== right.length) return false
+
+  return left.every((collider, index) => {
+    const nextCollider = right[index]
+    return nextCollider
+      && collider.width === nextCollider.width
+      && collider.height === nextCollider.height
+      && collider.offsetX === nextCollider.offsetX
+      && collider.offsetY === nextCollider.offsetY
+  })
+}
+
+function normalizeEditorInteger(
+  rawValue: string,
+  minimum: number,
+  maximum: number,
+  fallback: number,
+) {
+  const numericValue = Number(rawValue)
+  if (!Number.isFinite(numericValue)) return fallback
+  return Math.min(maximum, Math.max(minimum, Math.floor(numericValue)))
+}
+
+function normalizeTeleportTargetPath(rawValue: string) {
+  const trimmedValue = rawValue.trim()
+  if (!trimmedValue) return ''
+
+  try {
+    const targetUrl = new URL(trimmedValue, window.location.origin)
+    if (targetUrl.protocol !== 'http:' && targetUrl.protocol !== 'https:') {
+      return null
+    }
+
+    const pathname = targetUrl.pathname.replace(/\/+$/, '') || '/'
+    return `${pathname}${targetUrl.search}${targetUrl.hash}`
+  } catch {
+    return null
+  }
+}
+
 function getObjectKindFromAssetType(assetType: string): RoomObjectKind {
   const normalizedType = assetType.toLocaleLowerCase()
 
@@ -216,14 +298,16 @@ function createPlacedObjectVariant(
   const usesBottomCenterAnchor = asset.frameWidth > 128 || asset.frameHeight > 128
   const occupiedWidth = asset.occupiedColumns * 128
   const occupiedHeight = asset.occupiedRows * 128
+  const placementColliders = placement.colliders ?? asset.colliders
   const colliders = collidersEnabled
-    ? asset.colliders.map((collider) => ({
+    ? placementColliders.map((collider) => ({
         ...collider,
         offsetX: placement.flippedX ? -collider.offsetX : collider.offsetX,
       }))
     : []
   const collider = colliders[0]
-  const warningArea = placement.layerId === 'doors'
+  const isInteractablePlacement = placement.layerId === 'doors' || placement.layerId === 'teleports'
+  const warningArea = isInteractablePlacement
     ? {
         ...asset.warningArea,
         offsetX: placement.flippedX
@@ -231,7 +315,7 @@ function createPlacedObjectVariant(
           : asset.warningArea.offsetX,
       }
     : undefined
-  const interactionArea = placement.layerId === 'doors'
+  const interactionArea = isInteractablePlacement
     ? {
         ...asset.interactionArea,
         offsetX: placement.flippedX
@@ -239,7 +323,7 @@ function createPlacedObjectVariant(
           : asset.interactionArea.offsetX,
       }
     : undefined
-  const interactionIconContainer = placement.layerId === 'doors'
+  const interactionIconContainer = isInteractablePlacement
     ? {
         ...asset.interactionIconContainer,
         offsetX: placement.flippedX
@@ -308,6 +392,65 @@ function createPlacedObjectTemplate(
     ...activeVariant,
     interactionState: asset.interactionState === undefined ? undefined : variantState,
     interactionVariants,
+  }
+}
+
+function createPlacedTeleportTemplate(
+  placement: PlacedRoomAsset,
+  asset: RoomEditorAsset,
+  collidersEnabled = true,
+): RoomTeleportTemplate | null {
+  if (placement.layerId !== 'teleports' || !placement.teleportTargetPath) {
+    return null
+  }
+
+  const variant = createPlacedObjectVariant(placement, asset, collidersEnabled)
+  const centerToBottomOffset = variant.height / 2
+  const collider = variant.collider
+    ? { ...variant.collider, offsetY: variant.collider.offsetY - centerToBottomOffset }
+    : undefined
+  const zIndexRef = variant.zIndexRef
+    ? { ...variant.zIndexRef, offsetY: variant.zIndexRef.offsetY - centerToBottomOffset }
+    : undefined
+  const iconContainer = variant.interactionIconContainer
+
+  return {
+    entityType: 'teleport',
+    id: `editor-teleport-${placement.cellX}-${placement.cellY}`,
+    label: placement.name,
+    x: variant.x,
+    y: variant.y + centerToBottomOffset,
+    width: variant.width,
+    height: variant.height,
+    fillColor: 0x496a73,
+    strokeColor: 0xa8dcdf,
+    opacity: 1,
+    spriteAssetId: placement.assetId === TELEPORT_EDITOR_ASSET_ID ? undefined : placement.assetId,
+    collider,
+    zIndexRef,
+    warningArea: variant.warningArea
+      ? { ...variant.warningArea, offsetY: variant.warningArea.offsetY - centerToBottomOffset }
+      : undefined,
+    interactionArea: variant.interactionArea
+      ? { ...variant.interactionArea, offsetY: variant.interactionArea.offsetY - centerToBottomOffset }
+      : undefined,
+    iconWarningAssetIds: [
+      'room-editor-pop-alert-0',
+      'room-editor-pop-alert-1',
+      'room-editor-pop-alert-2',
+      'room-editor-pop-alert-3',
+    ],
+    iconInteractionAssetIds: [
+      'room-editor-pop-interaction-0',
+      'room-editor-pop-interaction-1',
+    ],
+    iconFrameDurationMs: 600,
+    iconOffsetX: iconContainer?.offsetX ?? 0,
+    iconOffsetY: (iconContainer?.offsetY ?? -129) - centerToBottomOffset,
+    iconWidth: iconContainer?.width ?? 128,
+    iconHeight: iconContainer?.height ?? 129,
+    interactionId: `editor-teleport-${placement.cellX}-${placement.cellY}`,
+    teleportTarget: { routePath: placement.teleportTargetPath },
   }
 }
 
@@ -663,7 +806,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
       : []
   )), [expandedLayerIds, layers, placedAssetsByLayer])
   const availableAssets = useMemo(
-    () => assetCategories.flatMap((category) => category.assets),
+    () => [TELEPORT_EDITOR_ASSET, ...assetCategories.flatMap((category) => category.assets)],
     [assetCategories],
   )
   const assetById = useMemo(() => {
@@ -688,18 +831,52 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
 
     return [getPlacementSelectionArea(placement, assetById.get(placement.assetId))]
   }), [assetById, layerById, placedAssets, selectedPlacementKeys])
+  const selectedDetailPlacement = useMemo(() => {
+    const primaryPlacementKey = selectedMapArea?.placementKey
+      ?? Array.from(selectedPlacementKeys).at(-1)
+
+    return primaryPlacementKey
+      ? placedAssets.find((placement) => getPlacedAssetKey(placement) === primaryPlacementKey) ?? null
+      : null
+  }, [placedAssets, selectedMapArea?.placementKey, selectedPlacementKeys])
+  const selectedDetailAsset = selectedDetailPlacement
+    ? assetById.get(selectedDetailPlacement.assetId) ?? null
+    : null
+  const selectedDetailName = selectedDetailPlacement
+    ? selectedDetailPlacement.name
+      ?? formatAssetLabel(selectedDetailAsset?.name ?? selectedDetailPlacement.assetId)
+    : null
+  const selectedDetailColliders = selectedDetailPlacement
+    ? selectedDetailPlacement.colliders ?? selectedDetailAsset?.colliders ?? []
+    : []
   const visiblePlacedAssets = useMemo(() => placedAssets
     .filter((placement) => layerById.get(placement.layerId)?.enabled !== false)
     .sort((left, right) => (
       getEditorLayerPriority(left.layerId) - getEditorLayerPriority(right.layerId)
     )), [layerById, placedAssets])
   const testObjects = useMemo(() => placedAssets.flatMap((placement) => {
+    if (placement.layerId === 'teleports') return []
+
     const asset = assetById.get(placement.assetId)
     const layer = layerById.get(placement.layerId)
     return asset && layer?.enabled !== false
       ? [createPlacedObjectTemplate(placement, asset, availableAssets, layer?.collidersEnabled ?? true)]
       : []
   }), [assetById, availableAssets, layerById, placedAssets])
+  const testTeleports = useMemo(() => placedAssets.flatMap((placement) => {
+    if (placement.layerId !== 'teleports') return []
+
+    const asset = assetById.get(placement.assetId)
+    const layer = layerById.get(placement.layerId)
+    if (!asset || layer?.enabled === false) return []
+
+    const teleport = createPlacedTeleportTemplate(
+      placement,
+      asset,
+      layer?.collidersEnabled ?? true,
+    )
+    return teleport ? [teleport] : []
+  }), [assetById, layerById, placedAssets])
 
   if (!resolvedProfile && !validationFailed) {
     return <main className="edit-room-page" aria-label="Validando acceso al editor" />
@@ -774,7 +951,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
     },
     objects: testObjects,
     npcs: [],
-    teleports: [],
+    teleports: testTeleports,
     enemies: [],
   }
 
@@ -860,6 +1037,8 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
           || asset.cellY !== nextAsset.cellY
           || asset.flippedX !== nextAsset.flippedX
           || asset.name !== nextAsset.name
+          || asset.teleportTargetPath !== nextAsset.teleportTargetPath
+          || !arePlacementCollidersEqual(asset.colliders, nextAsset.colliders)
       })
 
     if (!didChange) {
@@ -873,6 +1052,198 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
 
     placedAssetsRef.current = nextAssets
     setPlacedAssets(nextAssets)
+  }
+
+  const updateSelectedDetailPlacement = (
+    nextPlacement: PlacedRoomAsset,
+    message: string,
+  ) => {
+    if (!selectedDetailPlacement) return
+
+    const currentPlacementKey = getPlacedAssetKey(selectedDetailPlacement)
+    const nextPlacementKey = getPlacedAssetKey(nextPlacement)
+    commitPlacedAssetEdit((currentAssets) => currentAssets.map((placement) => (
+      getPlacedAssetKey(placement) === currentPlacementKey ? nextPlacement : placement
+    )))
+
+    setSelectedPlacementKeys((currentKeys) => {
+      if (!currentKeys.has(currentPlacementKey) || currentPlacementKey === nextPlacementKey) {
+        return currentKeys
+      }
+      const nextKeys = new Set(currentKeys)
+      nextKeys.delete(currentPlacementKey)
+      nextKeys.add(nextPlacementKey)
+      return nextKeys
+    })
+    setSelectedMapArea(getPlacementSelectionArea(nextPlacement, selectedDetailAsset ?? undefined))
+    if (hierarchySelectionAnchorRef.current === currentPlacementKey) {
+      hierarchySelectionAnchorRef.current = nextPlacementKey
+    }
+    setMapPersistenceMessage(message)
+  }
+
+  const commitSelectedDetailName = (rawValue: string) => {
+    if (!selectedDetailPlacement) return ''
+
+    const defaultName = formatAssetLabel(
+      selectedDetailAsset?.name ?? selectedDetailPlacement.assetId,
+    )
+    const normalizedName = rawValue.trim().slice(0, 80)
+    const nextName = normalizedName && normalizedName !== defaultName
+      ? normalizedName
+      : undefined
+
+    updateSelectedDetailPlacement(
+      { ...selectedDetailPlacement, name: nextName },
+      nextName ? `Nombre actualizado · ${nextName}` : 'Nombre original restaurado',
+    )
+    return nextName ?? defaultName
+  }
+
+  const commitSelectedTeleportTargetPath = (rawValue: string) => {
+    if (!selectedDetailPlacement || selectedDetailPlacement.layerId !== 'teleports') {
+      return ''
+    }
+
+    const normalizedPath = normalizeTeleportTargetPath(rawValue)
+    if (normalizedPath === null) {
+      setMapPersistenceMessage('La URL del Teleport no es válida.')
+      return selectedDetailPlacement.teleportTargetPath ?? ''
+    }
+
+    const nextPath = normalizedPath || undefined
+    updateSelectedDetailPlacement(
+      { ...selectedDetailPlacement, teleportTargetPath: nextPath },
+      nextPath
+        ? `Destino del Teleport actualizado · ${nextPath}`
+        : 'Teleport sin URL de destino',
+    )
+    return normalizedPath
+  }
+
+  const commitSelectedDetailCoordinate = (axis: 'x' | 'y', rawValue: string) => {
+    if (!selectedDetailPlacement) return 1
+
+    const occupiedCells = axis === 'x'
+      ? selectedDetailAsset?.occupiedColumns ?? 1
+      : selectedDetailAsset?.occupiedRows ?? 1
+    const gridCells = axis === 'x' ? mapGridWidth : mapGridHeight
+    const currentCell = axis === 'x'
+      ? selectedDetailPlacement.cellX
+      : selectedDetailPlacement.cellY
+    const maximumVisibleCell = Math.max(1, gridCells - occupiedCells + 1)
+    const nextVisibleCell = normalizeEditorInteger(
+      rawValue,
+      1,
+      maximumVisibleCell,
+      currentCell + 1,
+    )
+    const nextCell = nextVisibleCell - 1
+    const nextCellX = axis === 'x' ? nextCell : selectedDetailPlacement.cellX
+    const nextCellY = axis === 'y' ? nextCell : selectedDetailPlacement.cellY
+    const currentPlacementKey = getPlacedAssetKey(selectedDetailPlacement)
+    const isOccupied = placedAssetsRef.current.some((placement) => (
+      getPlacedAssetKey(placement) !== currentPlacementKey
+      && placement.layerId === selectedDetailPlacement.layerId
+      && placement.cellX === nextCellX
+      && placement.cellY === nextCellY
+    ))
+
+    if (isOccupied) {
+      setMapPersistenceMessage(
+        `No se puede mover: la celda X${nextCellX + 1} Y${nextCellY + 1} ya está ocupada en esta capa`,
+      )
+      return currentCell + 1
+    }
+
+    updateSelectedDetailPlacement(
+      {
+        ...selectedDetailPlacement,
+        cellX: nextCellX,
+        cellY: nextCellY,
+      },
+      `Posición actualizada · X${nextCellX + 1} Y${nextCellY + 1}`,
+    )
+    return nextVisibleCell
+  }
+
+  const commitSelectedDetailColliderValue = (
+    colliderIndex: number,
+    field: keyof RoomEditorColliderData,
+    rawValue: string,
+  ) => {
+    const currentCollider = selectedDetailColliders[colliderIndex]
+    if (!selectedDetailPlacement || !currentCollider) return 0
+
+    const isDimension = field === 'width' || field === 'height'
+    const displayedCurrentValue = field === 'offsetX' && selectedDetailPlacement.flippedX
+      ? -currentCollider.offsetX
+      : currentCollider[field]
+    const nextDisplayedValue = normalizeEditorInteger(
+      rawValue,
+      isDimension ? 1 : -4096,
+      4096,
+      displayedCurrentValue,
+    )
+    const nextStoredValue = field === 'offsetX' && selectedDetailPlacement.flippedX
+      ? -nextDisplayedValue
+      : nextDisplayedValue
+    const nextColliders = selectedDetailColliders.map((collider, index) => (
+      index === colliderIndex ? { ...collider, [field]: nextStoredValue } : { ...collider }
+    ))
+
+    updateSelectedDetailPlacement(
+      { ...selectedDetailPlacement, colliders: nextColliders },
+      `Collider ${colliderIndex + 1} actualizado`,
+    )
+    return nextDisplayedValue
+  }
+
+  const addSelectedDetailCollider = () => {
+    if (
+      !selectedDetailPlacement
+      || !selectedDetailAsset
+      || selectedDetailColliders.length >= 4
+    ) {
+      return
+    }
+
+    const nextColliders = [
+      ...selectedDetailColliders.map((collider) => ({ ...collider })),
+      {
+        width: Math.min(128, selectedDetailAsset.frameWidth),
+        height: Math.min(128, selectedDetailAsset.frameHeight),
+        offsetX: 0,
+        offsetY: 0,
+      },
+    ]
+    updateSelectedDetailPlacement(
+      { ...selectedDetailPlacement, colliders: nextColliders },
+      `Collider ${nextColliders.length} agregado`,
+    )
+  }
+
+  const removeSelectedDetailCollider = (colliderIndex: number) => {
+    if (!selectedDetailPlacement || !selectedDetailColliders[colliderIndex]) return
+
+    updateSelectedDetailPlacement(
+      {
+        ...selectedDetailPlacement,
+        colliders: selectedDetailColliders
+          .filter((_, index) => index !== colliderIndex)
+          .map((collider) => ({ ...collider })),
+      },
+      `Collider ${colliderIndex + 1} eliminado`,
+    )
+  }
+
+  const resetSelectedDetailColliders = () => {
+    if (!selectedDetailPlacement || selectedDetailPlacement.colliders === undefined) return
+
+    updateSelectedDetailPlacement(
+      { ...selectedDetailPlacement, colliders: undefined },
+      'Colliders restaurados desde el asset original',
+    )
   }
 
   const createLayer = () => {
@@ -1351,7 +1722,6 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
         objectTemplate={objectTemplate}
         spriteSrc={asset.url}
         debugEnabled={isDebugEnabled}
-        interactionAreaVisible
         flippedX={placement.flippedX}
         zIndex={getEditorLayerPriority(placement.layerId)}
       />
@@ -1547,16 +1917,257 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
       </header>
 
       <section className="edit-room-layout">
-        <aside className="edit-room-panel edit-room-assets-panel" aria-label="Assets por categoría">
-          <header>
-            <span>Assets</span>
-            <output>{assetCategories.reduce((total, category) => total + category.assets.length, 1)}</output>
-          </header>
-          <div className="edit-room-panel-body edit-room-assets-body">
+        <aside className="edit-room-inspector-sidebar" aria-label="Assets y detalles">
+          <section className="edit-room-panel edit-room-details-panel" aria-label="Detalles de la selección">
+            <header>
+              <span>Detalles</span>
+              {selectedPlacementKeys.size > 1 ? (
+                <output>{selectedPlacementKeys.size} seleccionados</output>
+              ) : null}
+            </header>
+            <div
+              className="edit-room-panel-body edit-room-details-body"
+              style={selectedDetailPlacement
+                ? getEditorLayerColorStyle(selectedDetailPlacement.layerId)
+                : undefined}
+            >
+              {selectedDetailPlacement ? (
+                <div
+                  key={`${getPlacedAssetKey(selectedDetailPlacement)}-${selectedDetailPlacement.name ?? 'default'}-${selectedDetailPlacement.teleportTargetPath ?? 'no-target'}`}
+                  className="edit-room-details-content"
+                >
+                  <dl className="edit-room-details-fields">
+                    <div className="edit-room-details-field is-name">
+                      <dt>Nombre</dt>
+                      <dd>
+                        <input
+                          type="text"
+                          className="edit-room-details-input"
+                          defaultValue={selectedDetailName ?? ''}
+                          maxLength={80}
+                          aria-label="Nombre del elemento"
+                          onBlur={(event) => {
+                            event.currentTarget.value = commitSelectedDetailName(event.currentTarget.value)
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault()
+                              event.currentTarget.blur()
+                            } else if (event.key === 'Escape') {
+                              event.preventDefault()
+                              event.currentTarget.value = selectedDetailName ?? ''
+                              event.currentTarget.blur()
+                            }
+                          }}
+                        />
+                      </dd>
+                    </div>
+                    {selectedDetailPlacement.layerId === 'teleports' ? (
+                      <div className="edit-room-details-field is-name is-teleport-url">
+                        <dt>URL de destino</dt>
+                        <dd>
+                          <input
+                            type="text"
+                            className="edit-room-details-input"
+                            defaultValue={selectedDetailPlacement.teleportTargetPath ?? ''}
+                            maxLength={512}
+                            placeholder="/Tavern o URL de una sala"
+                            aria-label="URL de destino del Teleport"
+                            onBlur={(event) => {
+                              event.currentTarget.value = commitSelectedTeleportTargetPath(
+                                event.currentTarget.value,
+                              )
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                event.preventDefault()
+                                event.currentTarget.blur()
+                              } else if (event.key === 'Escape') {
+                                event.preventDefault()
+                                event.currentTarget.value = selectedDetailPlacement.teleportTargetPath ?? ''
+                                event.currentTarget.blur()
+                              }
+                            }}
+                          />
+                        </dd>
+                      </div>
+                    ) : null}
+                    <div className="edit-room-details-field">
+                      <dt>Posición X</dt>
+                      <dd>
+                        <input
+                          type="number"
+                          className="edit-room-details-input"
+                          min="1"
+                          max={Math.max(
+                            1,
+                            mapGridWidth - (selectedDetailAsset?.occupiedColumns ?? 1) + 1,
+                          )}
+                          defaultValue={selectedDetailPlacement.cellX + 1}
+                          aria-label="Posición X del elemento"
+                          onBlur={(event) => {
+                            event.currentTarget.value = String(
+                              commitSelectedDetailCoordinate('x', event.currentTarget.value),
+                            )
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault()
+                              event.currentTarget.blur()
+                            } else if (event.key === 'Escape') {
+                              event.preventDefault()
+                              event.currentTarget.value = String(selectedDetailPlacement.cellX + 1)
+                              event.currentTarget.blur()
+                            }
+                          }}
+                        />
+                      </dd>
+                    </div>
+                    <div className="edit-room-details-field">
+                      <dt>Posición Y</dt>
+                      <dd>
+                        <input
+                          type="number"
+                          className="edit-room-details-input"
+                          min="1"
+                          max={Math.max(
+                            1,
+                            mapGridHeight - (selectedDetailAsset?.occupiedRows ?? 1) + 1,
+                          )}
+                          defaultValue={selectedDetailPlacement.cellY + 1}
+                          aria-label="Posición Y del elemento"
+                          onBlur={(event) => {
+                            event.currentTarget.value = String(
+                              commitSelectedDetailCoordinate('y', event.currentTarget.value),
+                            )
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault()
+                              event.currentTarget.blur()
+                            } else if (event.key === 'Escape') {
+                              event.preventDefault()
+                              event.currentTarget.value = String(selectedDetailPlacement.cellY + 1)
+                              event.currentTarget.blur()
+                            }
+                          }}
+                        />
+                      </dd>
+                    </div>
+                  </dl>
+
+                  <section className="edit-room-details-colliders" aria-label="Dimensiones de los colliders">
+                    <header>
+                      <strong>Colliders</strong>
+                      <div className="edit-room-details-collider-actions">
+                        <output>{selectedDetailColliders.length} / 4</output>
+                        {selectedDetailPlacement.colliders !== undefined ? (
+                          <button
+                            type="button"
+                            aria-label="Restaurar colliders originales"
+                            title="Restaurar colliders originales"
+                            onClick={resetSelectedDetailColliders}
+                          >
+                            ↺
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          aria-label="Agregar collider"
+                          title="Agregar collider"
+                          disabled={!selectedDetailAsset || selectedDetailColliders.length >= 4}
+                          onClick={addSelectedDetailCollider}
+                        >
+                          +
+                        </button>
+                      </div>
+                    </header>
+                    {selectedDetailColliders.length > 0 ? (
+                      <div className="edit-room-details-collider-list">
+                        {selectedDetailColliders.map((collider, colliderIndex) => (
+                          <article
+                            key={`${collider.width}-${collider.height}-${collider.offsetX}-${collider.offsetY}-${colliderIndex}`}
+                            className="edit-room-details-collider"
+                          >
+                            <header>
+                              <strong>Collider {colliderIndex + 1}</strong>
+                              <button
+                                type="button"
+                                aria-label={`Eliminar collider ${colliderIndex + 1}`}
+                                title={`Eliminar collider ${colliderIndex + 1}`}
+                                onClick={() => removeSelectedDetailCollider(colliderIndex)}
+                              >
+                                ×
+                              </button>
+                            </header>
+                            <div className="edit-room-details-collider-fields">
+                              {([
+                                ['width', 'Ancho', collider.width],
+                                ['height', 'Alto', collider.height],
+                                [
+                                  'offsetX',
+                                  'Offset X',
+                                  selectedDetailPlacement.flippedX
+                                    ? -collider.offsetX
+                                    : collider.offsetX,
+                                ],
+                                ['offsetY', 'Offset Y', collider.offsetY],
+                              ] as const).map(([field, label, displayedValue]) => (
+                                <label key={field}>
+                                  <span>{label}</span>
+                                  <input
+                                    type="number"
+                                    min={field === 'width' || field === 'height' ? 1 : -4096}
+                                    max="4096"
+                                    defaultValue={displayedValue}
+                                    aria-label={`${label} del collider ${colliderIndex + 1}`}
+                                    onBlur={(event) => {
+                                      event.currentTarget.value = String(
+                                        commitSelectedDetailColliderValue(
+                                          colliderIndex,
+                                          field,
+                                          event.currentTarget.value,
+                                        ),
+                                      )
+                                    }}
+                                    onKeyDown={(event) => {
+                                      if (event.key === 'Enter') {
+                                        event.preventDefault()
+                                        event.currentTarget.blur()
+                                      } else if (event.key === 'Escape') {
+                                        event.preventDefault()
+                                        event.currentTarget.value = String(displayedValue)
+                                        event.currentTarget.blur()
+                                      }
+                                    }}
+                                  />
+                                </label>
+                              ))}
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="edit-room-details-empty-collider">Sin collider</p>
+                    )}
+                  </section>
+                </div>
+              ) : (
+                <p className="edit-room-details-empty">Selecciona un elemento para ver sus detalles.</p>
+              )}
+            </div>
+          </section>
+
+          <section className="edit-room-panel edit-room-assets-panel" aria-label="Assets por categoría">
+            <header>
+              <span>Assets</span>
+              <output>{assetCategories.reduce((total, category) => total + category.assets.length, 2)}</output>
+            </header>
+            <div className="edit-room-panel-body edit-room-assets-body">
             <details className="edit-room-asset-collection" open>
               <summary>
                 <span>Componentes</span>
-                <output>1</output>
+                <output>2</output>
               </summary>
               <div className="edit-room-asset-grid">
                 <button
@@ -1582,6 +2193,30 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                   <span className="edit-room-asset-size">
                     {spawnPoints.length > 0 ? 'Ubicado · 1 máximo' : 'Sin ubicar · 1 máximo'}
                   </span>
+                </button>
+                <button
+                  type="button"
+                  className={`edit-room-asset-tile edit-room-teleport-asset${selectedAssetId === TELEPORT_EDITOR_ASSET_ID ? ' is-selected' : ''}`}
+                  aria-label="Agregar Teleport hacia otra sala"
+                  aria-pressed={selectedAssetId === TELEPORT_EDITOR_ASSET_ID && isPaintToolActive}
+                  title="Teleport · permite viajar hacia la URL configurada"
+                  onClick={() => {
+                    setSelectedAssetId(TELEPORT_EDITOR_ASSET_ID)
+                    setActiveLayerId('teleports')
+                    setExpandedLayerIds((currentLayerIds) => new Set(currentLayerIds).add('teleports'))
+                    setIsPaintToolActive(true)
+                    setIsEraseToolActive(false)
+                    setIsSelectToolActive(false)
+                    setIsSpawnToolActive(false)
+                    setIsTestSpawnToolActive(false)
+                    clearEditorSelection()
+                  }}
+                >
+                  <span className="edit-room-asset-preview edit-room-teleport-preview" aria-hidden="true">
+                    <span>⇢</span>
+                  </span>
+                  <span className="edit-room-asset-name">Teleport</span>
+                  <span className="edit-room-asset-size">1×1 celda · múltiples por sala</span>
                 </button>
               </div>
             </details>
@@ -1641,7 +2276,8 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                 </div>
               </details>
             ))}
-          </div>
+            </div>
+          </section>
         </aside>
 
         <section className="edit-room-workspace" aria-label="Área de trabajo">
@@ -1822,17 +2458,21 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                       aria-hidden="true"
                     >
                       {!draggedMapArea ? (
-                        <img
-                          className="edit-room-paint-preview-sprite"
-                          src={selectedAsset.url}
-                          alt=""
-                          draggable={false}
-                          style={{
-                            width: `${selectedAsset.frameWidth}px`,
-                            height: `${selectedAsset.frameHeight}px`,
-                            transform: isAssetFlippedX ? 'scaleX(-1)' : undefined,
-                          }}
-                        />
+                        selectedAsset.id === TELEPORT_EDITOR_ASSET_ID ? (
+                          <span className="edit-room-teleport-paint-preview">⇢</span>
+                        ) : (
+                          <img
+                            className="edit-room-paint-preview-sprite"
+                            src={selectedAsset.url}
+                            alt=""
+                            draggable={false}
+                            style={{
+                              width: `${selectedAsset.frameWidth}px`,
+                              height: `${selectedAsset.frameHeight}px`,
+                              transform: isAssetFlippedX ? 'scaleX(-1)' : undefined,
+                            }}
+                          />
+                        )
                       ) : null}
                     </span>
                   ) : null}

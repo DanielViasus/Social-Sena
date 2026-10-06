@@ -89,6 +89,13 @@ export const roomEditorLayerSchema = z.object({
   required: z.boolean().optional(),
 })
 
+export const roomEditorColliderSchema = z.object({
+  width: z.number().int().min(1).max(4096),
+  height: z.number().int().min(1).max(4096),
+  offsetX: z.number().int().min(-4096).max(4096),
+  offsetY: z.number().int().min(-4096).max(4096),
+})
+
 export const roomEditorPlacementSchema = z.object({
   layerId: z.string().trim().min(1).max(80),
   assetId: z.string().trim().min(1).max(240),
@@ -96,13 +103,8 @@ export const roomEditorPlacementSchema = z.object({
   cellY: z.number().int().min(0).max(49),
   flippedX: z.boolean(),
   name: z.string().trim().min(1).max(80).optional(),
-})
-
-export const roomEditorColliderSchema = z.object({
-  width: z.number().int().min(1).max(4096),
-  height: z.number().int().min(1).max(4096),
-  offsetX: z.number().int().min(-4096).max(4096),
-  offsetY: z.number().int().min(-4096).max(4096),
+  colliders: z.array(roomEditorColliderSchema).max(4).optional(),
+  teleportTargetPath: z.string().trim().startsWith('/').max(512).optional(),
 })
 
 const roomEditorAreaSchema = z.object({
