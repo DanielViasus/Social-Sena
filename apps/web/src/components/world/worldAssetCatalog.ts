@@ -1,4 +1,5 @@
 import type { RoomTemplate } from '@social-sena/shared'
+import { coinSpriteDefinitions } from '../coinAssetCatalog'
 import bkGarden from '../../assets/Places/bk_garden.svg?url&no-inline'
 import bkCenterRoom from '../../assets/Places/bk_centerRoom.svg?url&no-inline'
 import mazmorraDemo from '../../assets/Places/mazmorra_demo.svg?url&no-inline'
@@ -49,6 +50,9 @@ const roomEditorWorldSprites = Object.fromEntries(
         : [[`${baseId}-S1`, url]]
   }),
 )
+const roomEditorCoinSprites = Object.fromEntries(
+  coinSpriteDefinitions.map((definition) => [definition.assetId, definition.url]),
+)
 
 export const WORLD_BACKGROUND_BY_TEMPLATE_ID: Record<string, string> = {
   Tavern: tavernDesign,
@@ -59,6 +63,7 @@ export const WORLD_BACKGROUND_BY_TEMPLATE_ID: Record<string, string> = {
 
 export const WORLD_SPRITES: Record<string, string> = {
   ...roomEditorWorldSprites,
+  ...roomEditorCoinSprites,
   'plaza-separator-1': plazaSeparator1,
   'plaza-separator-2': plazaSeparator2,
   'plaza-separator-3': plazaSeparator3,

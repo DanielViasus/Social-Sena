@@ -151,3 +151,24 @@ COMPATIBILIDAD
 El editor puede seguir leyendo temporalmente la nomenclatura anterior y convierte
 automaticamente su collider unico al nuevo arreglo de colliders. Los archivos nuevos
 deben utilizar exclusivamente el formato descrito en este documento.
+
+
+FORMATO DE MONEDAS ANIMADAS
+
+Gif_Coin_{TipoDivisa}__A{DimensionHoja}B{DimensionFrame}(F{CantidadFrames})N_{Nombre}.svg
+
+EJEMPLO
+
+Gif_Coin_coin__A256x256B64x64F8N_Coin.svg
+
+PARAMETROS DE MONEDA
+
+- TipoDivisa identifica la divisa y permite registrar varias monedas en la paleta.
+- A indica el ancho y alto total del spritesheet.
+- B indica el ancho y alto de cada frame. Es el marcador canonico.
+- F indica la cantidad de frames y es opcional; si se omite se usan 8 frames.
+- N indica el nombre visible en el editor.
+- Los frames se leen de izquierda a derecha y luego de arriba hacia abajo.
+- A debe poder dividirse exactamente entre B en ambos ejes.
+- D se acepta temporalmente como alias de B por compatibilidad, pero los archivos
+  nuevos deben utilizar B.

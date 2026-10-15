@@ -1,0 +1,49 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0_222_11172)">
+<rect width="128" height="128" fill="white"/>
+<rect width="128" height="128" fill="#B5A279"/>
+<rect x="20" y="26" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="24" y="22" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="28" y="26" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="63" y="95" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="67" y="91" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="71" y="95" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="51" y="38" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="55" y="34" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="59" y="38" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="120" y="117" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="124" y="113" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect width="4" height="4" transform="matrix(-1 0 0 1 13 117)" fill="black" fill-opacity="0.05"/>
+<rect width="9" height="4" transform="matrix(-1 0 0 1 9 113)" fill="black" fill-opacity="0.05"/>
+<rect width="4" height="4" transform="matrix(-1 0 0 1 4 43)" fill="black" fill-opacity="0.05"/>
+<rect x="116" y="43" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="120" y="39" width="8" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="21" y="104" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="25" y="100" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="29" y="104" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="22" y="60" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="26" y="56" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="30" y="60" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="81" y="56" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="85" y="52" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="89" y="56" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="95" y="113" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="99" y="109" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="103" y="113" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<path d="M13 0H0V16H13V0Z" fill="#5B8E53"/>
+<path d="M9 8H0V16H9V8Z" fill="black" fill-opacity="0.05"/>
+<path d="M16 0H13V8H16V0Z" fill="#5B8E53"/>
+<path d="M9 16H0V20H9V16Z" fill="#3C6C3A"/>
+<path d="M20 0H16V4H20V0Z" fill="#3C6C3A"/>
+<path d="M20 4H16V8H20V4Z" fill="#3C6C3A"/>
+<path d="M13 12H9V16H13V12Z" fill="#3C6C3A"/>
+<path d="M17 8H13V12H17V8Z" fill="#3C6C3A"/>
+<path d="M16 0H4V8H16V0Z" fill="black" fill-opacity="0.05"/>
+<path d="M13 8H9V12H13V8Z" fill="black" fill-opacity="0.05"/>
+</g>
+<defs>
+<clipPath id="clip0_222_11172">
+<rect width="128" height="128" fill="white"/>
+</clipPath>
+</defs>
+</svg>

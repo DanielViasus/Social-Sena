@@ -99,8 +99,10 @@ export const roomEditorColliderSchema = z.object({
 export const roomEditorPlacementSchema = z.object({
   layerId: z.string().trim().min(1).max(80),
   assetId: z.string().trim().min(1).max(240),
-  cellX: z.number().int().min(0).max(49),
-  cellY: z.number().int().min(0).max(49),
+  // Las decoraciones pueden usar décimas de celda después de colocarse.
+  // El editor mantiene enteras las coordenadas del resto de categorías.
+  cellX: z.number().min(0).max(49),
+  cellY: z.number().min(0).max(49),
   flippedX: z.boolean(),
   name: z.string().trim().min(1).max(80).optional(),
   colliders: z.array(roomEditorColliderSchema).max(4).optional(),

@@ -3053,6 +3053,43 @@ button {
   -webkit-user-drag: none;
 }
 
+.world-coins {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  transform: translate(-50%, -50%);
+  transform-origin: center;
+  animation:
+    world-coins-columns var(--coin-row-duration) steps(var(--coin-columns), end) infinite,
+    world-coins-rows var(--coin-total-duration) steps(var(--coin-rows), end) infinite;
+  will-change: background-position;
+}
+
+.world-coins.is-flipped {
+  transform: translate(-50%, -50%) scaleX(-1);
+}
+
+@keyframes world-coins-columns {
+  from { background-position-x: 0; }
+  to { background-position-x: calc(-1 * var(--coin-animation-width)); }
+}
+
+@keyframes world-coins-rows {
+  from { background-position-y: 0; }
+  to { background-position-y: calc(-1 * var(--coin-animation-height)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .world-coins {
+    animation: none;
+  }
+}
+
 .react-world-object {
   position: absolute;
   transform: translate(-50%, -50%);
@@ -5556,6 +5593,17 @@ button {
   box-shadow: inset 0 0 0 2px #619391;
 }
 
+.edit-room-coins-preview .world-coins,
+.edit-room-cell-tool-preview .world-coins {
+  top: 50%;
+  left: 50%;
+}
+
+.edit-room-coins-asset.is-selected {
+  border-color: #f4dea0 #92752f #92752f #f4dea0;
+  box-shadow: inset 0 0 0 2px #b69a52;
+}
+
 .edit-room-asset-name {
   width: 100%;
   overflow: hidden;
@@ -5800,6 +5848,10 @@ button {
   cursor: crosshair;
 }
 
+.edit-room-map-canvas.is-pasting {
+  cursor: copy;
+}
+
 .edit-room-grid-guide-overlay {
   position: absolute;
   z-index: 90;
@@ -5827,6 +5879,7 @@ button {
 }
 
 .edit-room-cell-tool-preview.is-paint {
+  overflow: visible;
   --edit-room-tool-color: rgba(230, 199, 74, 0.9);
   --edit-room-tool-fill: rgba(230, 199, 74, 0.16);
   --edit-room-tool-shadow: rgba(91, 75, 18, 0.68);
@@ -5854,6 +5907,13 @@ button {
   --edit-room-tool-color: rgba(104, 231, 222, 0.95);
   --edit-room-tool-fill: rgba(60, 188, 181, 0.2);
   --edit-room-tool-shadow: rgba(19, 78, 76, 0.74);
+}
+
+.edit-room-cell-tool-preview.is-paste {
+  z-index: 105;
+  --edit-room-tool-color: rgba(255, 255, 255, 0.96);
+  --edit-room-tool-fill: rgba(255, 255, 255, 0.22);
+  --edit-room-tool-shadow: rgba(32, 32, 32, 0.72);
 }
 
 .edit-room-spawn-marker {
@@ -5889,6 +5949,13 @@ button {
   background-repeat: no-repeat;
   image-rendering: pixelated;
   transform-origin: center;
+}
+
+.edit-room-paint-preview-sprite.is-bottom-anchored {
+  top: auto;
+  bottom: 0;
+  left: 50%;
+  transform-origin: center bottom;
 }
 
 .edit-room-tools-body {

@@ -176,6 +176,7 @@ interface RoomNavigationGeometry {
 }
 
 const roomNavigationGeometryCache = new WeakMap<RoomTemplate, RoomNavigationGeometry>()
+const roomCollectibleObjectsCache = new WeakMap<RoomTemplate, RoomTemplate['objects']>()
 
 function matchesOriginPattern(origin: string, pattern: string) {
   if (pattern === '*') {
@@ -1433,6 +1434,7 @@ async function joinSessionToRoom(
   presence.partyLeaderSkinColors = partyMarker.partyLeaderSkinColors
   ensureNavigablePlayerPosition(room, presence)
   room.players.push(presence)
+  collectOverlappingRoomRewards(room, presence)
   void gameRepository.savePlayerState(session.profile.userId, {
     roomId: room.roomId,
     position: clonePosition(presence.position),
@@ -1548,6 +1550,56 @@ function getNpcNavigationBoundsList(roomNpc: NonNullable<RoomState['template']['
 
 function overlapsRect(a: RectBounds, b: RectBounds) {
   return !(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom)
+}
+
+function getObjectVisualBounds(roomObject: RoomState['template']['objects'][number]): RectBounds {
+  return {
+    left: roomObject.x - roomObject.width / 2,
+    right: roomObject.x + roomObject.width / 2,
+    top: roomObject.y - roomObject.height / 2,
+    bottom: roomObject.y + roomObject.height / 2,
+  }
+}
+
+function getRoomCollectibleObjects(template: RoomTemplate) {
+  const cachedObjects = roomCollectibleObjectsCache.get(template)
+  if (cachedObjects) {
+    return cachedObjects
+  }
+
+  const collectibleObjects = template.objects.filter((roomObject) => roomObject.collectible === true)
+  roomCollectibleObjectsCache.set(template, collectibleObjects)
+  return collectibleObjects
+}
+
+function collectOverlappingRoomRewards(room: RoomState, player: Presence) {
+  const playerBounds = getPlayerColliderBounds(player.position)
+  const collectedObjectIds = new Set(
+    getRoomCollectibleObjects(room.template)
+      .filter((roomObject) => (
+        roomObject.width > 0
+        && roomObject.height > 0
+        && overlapsRect(playerBounds, getObjectVisualBounds(roomObject))
+      ))
+      .map((roomObject) => roomObject.id),
+  )
+
+  if (collectedObjectIds.size === 0) {
+    return
+  }
+
+  room.template = {
+    ...room.template,
+    objects: room.template.objects.filter((roomObject) => !collectedObjectIds.has(roomObject.id)),
+  }
+
+  collectedObjectIds.forEach((objectId) => {
+    io.to(room.roomId).emit(serverEvents.roomObjectStateChanged, {
+      roomId: room.roomId,
+      objectId,
+      object: null,
+    })
+  })
 }
 
 function getClosestEnemyChaseTarget(
@@ -2478,11 +2530,13 @@ function simulateMovement(deltaSeconds: number) {
 
       if (session?.keyboardControlling) {
         movePlayerWithKeyboard(room, player, session, deltaSeconds)
+        collectOverlappingRoomRewards(room, player)
         io.to(room.roomId).emit(serverEvents.playerMoved, player)
         return
       }
 
       if (!player.destination) {
+        collectOverlappingRoomRewards(room, player)
         return
       }
 
@@ -2492,6 +2546,7 @@ function simulateMovement(deltaSeconds: number) {
 
       if (distance <= PLAYER_REACH_THRESHOLD) {
         player.position = clonePosition(player.destination)
+        collectOverlappingRoomRewards(room, player)
 
         if (!advancePlayerRoute(player)) {
           io.to(room.roomId).emit(serverEvents.playerMoved, player)
@@ -2511,12 +2566,14 @@ function simulateMovement(deltaSeconds: number) {
 
       if (isBlockedByRoomObjects(room, nextPosition) || isRouteSegmentBlocked(room, player.position, nextPosition)) {
         stopPlayer(player)
+        collectOverlappingRoomRewards(room, player)
         io.to(room.roomId).emit(serverEvents.playerMoved, player)
         return
       }
 
       player.position = nextPosition
       player.moving = true
+      collectOverlappingRoomRewards(room, player)
       io.to(room.roomId).emit(serverEvents.playerMoved, player)
     })
 

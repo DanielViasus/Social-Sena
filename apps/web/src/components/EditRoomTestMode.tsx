@@ -70,6 +70,15 @@ function getPlayerBounds(position: Position): Bounds {
   }
 }
 
+function getObjectVisualBounds(objectTemplate: RoomObjectTemplate): Bounds {
+  return {
+    left: objectTemplate.x - objectTemplate.width / 2,
+    right: objectTemplate.x + objectTemplate.width / 2,
+    top: objectTemplate.y - objectTemplate.height / 2,
+    bottom: objectTemplate.y + objectTemplate.height / 2,
+  }
+}
+
 function overlaps(first: Bounds, second: Bounds) {
   return first.left < second.right
     && first.right > second.left
@@ -120,8 +129,13 @@ export default function EditRoomTestMode({
   const playerRef = useRef(player)
   const pressedKeysRef = useRef(new Set<string>())
   const navigationTargetRef = useRef<Position | null>(null)
+  const collectedObjectIdsRef = useRef(new Set<string>())
   const colliders = useMemo(
     () => runtimeTemplate.objects.flatMap(getObjectColliderBoundsList),
+    [runtimeTemplate.objects],
+  )
+  const collectibleObjects = useMemo(
+    () => runtimeTemplate.objects.filter((objectTemplate) => objectTemplate.collectible === true),
     [runtimeTemplate.objects],
   )
 
@@ -240,6 +254,28 @@ export default function EditRoomTestMode({
         navigationTargetRef.current = null
       }
 
+      const playerBounds = getPlayerBounds(nextPosition)
+      const collectedObjectIds = collectibleObjects
+        .filter((objectTemplate) => (
+          !collectedObjectIdsRef.current.has(objectTemplate.id)
+          && overlaps(playerBounds, getObjectVisualBounds(objectTemplate))
+        ))
+        .map((objectTemplate) => objectTemplate.id)
+
+      if (collectedObjectIds.length > 0) {
+        collectedObjectIds.forEach((objectId) => collectedObjectIdsRef.current.add(objectId))
+        const collectedObjectIdSet = new Set(collectedObjectIds)
+        setRuntimeTemplate((currentTemplate) => {
+          const nextObjects = currentTemplate.objects.filter(
+            (objectTemplate) => !collectedObjectIdSet.has(objectTemplate.id),
+          )
+
+          return nextObjects.length === currentTemplate.objects.length
+            ? currentTemplate
+            : { ...currentTemplate, objects: nextObjects }
+        })
+      }
+
       const nextPlayer: Presence = {
         ...currentPlayer,
         position: nextPosition,
@@ -268,7 +304,7 @@ export default function EditRoomTestMode({
 
     animationFrame = window.requestAnimationFrame(tick)
     return () => window.cancelAnimationFrame(animationFrame)
-  }, [colliders, runtimeTemplate.world.height, runtimeTemplate.world.width])
+  }, [collectibleObjects, colliders, runtimeTemplate.world.height, runtimeTemplate.world.width])
 
   const room = useMemo<RoomState>(() => ({
     roomId: TEST_ROOM_ID,

@@ -1,5 +1,11 @@
-import type { RoomColliderTemplate, RoomObjectTemplate, RoomZIndexReferenceTemplate } from '@social-sena/shared'
+import {
+  type RoomColliderTemplate,
+  type RoomObjectTemplate,
+  type RoomZIndexReferenceTemplate,
+} from '@social-sena/shared'
 import { memo } from 'react'
+import { getCoinSpriteDefinition } from '../coinAssetCatalog'
+import { Coins } from './Coins'
 
 type ObjectInteractionState = 'out' | 'warning' | 'interaction'
 
@@ -129,6 +135,7 @@ export const ObjectDecoration = memo(function ObjectDecoration({
     ? interactionIconFrames[Math.floor(animationTime / INTERACTION_ICON_FRAME_DURATION_MS) % interactionIconFrames.length]
     : null
   const activeIconSrc = interactionState === 'interaction' ? interactionIconSrc : alertIconSrc
+  const coinDefinition = getCoinSpriteDefinition(objectTemplate.spriteAssetId)
 
   return (
     <div
@@ -149,7 +156,15 @@ export const ObjectDecoration = memo(function ObjectDecoration({
           ) : null}
 
           {spriteSrc ? (
-            spriteFrame ? (
+            coinDefinition ? (
+              <Coins
+                spriteSrc={spriteSrc}
+                label={objectTemplate.label ?? 'Moneda'}
+                opacity={objectTemplate.opacity ?? 1}
+                flippedX={resolvedFlippedX}
+                animation={coinDefinition}
+              />
+            ) : spriteFrame ? (
               <div
                 className="react-world-object-sprite-frame"
                 style={{

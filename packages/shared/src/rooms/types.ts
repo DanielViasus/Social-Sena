@@ -84,6 +84,11 @@ export interface RoomInteractableBaseTemplate {
 export interface RoomObjectTemplate {
   id: string
   kind: RoomObjectKind
+  /**
+   * Marks an object as an automatic pickup. Collectible objects disappear
+   * from the active room instance when a player walks over their visual area.
+   */
+  collectible?: boolean
   x: number
   y: number
   width: number

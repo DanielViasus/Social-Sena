@@ -1,0 +1,87 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0_223_23755)">
+<rect width="128" height="128" fill="white"/>
+<rect width="128" height="128" fill="#B5A279"/>
+<rect x="20" y="26" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="24" y="22" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="28" y="26" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="63" y="95" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="67" y="91" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="71" y="95" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="51" y="38" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="55" y="34" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="59" y="38" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="120" y="117" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="124" y="113" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect width="4" height="4" transform="matrix(-1 0 0 1 13 117)" fill="black" fill-opacity="0.05"/>
+<rect width="9" height="4" transform="matrix(-1 0 0 1 9 113)" fill="black" fill-opacity="0.05"/>
+<rect width="4" height="4" transform="matrix(-1 0 0 1 4 43)" fill="black" fill-opacity="0.05"/>
+<rect x="116" y="43" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="120" y="39" width="8" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="21" y="104" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="25" y="100" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="29" y="104" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="22" y="60" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="26" y="56" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="30" y="60" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="81" y="56" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="85" y="52" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="89" y="56" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="95" y="113" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="99" y="109" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<rect x="103" y="113" width="4" height="4" fill="black" fill-opacity="0.05"/>
+<path d="M28 73H20V96H28V73Z" fill="#5B8E53"/>
+<path d="M47 88H28V96H47V88Z" fill="#5B8E53"/>
+<path d="M33 85H28V89H33V85Z" fill="#5B8E53"/>
+<path d="M20 0H0V128H20V0Z" fill="#5B8E53"/>
+<path d="M21 73H16V92H21V73Z" fill="black" fill-opacity="0.05"/>
+<path d="M24 73H21V81H24V73Z" fill="black" fill-opacity="0.05"/>
+<path d="M32 81H21V96H32V81Z" fill="black" fill-opacity="0.05"/>
+<path d="M16 73.1428H12V86.8571H16V73.1428Z" fill="black" fill-opacity="0.05"/>
+<path d="M20 54.8572H12V73.1429H20V54.8572Z" fill="black" fill-opacity="0.05"/>
+<path d="M16 41.1428H8V54.8571H16V41.1428Z" fill="black" fill-opacity="0.05"/>
+<path d="M20 22.8572H12V41.1429H20V22.8572Z" fill="black" fill-opacity="0.05"/>
+<path d="M16 13.7144H8V22.8572H16V13.7144Z" fill="black" fill-opacity="0.05"/>
+<path d="M20 0H8V13.7143H20V0Z" fill="black" fill-opacity="0.05"/>
+<path d="M28 73H24V81H28V73Z" fill="#3C6C3A"/>
+<path d="M20 41.1428H16V54.8571H20V41.1428Z" fill="#3C6C3A"/>
+<path d="M24 54.8572H20V73.1429H24V54.8572Z" fill="#3C6C3A"/>
+<path d="M24 22.8572H20V41.1429H24V22.8572Z" fill="#3C6C3A"/>
+<path d="M24 0H20V13.7143H24V0Z" fill="#3C6C3A"/>
+<path d="M20 13.7144H16V22.8572H20V13.7144Z" fill="#3C6C3A"/>
+<path d="M128 96H20V128H128V96Z" fill="#5B8E53"/>
+<path d="M124 92H104V96H124V92Z" fill="#3C6C3A"/>
+<path d="M104 96H95V100H104V96Z" fill="#3C6C3A"/>
+<path d="M128 96H124V100H128V96Z" fill="#3C6C3A"/>
+<path d="M95 92H81V96H95V92Z" fill="#3C6C3A"/>
+<path d="M81 96H71V100H81V96Z" fill="#3C6C3A"/>
+<path d="M71 92H47V96H71V92Z" fill="#3C6C3A"/>
+<path d="M47 88H38V92H47V88Z" fill="#3C6C3A"/>
+<path d="M32 81H28V85H32V81Z" fill="#3C6C3A"/>
+<path d="M38 85H32V89H38V85Z" fill="#3C6C3A"/>
+<path d="M124 96H104V100H124V96Z" fill="black" fill-opacity="0.05"/>
+<path d="M109 100H95V108H109V100Z" fill="black" fill-opacity="0.05"/>
+<path d="M95 96H81V104H95V96Z" fill="black" fill-opacity="0.05"/>
+<path d="M81 100H71V108H81V100Z" fill="black" fill-opacity="0.05"/>
+<path d="M71 104H66V108H71V104Z" fill="black" fill-opacity="0.05"/>
+<path d="M52 104H47V108H52V104Z" fill="black" fill-opacity="0.05"/>
+<path d="M47 89H32V100H47V89Z" fill="black" fill-opacity="0.05"/>
+<path d="M71 96H47V104H71V96Z" fill="black" fill-opacity="0.05"/>
+<path d="M128 100H124V112H128V100Z" fill="black" fill-opacity="0.05"/>
+<path d="M124 100H120V104H124V100Z" fill="black" fill-opacity="0.05"/>
+<path d="M17 126H15V128H17V126Z" fill="#7EAB76"/>
+<path d="M67 126H65V128H67V126Z" fill="#7EAB76"/>
+<path d="M127 126H125V128H127V126Z" fill="#7EAB76"/>
+<path d="M61 124H59V128H61V124Z" fill="#7EAB76"/>
+<path d="M11 124H9V128H11V124Z" fill="#7EAB76"/>
+<path d="M55 126H53V128H55V126Z" fill="#7EAB76"/>
+<path d="M121 124H119V128H121V124Z" fill="#7EAB76"/>
+<path d="M5 126H3V128H5V126Z" fill="#7EAB76"/>
+<path d="M115 126H113V128H115V126Z" fill="#7EAB76"/>
+</g>
+<defs>
+<clipPath id="clip0_223_23755">
+<rect width="128" height="128" fill="white"/>
+</clipPath>
+</defs>
+</svg>

@@ -1,4 +1,5 @@
 import type { RoomEditorAssetData, RoomEditorPlacementData, SavedRoomEditorMap } from '../types'
+import { ROOM_REWARDS_LAYER_ID } from '../constants'
 import type {
   RoomObjectInteractionVariantTemplate,
   RoomObjectKind,
@@ -12,7 +13,8 @@ const LAYER_PRIORITY: Record<string, number> = {
   walls: 1,
   doors: 2,
   'object-decoration': 3,
-  teleports: 4,
+  [ROOM_REWARDS_LAYER_ID]: 4,
+  teleports: 5,
 }
 
 function normalizeEntryPath(path: string) {
@@ -42,6 +44,7 @@ function resolveKind(layerId: string, category: string): RoomObjectKind {
   if (layerId === 'floor') return 'floor'
   if (layerId === 'walls') return 'wall'
   if (layerId === 'doors') return 'door'
+  if (layerId === ROOM_REWARDS_LAYER_ID) return 'landmark'
   if (layerId === 'teleports') return 'portal'
   const normalized = category.toLowerCase()
   if (normalized.includes('floor')) return 'floor'
@@ -55,6 +58,7 @@ function createObjectVariant(
   collidersEnabled: boolean,
 ): RoomObjectInteractionVariantTemplate {
   const usesBottomCenterAnchor = asset.frameWidth > 128 || asset.frameHeight > 128
+  const centersWithinGridFootprint = placement.layerId === ROOM_REWARDS_LAYER_ID
   const occupiedWidth = asset.occupiedColumns * 128
   const occupiedHeight = asset.occupiedRows * 128
   const placementColliders = placement.colliders ?? asset.colliders
@@ -108,9 +112,17 @@ function createObjectVariant(
 
   return {
     state: asset.interactionState ?? 0,
-    x: placement.cellX * 128 + (usesBottomCenterAnchor ? occupiedWidth / 2 : asset.frameWidth / 2),
+    x: placement.cellX * 128 + (
+      usesBottomCenterAnchor || centersWithinGridFootprint
+        ? occupiedWidth / 2
+        : asset.frameWidth / 2
+    ),
     y: placement.cellY * 128 + (
-      usesBottomCenterAnchor ? occupiedHeight - asset.frameHeight / 2 : asset.frameHeight / 2
+      centersWithinGridFootprint
+        ? occupiedHeight / 2
+        : usesBottomCenterAnchor
+          ? occupiedHeight - asset.frameHeight / 2
+          : asset.frameHeight / 2
     ),
     width: asset.frameWidth,
     height: asset.frameHeight,
@@ -192,6 +204,7 @@ export function createRoomTemplateFromEditorMap(map: SavedRoomEditorMap): RoomTe
     return [{
       id: `published-${placement.layerId}-${placement.cellX}-${placement.cellY}`,
       kind: resolveKind(placement.layerId, asset.category),
+      collectible: placement.layerId === ROOM_REWARDS_LAYER_ID,
       opacity: placement.assetId === 'component-teleport' ? 0 : 1,
       flippedX: placement.flippedX,
       layerOrder: LAYER_PRIORITY[placement.layerId] ?? 2,

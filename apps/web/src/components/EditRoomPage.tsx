@@ -10,6 +10,7 @@ import {
 } from 'react'
 import { io, type Socket } from 'socket.io-client'
 import {
+  ROOM_REWARDS_LAYER_ID,
   clientEvents,
   hasMinimumUserRole,
   serverEvents,
@@ -38,12 +39,18 @@ import zoomOutIconSrc from '../assets/room-editor/sprites/icon_zoom_less.svg'
 import { navigateInApp } from '../hooks/usePathname'
 import { canAccessRoomEditor } from '../rooms/roomEditorAccess'
 import {
+  coinEditorAssets,
+  getCoinSpriteDefinition,
+  isCoinAssetId,
+} from './coinAssetCatalog'
+import {
   formatAssetLabel,
   loadRoomEditorAssetCategories,
   type RoomEditorAsset,
   type RoomEditorAssetCategory,
 } from './roomEditorAssetCatalog'
 import EditRoomTestMode from './EditRoomTestMode'
+import { Coins } from './world/Coins'
 import { ObjectDecoration } from './world/ObjectDecoration'
 
 const SERVER_URL = import.meta.env.VITE_GAME_SERVER_URL ?? 'http://localhost:3001'
@@ -105,6 +112,7 @@ const REQUIRED_EDITOR_LAYERS: EditorLayer[] = [
   { id: 'walls', name: 'Walls', enabled: true, collidersEnabled: true, required: true },
   { id: 'doors', name: 'Door', enabled: true, collidersEnabled: true, required: true },
   { id: 'object-decoration', name: 'ObjectDecoration', enabled: true, collidersEnabled: true, required: true },
+  { id: ROOM_REWARDS_LAYER_ID, name: 'Rewards', enabled: true, collidersEnabled: false, required: true },
   { id: 'teleports', name: 'Teleports', enabled: true, collidersEnabled: true, required: true },
 ]
 
@@ -113,7 +121,8 @@ const EDITOR_LAYER_PRIORITY: Record<string, number> = {
   walls: 1,
   doors: 2,
   'object-decoration': 3,
-  teleports: 4,
+  [ROOM_REWARDS_LAYER_ID]: 4,
+  teleports: 5,
 }
 
 const EDITOR_LAYER_COLORS: Record<string, string> = {
@@ -121,6 +130,7 @@ const EDITOR_LAYER_COLORS: Record<string, string> = {
   walls: '#75889b',
   doors: '#a18469',
   'object-decoration': '#907b99',
+  [ROOM_REWARDS_LAYER_ID]: '#a68f5b',
   teleports: '#619391',
 }
 
@@ -195,6 +205,12 @@ interface SelectedMapArea extends MapCellArea {
   sourceCellY?: number
 }
 
+interface EditorPlacementClipboard {
+  placements: PlacedRoomAsset[]
+  anchorCellX: number
+  anchorCellY: number
+}
+
 function getNormalizedCellArea(start: MapCellPosition, end: MapCellPosition): MapCellArea {
   return {
     startX: Math.min(start.x, end.x),
@@ -211,6 +227,13 @@ function isCellInsideArea(cellX: number, cellY: number, area: MapCellArea) {
     && cellY <= area.endY
 }
 
+function doCellAreasOverlap(left: MapCellArea, right: MapCellArea) {
+  return left.startX < right.endX + 1
+    && left.endX + 1 > right.startX
+    && left.startY < right.endY + 1
+    && left.endY + 1 > right.startY
+}
+
 function getPlacementFootprintArea(
   placement: PlacedRoomAsset,
   asset: RoomEditorAsset | undefined,
@@ -223,6 +246,39 @@ function getPlacementFootprintArea(
   }
 }
 
+function getPlacementPivotCell(
+  placement: PlacedRoomAsset,
+  asset: RoomEditorAsset | null | undefined,
+): MapCellPosition {
+  return {
+    x: placement.cellX,
+    y: placement.cellY + Math.max(1, asset?.occupiedRows ?? 1) - 1,
+  }
+}
+
+function getStoredPlacementCell(
+  pivotCell: MapCellPosition,
+  asset: RoomEditorAsset | null | undefined,
+): MapCellPosition {
+  return {
+    x: pivotCell.x,
+    y: pivotCell.y - Math.max(1, asset?.occupiedRows ?? 1) + 1,
+  }
+}
+
+function doesPlacementFitMap(
+  placement: PlacedRoomAsset,
+  asset: RoomEditorAsset | undefined,
+  gridWidth: number,
+  gridHeight: number,
+) {
+  const footprint = getPlacementFootprintArea(placement, asset)
+  return footprint.startX >= 0
+    && footprint.startY >= 0
+    && footprint.endX + 1 <= gridWidth
+    && footprint.endY + 1 <= gridHeight
+}
+
 function getPlacementSelectionArea(
   placement: PlacedRoomAsset,
   asset: RoomEditorAsset | undefined,
@@ -232,6 +288,32 @@ function getPlacementSelectionArea(
     placementKey: getPlacedAssetKey(placement),
     ...getPlacementFootprintArea(placement, asset),
   }
+}
+
+function clonePlacedAsset(placement: PlacedRoomAsset): PlacedRoomAsset {
+  return {
+    ...placement,
+    colliders: placement.colliders?.map((collider) => ({ ...collider })),
+  }
+}
+
+function roundPlacementCoordinate(value: number) {
+  return Math.round(value * 1000) / 1000
+}
+
+function createPastedPlacements(
+  clipboard: EditorPlacementClipboard,
+  targetCell: MapCellPosition,
+) {
+  return clipboard.placements.map((placement) => ({
+    ...clonePlacedAsset(placement),
+    cellX: roundPlacementCoordinate(
+      targetCell.x + placement.cellX - clipboard.anchorCellX,
+    ),
+    cellY: roundPlacementCoordinate(
+      targetCell.y + placement.cellY - clipboard.anchorCellY,
+    ),
+  }))
 }
 
 function arePlacementCollidersEqual(
@@ -260,6 +342,35 @@ function normalizeEditorInteger(
   const numericValue = Number(rawValue)
   if (!Number.isFinite(numericValue)) return fallback
   return Math.min(maximum, Math.max(minimum, Math.floor(numericValue)))
+}
+
+function normalizeEditorDecimal(
+  rawValue: string,
+  minimum: number,
+  maximum: number,
+  fallback: number,
+) {
+  const numericValue = Number(rawValue.trim().replace(',', '.'))
+  if (!Number.isFinite(numericValue)) return fallback
+  const clampedValue = Math.min(maximum, Math.max(minimum, numericValue))
+  return Math.round(clampedValue * 10) / 10
+}
+
+function supportsFractionalPosition(asset: RoomEditorAsset | null | undefined) {
+  return asset?.category.trim().toLocaleLowerCase() === 'decoration'
+}
+
+function formatEditorCoordinate(value: number) {
+  return String(Math.round(value * 10) / 10)
+}
+
+function getPlacementCoordinate(
+  placement: PlacedRoomAsset,
+  asset: RoomEditorAsset | null | undefined,
+  axis: 'x' | 'y',
+) {
+  const pivotCell = getPlacementPivotCell(placement, asset ?? undefined)
+  return (axis === 'x' ? pivotCell.x : pivotCell.y) + 1
 }
 
 function normalizeTeleportTargetPath(rawValue: string) {
@@ -338,6 +449,7 @@ function createPlacedObjectVariant(
   collidersEnabled = true,
 ): RoomObjectInteractionVariantTemplate {
   const usesBottomCenterAnchor = asset.frameWidth > 128 || asset.frameHeight > 128
+  const centersWithinGridFootprint = placement.layerId === ROOM_REWARDS_LAYER_ID
   const occupiedWidth = asset.occupiedColumns * 128
   const occupiedHeight = asset.occupiedRows * 128
   const placementColliders = placement.colliders ?? asset.colliders
@@ -375,9 +487,17 @@ function createPlacedObjectVariant(
     : undefined
   return {
     state: asset.interactionState ?? 0,
-    x: placement.cellX * 128 + (usesBottomCenterAnchor ? occupiedWidth / 2 : asset.frameWidth / 2),
+    x: placement.cellX * 128 + (
+      usesBottomCenterAnchor || centersWithinGridFootprint
+        ? occupiedWidth / 2
+        : asset.frameWidth / 2
+    ),
     y: placement.cellY * 128 + (
-      usesBottomCenterAnchor ? occupiedHeight - asset.frameHeight / 2 : asset.frameHeight / 2
+      centersWithinGridFootprint
+        ? occupiedHeight / 2
+        : usesBottomCenterAnchor
+          ? occupiedHeight - asset.frameHeight / 2
+          : asset.frameHeight / 2
     ),
     width: asset.frameWidth,
     height: asset.frameHeight,
@@ -412,6 +532,7 @@ function createPlacedObjectTemplate(
     walls: 'wall',
     doors: 'door',
     'object-decoration': 'landmark',
+    [ROOM_REWARDS_LAYER_ID]: 'landmark',
     teleports: 'portal',
   }
   const interactionVariants = asset.interactionState === undefined
@@ -428,6 +549,7 @@ function createPlacedObjectTemplate(
   return {
     id: `editor-object-${placement.layerId}-${placement.cellX}-${placement.cellY}`,
     kind: layerKind[placement.layerId] ?? getObjectKindFromAssetType(asset.category),
+    collectible: placement.layerId === ROOM_REWARDS_LAYER_ID,
     opacity: asset.id === TELEPORT_EDITOR_ASSET_ID ? 0 : 1,
     flippedX: placement.flippedX,
     layerOrder: getEditorLayerPriority(placement.layerId),
@@ -539,6 +661,8 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
   const [isSelectToolActive, setIsSelectToolActive] = useState(true)
   const [isSpawnToolActive, setIsSpawnToolActive] = useState(false)
   const [isTestSpawnToolActive, setIsTestSpawnToolActive] = useState(false)
+  const [isPasteToolActive, setIsPasteToolActive] = useState(false)
+  const [placementClipboard, setPlacementClipboard] = useState<EditorPlacementClipboard | null>(null)
   const [spawnPoints, setSpawnPoints] = useState<RoomEditorSpawnPointData[]>([])
   const [selectedSpawnId, setSelectedSpawnId] = useState<string | null>(null)
   const [testSpawn, setTestSpawn] = useState<Position | null>(null)
@@ -554,6 +678,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
   const canvasViewportRef = useRef<HTMLDivElement | null>(null)
   const mapScaleFrameRef = useRef<HTMLDivElement | null>(null)
   const placedAssetsRef = useRef<PlacedRoomAsset[]>([])
+  const assetByIdRef = useRef<Map<string, RoomEditorAsset>>(new Map())
   const assetEditHistoryRef = useRef<PlacedRoomAsset[][]>([])
   const dragStartCellRef = useRef<MapCellPosition | null>(null)
   const cancelPlacementRenameRef = useRef(false)
@@ -618,14 +743,21 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
             setMapGridWidthInput(String(loadedMap.document.gridWidth))
             setMapGridHeightInput(String(loadedMap.document.gridHeight))
             const normalizedLayers = normalizeEditorLayers(loadedMap.document.layers)
+            const normalizedPlacements = loadedMap.document.placements.map((placement) => (
+              isCoinAssetId(placement.assetId) && placement.layerId === 'object-decoration'
+                ? { ...placement, layerId: ROOM_REWARDS_LAYER_ID }
+                : placement
+            ))
             setLayers(normalizedLayers)
             setActiveLayerId(normalizedLayers[0]?.id ?? 'floor')
             setExpandedLayerIds(new Set())
             setRenamingPlacementKey(null)
             setPlacementNameDraft('')
             cancelPlacementRenameRef.current = false
-            placedAssetsRef.current = loadedMap.document.placements
-            setPlacedAssets(loadedMap.document.placements)
+            placedAssetsRef.current = normalizedPlacements
+            setPlacedAssets(normalizedPlacements)
+            setPlacementClipboard(null)
+            setIsPasteToolActive(false)
             setSpawnPoints(loadedMap.document.spawnPoints)
             assetEditHistoryRef.current = []
             clearEditorSelection()
@@ -695,6 +827,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
 
       if (key === 't') {
         event.preventDefault()
+        setIsPasteToolActive(false)
         if (testSpawn) {
           setTestSpawn(null)
           setIsSelectToolActive(true)
@@ -721,6 +854,70 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
           event.preventDefault()
           setIsDebugEnabled((isEnabled) => !isEnabled)
         }
+        return
+      }
+
+      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && key === 'c') {
+        event.preventDefault()
+        const currentAssets = placedAssetsRef.current
+        const placementsToCopy = selectedPlacementKeys.size > 0
+          ? currentAssets.filter((placement) => (
+              selectedPlacementKeys.has(getPlacedAssetKey(placement))
+            ))
+          : selectedMapArea
+            ? currentAssets.filter((placement) => (
+                placement.layerId === selectedMapArea.layerId
+                && doCellAreasOverlap(
+                  getPlacementFootprintArea(
+                    placement,
+                    assetByIdRef.current.get(placement.assetId),
+                  ),
+                  selectedMapArea,
+                )
+              ))
+            : []
+
+        if (placementsToCopy.length === 0) {
+          setMapPersistenceMessage('Selecciona al menos un elemento para copiar')
+          return
+        }
+
+        const copiedPlacements = placementsToCopy.map(clonePlacedAsset)
+        setPlacementClipboard({
+          placements: copiedPlacements,
+          anchorCellX: Math.min(...copiedPlacements.map((placement) => Math.floor(placement.cellX))),
+          anchorCellY: Math.max(...copiedPlacements.map((placement) => Math.floor(
+            getPlacementPivotCell(
+              placement,
+              assetByIdRef.current.get(placement.assetId),
+            ).y,
+          ))),
+        })
+        setMapPersistenceMessage(
+          copiedPlacements.length === 1
+            ? 'Elemento copiado · usa ⌘/Ctrl+V para pegarlo'
+            : `${copiedPlacements.length} elementos copiados · usa ⌘/Ctrl+V para pegarlos`,
+        )
+        return
+      }
+
+      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && key === 'v') {
+        event.preventDefault()
+        if (!placementClipboard?.placements.length) {
+          setMapPersistenceMessage('No hay elementos copiados para pegar')
+          return
+        }
+
+        setIsPasteToolActive(true)
+        setIsPaintToolActive(false)
+        setIsEraseToolActive(false)
+        setIsSelectToolActive(false)
+        setIsSpawnToolActive(false)
+        setIsTestSpawnToolActive(false)
+        clearEditorSelection()
+        setDraggedMapArea(null)
+        dragStartCellRef.current = null
+        setMapPersistenceMessage('Elige una celda del mapa para pegar')
         return
       }
 
@@ -756,7 +953,13 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
           : currentAssets.filter((asset) => (
               !selectedMapArea
               || asset.layerId !== selectedMapArea.layerId
-              || !isCellInsideArea(asset.cellX, asset.cellY, selectedMapArea)
+              || !doCellAreasOverlap(
+                getPlacementFootprintArea(
+                  asset,
+                  assetByIdRef.current.get(asset.assetId),
+                ),
+                selectedMapArea,
+              )
             ))
 
         if (selectedPlacementKeys.size === 0 && selectedMapArea && !selectedMapArea.placementKey) {
@@ -778,6 +981,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
       }
 
       if (key === 'escape') {
+        setIsPasteToolActive(false)
         setIsPaintToolActive(false)
         setIsEraseToolActive(false)
         setIsSelectToolActive(true)
@@ -791,6 +995,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
 
       if (key === 'w') {
         event.preventDefault()
+        setIsPasteToolActive(false)
         setIsPaintToolActive(true)
         setIsEraseToolActive(false)
         setIsSelectToolActive(false)
@@ -802,6 +1007,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
 
       if (key === 'd') {
         event.preventDefault()
+        setIsPasteToolActive(false)
         setIsPaintToolActive(false)
         setIsEraseToolActive(true)
         setIsSelectToolActive(false)
@@ -813,6 +1019,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
 
       if (key === 's') {
         event.preventDefault()
+        setIsPasteToolActive(false)
         setIsPaintToolActive(false)
         setIsEraseToolActive(false)
         setIsSelectToolActive(true)
@@ -835,7 +1042,15 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
 
     window.addEventListener('keydown', handleEditorShortcut)
     return () => window.removeEventListener('keydown', handleEditorShortcut)
-  }, [clearEditorSelection, selectedAssetId, selectedMapArea, selectedPlacementKeys, selectedSpawnId, testSpawn])
+  }, [
+    clearEditorSelection,
+    placementClipboard,
+    selectedAssetId,
+    selectedMapArea,
+    selectedPlacementKeys,
+    selectedSpawnId,
+    testSpawn,
+  ])
 
   const placedAssetsByLayer = useMemo(() => {
     const groupedPlacements = new Map<string, PlacedRoomAsset[]>()
@@ -860,7 +1075,11 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
       : []
   )), [expandedLayerIds, layers, placedAssetsByLayer])
   const availableAssets = useMemo(
-    () => [TELEPORT_EDITOR_ASSET, ...assetCategories.flatMap((category) => category.assets)],
+    () => [
+      TELEPORT_EDITOR_ASSET,
+      ...coinEditorAssets,
+      ...assetCategories.flatMap((category) => category.assets),
+    ],
     [assetCategories],
   )
   const assetById = useMemo(() => {
@@ -872,6 +1091,37 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
     })
     return indexedAssets
   }, [availableAssets])
+  useEffect(() => {
+    assetByIdRef.current = assetById
+  }, [assetById])
+  const pastePreviewArea = useMemo(() => {
+    if (!placementClipboard?.placements.length) {
+      return { offsetX: 0, offsetY: 0, widthCells: 1, heightCells: 1 }
+    }
+
+    const previewBounds = placementClipboard.placements.reduce((bounds, placement) => {
+      const asset = assetById.get(placement.assetId)
+      const footprint = getPlacementFootprintArea(placement, asset)
+      return {
+        startX: Math.min(bounds.startX, Math.floor(footprint.startX)),
+        startY: Math.min(bounds.startY, Math.floor(footprint.startY)),
+        endX: Math.max(bounds.endX, Math.floor(footprint.endX)),
+        endY: Math.max(bounds.endY, Math.floor(footprint.endY)),
+      }
+    }, {
+      startX: Number.POSITIVE_INFINITY,
+      startY: Number.POSITIVE_INFINITY,
+      endX: Number.NEGATIVE_INFINITY,
+      endY: Number.NEGATIVE_INFINITY,
+    })
+
+    return {
+      offsetX: previewBounds.startX - placementClipboard.anchorCellX,
+      offsetY: previewBounds.startY - placementClipboard.anchorCellY,
+      widthCells: previewBounds.endX - previewBounds.startX + 1,
+      heightCells: previewBounds.endY - previewBounds.startY + 1,
+    }
+  }, [assetById, placementClipboard])
   const layerById = useMemo(
     () => new Map(layers.map((layer) => [layer.id, layer])),
     [layers],
@@ -896,6 +1146,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
   const selectedDetailAsset = selectedDetailPlacement
     ? assetById.get(selectedDetailPlacement.assetId) ?? null
     : null
+  const selectedDetailSupportsFractionalPosition = supportsFractionalPosition(selectedDetailAsset)
   const selectedDetailName = selectedDetailPlacement
     ? selectedDetailPlacement.name
       ?? formatAssetLabel(selectedDetailAsset?.name ?? selectedDetailPlacement.assetId)
@@ -973,19 +1224,39 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
   const scaledMapHeightPx = Math.round(mapHeightPx * mapZoom)
   const zoomPercentage = Math.round(mapZoom * 100)
   const activeLayer = layers.find((layer) => layer.id === activeLayerId) ?? layers[0]
-  const activeToolLabel = isPaintToolActive
-    ? 'ModoPintar'
-    : isEraseToolActive
-      ? 'ModoBorrar'
-      : isSelectToolActive
-        ? 'ModoSeleccionar'
-        : isSpawnToolActive
-          ? 'ModoSpawn'
-          : isTestSpawnToolActive
-            ? 'ModoTest'
-            : 'ModoSeleccionar'
+  const activeToolLabel = isPasteToolActive
+    ? 'ModoPegar'
+    : isPaintToolActive
+      ? 'ModoPintar'
+      : isEraseToolActive
+        ? 'ModoBorrar'
+        : isSelectToolActive
+          ? 'ModoSeleccionar'
+          : isSpawnToolActive
+            ? 'ModoSpawn'
+            : isTestSpawnToolActive
+              ? 'ModoTest'
+              : 'ModoSeleccionar'
   const activeLayerStatusLabel = activeLayer.enabled ? activeToolLabel : 'Deshabilitada'
   const selectedAsset = availableAssets.find((asset) => asset.id === selectedAssetId) ?? null
+  const selectedCoinDefinition = getCoinSpriteDefinition(selectedAsset?.id)
+  const paintPreviewPivotArea = draggedMapArea ?? (hoveredMapCell
+    ? getNormalizedCellArea(hoveredMapCell, hoveredMapCell)
+    : null)
+  const paintPreviewArea = selectedAsset && paintPreviewPivotArea
+    ? {
+        startX: paintPreviewPivotArea.startX,
+        startY: paintPreviewPivotArea.startY - selectedAsset.occupiedRows + 1,
+        endX: paintPreviewPivotArea.endX + selectedAsset.occupiedColumns - 1,
+        endY: paintPreviewPivotArea.endY,
+      }
+    : null
+  const selectedAssetUsesBottomAnchor = Boolean(selectedAsset && (
+    selectedAsset.occupiedColumns > 1
+    || selectedAsset.occupiedRows > 1
+    || selectedAsset.frameWidth > 128
+    || selectedAsset.frameHeight > 128
+  ))
   const testTemplate: RoomTemplate = {
     id: 'edit-room-test',
     routeSegment: 'edit-room-test',
@@ -1181,23 +1452,34 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
   const commitSelectedDetailCoordinate = (axis: 'x' | 'y', rawValue: string) => {
     if (!selectedDetailPlacement) return 1
 
-    const occupiedCells = axis === 'x'
-      ? selectedDetailAsset?.occupiedColumns ?? 1
-      : selectedDetailAsset?.occupiedRows ?? 1
-    const gridCells = axis === 'x' ? mapGridWidth : mapGridHeight
-    const currentCell = axis === 'x'
-      ? selectedDetailPlacement.cellX
-      : selectedDetailPlacement.cellY
-    const maximumVisibleCell = Math.max(1, gridCells - occupiedCells + 1)
-    const nextVisibleCell = normalizeEditorInteger(
-      rawValue,
-      1,
-      maximumVisibleCell,
-      currentCell + 1,
-    )
-    const nextCell = nextVisibleCell - 1
-    const nextCellX = axis === 'x' ? nextCell : selectedDetailPlacement.cellX
-    const nextCellY = axis === 'y' ? nextCell : selectedDetailPlacement.cellY
+    const occupiedColumns = Math.max(1, selectedDetailAsset?.occupiedColumns ?? 1)
+    const occupiedRows = Math.max(1, selectedDetailAsset?.occupiedRows ?? 1)
+    const currentPivot = getPlacementPivotCell(selectedDetailPlacement, selectedDetailAsset)
+    const minimumVisibleCell = axis === 'x' ? 1 : occupiedRows
+    const maximumVisibleCell = axis === 'x'
+      ? Math.max(1, mapGridWidth - occupiedColumns + 1)
+      : mapGridHeight
+    const currentVisibleCell = (axis === 'x' ? currentPivot.x : currentPivot.y) + 1
+    const nextVisibleCell = selectedDetailSupportsFractionalPosition
+      ? normalizeEditorDecimal(
+          rawValue,
+          minimumVisibleCell,
+          maximumVisibleCell,
+          currentVisibleCell,
+        )
+      : normalizeEditorInteger(
+          rawValue,
+          minimumVisibleCell,
+          maximumVisibleCell,
+          currentVisibleCell,
+        )
+    const nextPivot = {
+      x: axis === 'x' ? nextVisibleCell - 1 : currentPivot.x,
+      y: axis === 'y' ? nextVisibleCell - 1 : currentPivot.y,
+    }
+    const nextStoredCell = getStoredPlacementCell(nextPivot, selectedDetailAsset)
+    const nextCellX = nextStoredCell.x
+    const nextCellY = nextStoredCell.y
     const currentPlacementKey = getPlacedAssetKey(selectedDetailPlacement)
     const isOccupied = placedAssetsRef.current.some((placement) => (
       getPlacedAssetKey(placement) !== currentPlacementKey
@@ -1208,9 +1490,9 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
 
     if (isOccupied) {
       setMapPersistenceMessage(
-        `No se puede mover: la celda X${nextCellX + 1} Y${nextCellY + 1} ya está ocupada en esta capa`,
+        `No se puede mover: el pivote X${formatEditorCoordinate(nextPivot.x + 1)} Y${formatEditorCoordinate(nextPivot.y + 1)} ya está ocupado en esta capa`,
       )
-      return currentCell + 1
+      return currentVisibleCell
     }
 
     updateSelectedDetailPlacement(
@@ -1219,7 +1501,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
         cellX: nextCellX,
         cellY: nextCellY,
       },
-      `Posición actualizada · X${nextCellX + 1} Y${nextCellY + 1}`,
+      `Pivote actualizado · X${formatEditorCoordinate(nextPivot.x + 1)} Y${formatEditorCoordinate(nextPivot.y + 1)}`,
     )
     return nextVisibleCell
   }
@@ -1508,6 +1790,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
 
     setSelectedSpawnId(null)
     setActiveLayerId(placement.layerId)
+    setIsPasteToolActive(false)
     setIsPaintToolActive(false)
     setIsEraseToolActive(false)
     setIsSelectToolActive(true)
@@ -1676,7 +1959,10 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
       if (
         layer?.enabled === true
         && asset
-        && isCellInsideArea(cell.x, cell.y, getPlacementFootprintArea(placement, asset))
+        && doCellAreasOverlap(
+          { startX: cell.x, startY: cell.y, endX: cell.x, endY: cell.y },
+          getPlacementFootprintArea(placement, asset),
+        )
       ) {
         candidates.push({ placement, asset, placementIndex })
       }
@@ -1735,6 +2021,99 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
   }
 
   const applyMapAreaEdit = (area: MapCellArea) => {
+    if (isPasteToolActive) {
+      if (!placementClipboard?.placements.length) {
+        setIsPasteToolActive(false)
+        setIsSelectToolActive(true)
+        setMapPersistenceMessage('No hay elementos copiados para pegar')
+        return
+      }
+
+      const targetCell = { x: area.endX, y: area.endY }
+      const pastedPlacements = createPastedPlacements(placementClipboard, targetCell)
+      const targetPositionKeys = new Set<string>()
+      let validationMessage = ''
+
+      for (const placement of pastedPlacements) {
+        const asset = assetById.get(placement.assetId)
+        const layer = layerById.get(placement.layerId)
+        if (!asset) {
+          validationMessage = `No se encontró el asset ${placement.assetId}`
+          break
+        }
+        if (!layer?.enabled) {
+          validationMessage = `Habilita la capa ${layer?.name ?? placement.layerId} antes de pegar`
+          break
+        }
+        if (!doesPlacementFitMap(placement, asset, mapGridWidth, mapGridHeight)) {
+          validationMessage = 'La copia no cabe completamente dentro del mapa'
+          break
+        }
+
+        const targetPositionKey = `${placement.layerId}:${placement.cellX}:${placement.cellY}`
+        if (targetPositionKeys.has(targetPositionKey)) {
+          validationMessage = 'La copia contiene dos elementos en la misma posición y capa'
+          break
+        }
+        targetPositionKeys.add(targetPositionKey)
+
+        const isOccupied = placedAssetsRef.current.some((currentPlacement) => (
+          currentPlacement.layerId === placement.layerId
+          && currentPlacement.cellX === placement.cellX
+          && currentPlacement.cellY === placement.cellY
+        ))
+        if (isOccupied) {
+          const placementPivot = getPlacementPivotCell(placement, asset)
+          validationMessage = `El pivote X${formatEditorCoordinate(placementPivot.x + 1)} Y${formatEditorCoordinate(placementPivot.y + 1)} ya está ocupado en ${layer.name}`
+          break
+        }
+      }
+
+      if (validationMessage) {
+        setMapPersistenceMessage(validationMessage)
+        return
+      }
+
+      commitPlacedAssetEdit((currentAssets) => [...currentAssets, ...pastedPlacements])
+      const pastedPlacementKeys = new Set(pastedPlacements.map(getPlacedAssetKey))
+      const primaryPlacement = pastedPlacements.at(-1)
+      setSelectedPlacementKeys(pastedPlacementKeys)
+      setSelectedSpawnId(null)
+      setIsPasteToolActive(false)
+      setIsSelectToolActive(true)
+      setHoveredMapCell(null)
+      setExpandedLayerIds((currentLayerIds) => {
+        const nextLayerIds = new Set(currentLayerIds)
+        pastedPlacements.forEach((placement) => nextLayerIds.add(placement.layerId))
+        return nextLayerIds
+      })
+
+      if (primaryPlacement) {
+        const primaryPlacementKey = getPlacedAssetKey(primaryPlacement)
+        const primaryPivot = getPlacementPivotCell(
+          primaryPlacement,
+          assetById.get(primaryPlacement.assetId),
+        )
+        setActiveLayerId(primaryPlacement.layerId)
+        hierarchySelectionAnchorRef.current = primaryPlacementKey
+        setSelectedMapArea({
+          ...getPlacementSelectionArea(
+            primaryPlacement,
+            assetById.get(primaryPlacement.assetId),
+          ),
+          sourceCellX: Math.floor(primaryPivot.x),
+          sourceCellY: Math.floor(primaryPivot.y),
+        })
+      }
+
+      setMapPersistenceMessage(
+        pastedPlacements.length === 1
+          ? `Elemento pegado en X${targetCell.x + 1} Y${targetCell.y + 1}`
+          : `${pastedPlacements.length} elementos pegados desde X${targetCell.x + 1} Y${targetCell.y + 1}`,
+      )
+      return
+    }
+
     if (!activeLayer.enabled && (isEraseToolActive || isPaintToolActive)) {
       setMapPersistenceMessage(`Habilita la capa ${activeLayer.name} para editarla`)
       return
@@ -1810,7 +2189,10 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
       )))
       commitPlacedAssetEdit((currentAssets) => currentAssets.filter((asset) => (
         asset.layerId !== activeLayer.id
-        || !isCellInsideArea(asset.cellX, asset.cellY, area)
+        || !doCellAreasOverlap(
+          getPlacementFootprintArea(asset, assetById.get(asset.assetId)),
+          area,
+        )
       )))
       return
     }
@@ -1820,31 +2202,57 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
     }
 
     const newPlacements: PlacedRoomAsset[] = []
-    for (let cellY = area.startY; cellY <= area.endY; cellY += 1) {
-      for (let cellX = area.startX; cellX <= area.endX; cellX += 1) {
-        newPlacements.push({
+    const targetPivotKeys = new Set<string>()
+    const requestedPlacementCount = (
+      (area.endX - area.startX + 1) * (area.endY - area.startY + 1)
+    )
+    for (let pivotY = area.startY; pivotY <= area.endY; pivotY += 1) {
+      for (let pivotX = area.startX; pivotX <= area.endX; pivotX += 1) {
+        const storedCell = getStoredPlacementCell({ x: pivotX, y: pivotY }, selectedAsset)
+        const nextPlacement: PlacedRoomAsset = {
           layerId: activeLayer.id,
           assetId: selectedAsset.id,
-          cellX,
-          cellY,
+          cellX: storedCell.x,
+          cellY: storedCell.y,
           flippedX: isAssetFlippedX,
-        })
+        }
+        if (!doesPlacementFitMap(nextPlacement, selectedAsset, mapGridWidth, mapGridHeight)) {
+          continue
+        }
+        newPlacements.push(nextPlacement)
+        targetPivotKeys.add(`${pivotX}:${pivotY}`)
       }
     }
 
+    if (newPlacements.length === 0) {
+      setMapPersistenceMessage('El elemento no cabe en las celdas seleccionadas')
+      return
+    }
+
     commitPlacedAssetEdit((currentAssets) => [
-      ...currentAssets.filter((asset) => (
-        asset.layerId !== activeLayer.id
-        || !isCellInsideArea(asset.cellX, asset.cellY, area)
-      )),
+      ...currentAssets.filter((asset) => {
+        if (asset.layerId !== activeLayer.id) return true
+        const pivot = getPlacementPivotCell(asset, assetById.get(asset.assetId))
+        return !targetPivotKeys.has(`${pivot.x}:${pivot.y}`)
+      }),
       ...newPlacements,
     ])
+    if (newPlacements.length < requestedPlacementCount) {
+      setMapPersistenceMessage('Se omitieron las posiciones donde el elemento saldría del mapa')
+    }
   }
 
   const beginMapDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (
       event.button !== 0
-      || (!isPaintToolActive && !isEraseToolActive && !isSelectToolActive && !isSpawnToolActive && !isTestSpawnToolActive)
+      || (
+        !isPaintToolActive
+        && !isEraseToolActive
+        && !isSelectToolActive
+        && !isSpawnToolActive
+        && !isTestSpawnToolActive
+        && !isPasteToolActive
+      )
     ) {
       return
     }
@@ -2175,7 +2583,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                       </div>
                     ) : null}
                     <div className="edit-room-details-field">
-                      <dt>Posición X</dt>
+                      <dt>Pivote X</dt>
                       <dd>
                         <input
                           type="number"
@@ -2185,8 +2593,15 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                             1,
                             mapGridWidth - (selectedDetailAsset?.occupiedColumns ?? 1) + 1,
                           )}
-                          defaultValue={selectedDetailPlacement.cellX + 1}
-                          aria-label="Posición X del elemento"
+                          step={selectedDetailSupportsFractionalPosition ? 0.1 : 1}
+                          inputMode={selectedDetailSupportsFractionalPosition ? 'decimal' : 'numeric'}
+                          defaultValue={formatEditorCoordinate(
+                            getPlacementCoordinate(selectedDetailPlacement, selectedDetailAsset, 'x'),
+                          )}
+                          aria-label="Pivote X inferior izquierdo del elemento"
+                          title={selectedDetailSupportsFractionalPosition
+                            ? 'Esta decoración admite posiciones decimales, por ejemplo 1.1 o 3.4'
+                            : undefined}
                           onBlur={(event) => {
                             event.currentTarget.value = String(
                               commitSelectedDetailCoordinate('x', event.currentTarget.value),
@@ -2198,7 +2613,9 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                               event.currentTarget.blur()
                             } else if (event.key === 'Escape') {
                               event.preventDefault()
-                              event.currentTarget.value = String(selectedDetailPlacement.cellX + 1)
+                              event.currentTarget.value = formatEditorCoordinate(
+                                getPlacementCoordinate(selectedDetailPlacement, selectedDetailAsset, 'x'),
+                              )
                               event.currentTarget.blur()
                             }
                           }}
@@ -2206,18 +2623,22 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                       </dd>
                     </div>
                     <div className="edit-room-details-field">
-                      <dt>Posición Y</dt>
+                      <dt>Pivote Y</dt>
                       <dd>
                         <input
                           type="number"
                           className="edit-room-details-input"
-                          min="1"
-                          max={Math.max(
-                            1,
-                            mapGridHeight - (selectedDetailAsset?.occupiedRows ?? 1) + 1,
+                          min={Math.max(1, selectedDetailAsset?.occupiedRows ?? 1)}
+                          max={mapGridHeight}
+                          step={selectedDetailSupportsFractionalPosition ? 0.1 : 1}
+                          inputMode={selectedDetailSupportsFractionalPosition ? 'decimal' : 'numeric'}
+                          defaultValue={formatEditorCoordinate(
+                            getPlacementCoordinate(selectedDetailPlacement, selectedDetailAsset, 'y'),
                           )}
-                          defaultValue={selectedDetailPlacement.cellY + 1}
-                          aria-label="Posición Y del elemento"
+                          aria-label="Pivote Y inferior izquierdo del elemento"
+                          title={selectedDetailSupportsFractionalPosition
+                            ? 'Esta decoración admite posiciones decimales, por ejemplo 1.1 o 3.4'
+                            : undefined}
                           onBlur={(event) => {
                             event.currentTarget.value = String(
                               commitSelectedDetailCoordinate('y', event.currentTarget.value),
@@ -2229,7 +2650,9 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                               event.currentTarget.blur()
                             } else if (event.key === 'Escape') {
                               event.preventDefault()
-                              event.currentTarget.value = String(selectedDetailPlacement.cellY + 1)
+                              event.currentTarget.value = formatEditorCoordinate(
+                                getPlacementCoordinate(selectedDetailPlacement, selectedDetailAsset, 'y'),
+                              )
                               event.currentTarget.blur()
                             }
                           }}
@@ -2446,13 +2869,16 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
           <section className="edit-room-panel edit-room-assets-panel" aria-label="Assets por categoría">
             <header>
               <span>Assets</span>
-              <output>{assetCategories.reduce((total, category) => total + category.assets.length, 2)}</output>
+              <output>{assetCategories.reduce(
+                (total, category) => total + category.assets.length,
+                2 + coinEditorAssets.length,
+              )}</output>
             </header>
             <div className="edit-room-panel-body edit-room-assets-body">
             <details className="edit-room-asset-collection" open>
               <summary>
                 <span>Componentes</span>
-                <output>2</output>
+                <output>{2 + coinEditorAssets.length}</output>
               </summary>
               <div className="edit-room-asset-grid">
                 <button
@@ -2463,6 +2889,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                   title="Spawns de jugadores · máximo 20 por escena"
                   onClick={() => {
                     setSelectedAssetId(null)
+                    setIsPasteToolActive(false)
                     setIsSpawnToolActive(true)
                     setIsPaintToolActive(false)
                     setIsEraseToolActive(false)
@@ -2487,6 +2914,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                     setSelectedAssetId(TELEPORT_EDITOR_ASSET_ID)
                     setActiveLayerId('teleports')
                     setExpandedLayerIds((currentLayerIds) => new Set(currentLayerIds).add('teleports'))
+                    setIsPasteToolActive(false)
                     setIsPaintToolActive(true)
                     setIsEraseToolActive(false)
                     setIsSelectToolActive(false)
@@ -2499,6 +2927,45 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                   <span className="edit-room-asset-name">Teleport</span>
                   <span className="edit-room-asset-size">1×1 celda · múltiples por sala</span>
                 </button>
+                {coinEditorAssets.map((coinAsset) => {
+                  const coinDefinition = getCoinSpriteDefinition(coinAsset.id)
+                  if (!coinDefinition) return null
+
+                  return (
+                    <button
+                      key={coinAsset.id}
+                      type="button"
+                      className={`edit-room-asset-tile edit-room-coins-asset${selectedAssetId === coinAsset.id ? ' is-selected' : ''}`}
+                      aria-label={`Agregar ${coinAsset.name}`}
+                      aria-pressed={selectedAssetId === coinAsset.id && isPaintToolActive}
+                      title={`${coinAsset.name} · ${coinDefinition.frameCount} frames`}
+                      onClick={() => {
+                        setSelectedAssetId(coinAsset.id)
+                        setActiveLayerId(ROOM_REWARDS_LAYER_ID)
+                        setExpandedLayerIds((currentLayerIds) => new Set(currentLayerIds).add(ROOM_REWARDS_LAYER_ID))
+                        setIsPasteToolActive(false)
+                        setIsPaintToolActive(true)
+                        setIsEraseToolActive(false)
+                        setIsSelectToolActive(false)
+                        setIsSpawnToolActive(false)
+                        setIsTestSpawnToolActive(false)
+                        clearEditorSelection()
+                      }}
+                    >
+                      <span className="edit-room-asset-preview edit-room-coins-preview" aria-hidden="true">
+                        <Coins
+                          spriteSrc={coinAsset.url}
+                          label=""
+                          animation={coinDefinition}
+                        />
+                      </span>
+                      <span className="edit-room-asset-name">{coinAsset.name}</span>
+                      <span className="edit-room-asset-size">
+                        1×1 celda · {coinAsset.frameWidth}×{coinAsset.frameHeight} px
+                      </span>
+                    </button>
+                  )
+                })}
               </div>
             </details>
             {assetCategories.length === 0 ? (
@@ -2524,6 +2991,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                         title={`${assetLabel} · ${asset.frameWidth}×${asset.frameHeight} · ${asset.occupiedColumns}×${asset.occupiedRows} celdas`}
                         onClick={() => {
                           setSelectedAssetId(asset.id)
+                          setIsPasteToolActive(false)
                           setIsPaintToolActive(true)
                           setIsEraseToolActive(false)
                           setIsSelectToolActive(false)
@@ -2607,7 +3075,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                   ))}
                 </div>
                 <div
-                  className={`edit-room-map-canvas${isPaintToolActive ? ' is-painting' : ''}${isEraseToolActive ? ' is-erasing' : ''}${isSelectToolActive ? ' is-selecting' : ''}${isSpawnToolActive ? ' is-placing-spawn' : ''}${isTestSpawnToolActive ? ' is-testing-spawn' : ''}`}
+                  className={`edit-room-map-canvas${isPaintToolActive ? ' is-painting' : ''}${isEraseToolActive ? ' is-erasing' : ''}${isSelectToolActive ? ' is-selecting' : ''}${isSpawnToolActive ? ' is-placing-spawn' : ''}${isTestSpawnToolActive ? ' is-testing-spawn' : ''}${isPasteToolActive ? ' is-pasting' : ''}`}
                   data-active-layer={activeLayer.id}
                   style={{
                     width: `${mapWidthPx}px`,
@@ -2625,8 +3093,9 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                     }
                   }}
                   onContextMenu={(event) => {
-                    if (isPaintToolActive || isEraseToolActive || isSelectToolActive || isSpawnToolActive || isTestSpawnToolActive) {
+                    if (isPaintToolActive || isEraseToolActive || isSelectToolActive || isSpawnToolActive || isTestSpawnToolActive || isPasteToolActive) {
                       event.preventDefault()
+                      setIsPasteToolActive(false)
                       setIsPaintToolActive(false)
                       setIsEraseToolActive(false)
                       setIsSelectToolActive(true)
@@ -2655,6 +3124,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                       onPointerDown={(event) => event.stopPropagation()}
                       onClick={(event) => {
                         event.stopPropagation()
+                        setIsPasteToolActive(false)
                         setIsPaintToolActive(false)
                         setIsEraseToolActive(false)
                         setIsSelectToolActive(true)
@@ -2683,6 +3153,18 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                       style={{
                         left: `${hoveredMapCell.x * 128}px`,
                         top: `${hoveredMapCell.y * 128}px`,
+                      }}
+                      aria-hidden="true"
+                    />
+                  ) : null}
+                  {isPasteToolActive && placementClipboard && hoveredMapCell ? (
+                    <span
+                      className="edit-room-cell-tool-preview is-paste"
+                      style={{
+                        left: `${(hoveredMapCell.x + pastePreviewArea.offsetX) * 128}px`,
+                        top: `${(hoveredMapCell.y + pastePreviewArea.offsetY) * 128}px`,
+                        width: `${pastePreviewArea.widthCells * 128}px`,
+                        height: `${pastePreviewArea.heightCells * 128}px`,
                       }}
                       aria-hidden="true"
                     />
@@ -2741,27 +3223,36 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                       aria-hidden="true"
                     />
                   ) : null}
-                  {activeLayer.enabled && isPaintToolActive && selectedAsset && (draggedMapArea || hoveredMapCell) ? (
+                  {activeLayer.enabled && isPaintToolActive && selectedAsset && paintPreviewArea ? (
                     <span
                       className="edit-room-cell-tool-preview is-paint"
                       style={{
-                        left: `${(draggedMapArea?.startX ?? hoveredMapCell?.x ?? 0) * 128}px`,
-                        top: `${(draggedMapArea?.startY ?? hoveredMapCell?.y ?? 0) * 128}px`,
-                        width: `${draggedMapArea ? (draggedMapArea.endX - draggedMapArea.startX + 1) * 128 : selectedAsset.occupiedColumns * 128}px`,
-                        height: `${draggedMapArea ? (draggedMapArea.endY - draggedMapArea.startY + 1) * 128 : selectedAsset.occupiedRows * 128}px`,
+                        left: `${paintPreviewArea.startX * 128}px`,
+                        top: `${paintPreviewArea.startY * 128}px`,
+                        width: `${(paintPreviewArea.endX - paintPreviewArea.startX + 1) * 128}px`,
+                        height: `${(paintPreviewArea.endY - paintPreviewArea.startY + 1) * 128}px`,
                       }}
                       aria-hidden="true"
                     >
-                      {!draggedMapArea && selectedAsset.id !== TELEPORT_EDITOR_ASSET_ID ? (
+                      {!draggedMapArea && selectedCoinDefinition ? (
+                        <Coins
+                          spriteSrc={selectedAsset.url}
+                          label=""
+                          flippedX={isAssetFlippedX}
+                          animation={selectedCoinDefinition}
+                        />
+                      ) : !draggedMapArea && selectedAsset.id !== TELEPORT_EDITOR_ASSET_ID ? (
                           <img
-                            className="edit-room-paint-preview-sprite"
+                            className={`edit-room-paint-preview-sprite${selectedAssetUsesBottomAnchor ? ' is-bottom-anchored' : ''}`}
                             src={selectedAsset.url}
                             alt=""
                             draggable={false}
                             style={{
                               width: `${selectedAsset.frameWidth}px`,
                               height: `${selectedAsset.frameHeight}px`,
-                              transform: isAssetFlippedX ? 'scaleX(-1)' : undefined,
+                              transform: selectedAssetUsesBottomAnchor
+                                ? `translateX(-50%)${isAssetFlippedX ? ' scaleX(-1)' : ''}`
+                                : isAssetFlippedX ? 'scaleX(-1)' : undefined,
                             }}
                           />
                       ) : null}
@@ -2780,17 +3271,19 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
               <section className="edit-room-tool-group edit-room-paint-tool" aria-label="Herramienta de pintura">
                 <strong>Editar celdas</strong>
                 <output>
-                  {isPaintToolActive
-                    ? 'Pintar'
-                    : isEraseToolActive
-                      ? 'Borrar'
-                      : isSelectToolActive
-                        ? 'Seleccionar'
-                        : isSpawnToolActive
-                          ? 'Asignar spawn'
-                          : isTestSpawnToolActive
-                            ? 'Elegir respawn'
-                            : 'Seleccionar'}
+                  {isPasteToolActive
+                    ? 'Pegar'
+                    : isPaintToolActive
+                      ? 'Pintar'
+                      : isEraseToolActive
+                        ? 'Borrar'
+                        : isSelectToolActive
+                          ? 'Seleccionar'
+                          : isSpawnToolActive
+                            ? 'Asignar spawn'
+                            : isTestSpawnToolActive
+                              ? 'Elegir respawn'
+                              : 'Seleccionar'}
                 </output>
                 <div className="edit-room-primary-tool-controls">
                   <button
@@ -2800,6 +3293,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                     aria-pressed={isSelectToolActive}
                     data-tool-tooltip="Seleccionar (S)"
                     onClick={() => {
+                      setIsPasteToolActive(false)
                       setIsSelectToolActive(true)
                       setIsPaintToolActive(false)
                       setIsEraseToolActive(false)
@@ -2823,6 +3317,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                     data-tool-tooltip="Pintar (W)"
                     onClick={() => {
                       const nextIsActive = !isPaintToolActive
+                      setIsPasteToolActive(false)
                       setIsPaintToolActive(nextIsActive)
                       setIsEraseToolActive(false)
                       setIsSelectToolActive(!nextIsActive)
@@ -2847,6 +3342,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                     data-tool-tooltip="Borrar (D)"
                     onClick={() => {
                       const nextIsActive = !isEraseToolActive
+                      setIsPasteToolActive(false)
                       setIsEraseToolActive(nextIsActive)
                       setIsPaintToolActive(false)
                       setIsSelectToolActive(!nextIsActive)
@@ -2871,6 +3367,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                     data-tool-tooltip="Test (T)"
                     onClick={() => {
                       const nextIsActive = !isTestSpawnToolActive
+                      setIsPasteToolActive(false)
                       setIsTestSpawnToolActive(nextIsActive)
                       setIsPaintToolActive(false)
                       setIsEraseToolActive(false)
@@ -3010,6 +3507,10 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                           aria-pressed={layer.id === activeLayer.id}
                           disabled={!layer.enabled}
                           onClick={() => {
+                            if (isPasteToolActive) {
+                              setIsSelectToolActive(true)
+                            }
+                            setIsPasteToolActive(false)
                             setActiveLayerId(layer.id)
                             clearEditorSelection()
                           }}
@@ -3060,8 +3561,17 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                             const isSelected = selectedPlacementKeys.has(placementKey)
                               || (!selectedMapArea?.placementKey
                                 && selectedMapArea?.layerId === layer.id
-                                && isCellInsideArea(placement.cellX, placement.cellY, selectedMapArea)
+                                && doCellAreasOverlap(
+                                  getPlacementFootprintArea(placement, asset),
+                                  selectedMapArea,
+                                )
                               )
+                            const placementXLabel = formatEditorCoordinate(
+                              getPlacementCoordinate(placement, asset, 'x'),
+                            )
+                            const placementYLabel = formatEditorCoordinate(
+                              getPlacementCoordinate(placement, asset, 'y'),
+                            )
 
                             return isRenaming ? (
                               <div
@@ -3093,7 +3603,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                                   }}
                                 />
                                 <span className="edit-room-layer-child-position">
-                                  X{placement.cellX + 1} Y{placement.cellY + 1}
+                                  X{placementXLabel} Y{placementYLabel}
                                 </span>
                               </div>
                             ) : (
@@ -3102,10 +3612,10 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                                 type="button"
                                 className={`edit-room-layer-child${isSelected ? ' is-selected' : ''}`}
                                 disabled={!layer.enabled}
-                                aria-label={`${displayName}, columna ${placement.cellX + 1}, fila ${placement.cellY + 1}`}
+                                aria-label={`${displayName}, columna ${placementXLabel}, fila ${placementYLabel}`}
                                 aria-pressed={isSelected}
                                 data-editor-placement-key={placementKey}
-                                title={`${displayName} · X${placement.cellX + 1} Y${placement.cellY + 1}${placement.flippedX ? ' · Invertido X' : ''} · ⌘/Ctrl clic agrega o quita · Shift clic selecciona un rango · Doble clic para renombrar`}
+                                title={`${displayName} · X${placementXLabel} Y${placementYLabel}${placement.flippedX ? ' · Invertido X' : ''} · ⌘/Ctrl clic agrega o quita · Shift clic selecciona un rango · Doble clic para renombrar`}
                                 onClick={(event) => selectLayerPlacement(placement, {
                                   toggle: event.metaKey || event.ctrlKey,
                                   range: event.shiftKey,
@@ -3120,7 +3630,7 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
                                 </span>
                                 <span className="edit-room-layer-child-name">{displayName}</span>
                                 <span className="edit-room-layer-child-position">
-                                  X{placement.cellX + 1} Y{placement.cellY + 1}
+                                  X{placementXLabel} Y{placementYLabel}
                                 </span>
                               </button>
                             )
