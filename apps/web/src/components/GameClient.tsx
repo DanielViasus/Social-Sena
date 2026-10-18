@@ -54,6 +54,7 @@ import { createAvatarBubblePalette, mixHexColor, withAlpha } from '../game/avata
 import ReactWorld, { type WorldInteractableTarget } from './ReactWorld'
 import SceneLoadingOverlay, { SCENE_LOADING_LAYER_ASSETS } from './SceneLoadingOverlay'
 import DialogueOverlay from './dialogue/DialogueOverlay'
+import MobileMovementJoystick from './MobileMovementJoystick'
 import MobileNpcInteractButton from './MobileNpcInteractButton'
 import MerchantShopOverlay from './merchant/MerchantShopOverlay'
 import InitialSkinSetupOverlay from './skins/InitialSkinSetupOverlay'
@@ -327,6 +328,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const [dialogueVisibleChars, setDialogueVisibleChars] = useState(0)
   const [npcInteractionLocked, setNpcInteractionLocked] = useState(false)
   const [mobileInteractionEnabled, setMobileInteractionEnabled] = useState(false)
+  const [mobileMovementInput, setMobileMovementInput] = useState<MovementInputState>(EMPTY_MOVEMENT_INPUT)
   const [responsiveWorldScale, setResponsiveWorldScale] = useState(1)
   const [activeInteractable, setActiveInteractable] = useState<WorldInteractableTarget | null>(null)
   const [sceneLoadingVisible, setSceneLoadingVisible] = useState(true)
@@ -864,10 +866,11 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
     const updateMobileInteractionMode = () => {
       const hasTouchSupport = navigator.maxTouchPoints > 0 || 'ontouchstart' in window
-      const usesResponsiveMobileLayout = mobileMedia.matches || coarseMedia.matches || hasTouchSupport
       const viewportWidth = window.visualViewport?.width ?? window.innerWidth
       const viewportHeight = window.visualViewport?.height ?? window.innerHeight
       const shortestViewportSide = Math.min(viewportWidth, viewportHeight)
+      const usesResponsiveMobileLayout =
+        (coarseMedia.matches || hasTouchSupport) && shortestViewportSide <= TABLET_MAX_SHORT_SIDE_PX
 
       setMobileInteractionEnabled(usesResponsiveMobileLayout)
       setResponsiveWorldScale(
@@ -1692,6 +1695,10 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
   })
 
+  useEffect(() => {
+    emitMovementInput(mobileMovementInput)
+  }, [mobileMovementInput])
+
   const resetKeyboardMovement = useEffectEvent(() => {
     pressedMovementKeyCodesRef.current.clear()
     emitMovementInput(EMPTY_MOVEMENT_INPUT)
@@ -1712,6 +1719,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
       if (
         isTyping ||
+        mobileInteractionEnabled ||
         !connected ||
         !room ||
         sceneLoadingVisible ||
@@ -1754,14 +1762,24 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       resetKeyboardMovement()
     }
 
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        resetKeyboardMovement()
+      }
+    }
+
     window.addEventListener('keydown', handleMovementKeyDown)
     window.addEventListener('keyup', handleMovementKeyUp)
     window.addEventListener('blur', handleWindowBlur)
+    window.addEventListener('pagehide', handleWindowBlur)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
 
     return () => {
       window.removeEventListener('keydown', handleMovementKeyDown)
       window.removeEventListener('keyup', handleMovementKeyUp)
       window.removeEventListener('blur', handleWindowBlur)
+      window.removeEventListener('pagehide', handleWindowBlur)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [
     activeDialogue,
@@ -1769,6 +1787,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     chatOpen,
     connected,
     initialSkinSetupOpen,
+    mobileInteractionEnabled,
     optionsOpen,
     partyLeaderFollowPrompt,
     quickChatOpen,
@@ -1776,6 +1795,14 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     sceneLoadingVisible,
     skinEditorOpen,
   ])
+
+  useEffect(() => {
+    if (!mobileInteractionEnabled) {
+      return
+    }
+
+    resetKeyboardMovement()
+  }, [mobileInteractionEnabled])
 
   useEffect(() => {
     if (
@@ -3194,6 +3221,25 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     return () => window.removeEventListener('keydown', handleQuickChatShortcut)
   }, [activeDialogue, activeTouchPrompt, chatOpen, initialSkinSetupOpen, skinEditorOpen])
 
+  const mobileMovementControlsVisible =
+    mobileInteractionEnabled &&
+    connected &&
+    Boolean(room) &&
+    !sceneLoadingVisible &&
+    !chatOpen &&
+    !quickChatOpen &&
+    !optionsOpen &&
+    !activeDialogue &&
+    !activeTouchPrompt &&
+    !partyLeaderFollowPrompt &&
+    !skinEditorOpen &&
+    !initialSkinSetupOpen
+
+  const mobileInteractionButtonVisible =
+    mobileMovementControlsVisible &&
+    Boolean(activeInteractable) &&
+    !npcInteractionLocked
+
   return (
     <main className="hud-layout">
       <div className="world-canvas fullscreen-world">
@@ -3211,7 +3257,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
           onInteract={handleWorldInteract}
           onEnemyTouchInteract={handleEnemyTouchInteract}
           onActiveInteractableChange={setActiveInteractable}
-          navigationEnabled={!activeDialogue && !activeTouchPrompt && !skinEditorOpen && !initialSkinSetupOpen}
+          navigationEnabled={!mobileInteractionEnabled && !activeDialogue && !activeTouchPrompt && !skinEditorOpen && !initialSkinSetupOpen}
           interactionEnabled={!activeDialogue && !activeTouchPrompt && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen}
           blockedEnemyInteractionIds={blockedEnemyInteractionIds}
           suppressInteractionIconForId={
@@ -3227,7 +3273,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
           skinColors={appliedSkinColors}
         />
 
-        <div className="hud-layer">
+        <div className={`hud-layer${mobileInteractionEnabled ? ' is-mobile-controls' : ''}`}>
           <section className="user-card">
             <div
               className="user-avatar-frame"
@@ -4048,14 +4094,18 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
           <button
             type="button"
-            className="hud-square-button chat-button"
+            className={`hud-square-button chat-button${mobileInteractionButtonVisible ? ' is-offset-for-interaction' : ''}`}
             onClick={handleOpenChat}
             aria-label="Abrir chat"
           >
             Chat
           </button>
 
-          {mobileInteractionEnabled && activeInteractable && !activeDialogue && !activeTouchPrompt && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen ? (
+          {mobileMovementControlsVisible ? (
+            <MobileMovementJoystick onMovementChange={setMobileMovementInput} />
+          ) : null}
+
+          {mobileInteractionButtonVisible && activeInteractable ? (
             <MobileNpcInteractButton onInteract={() => handleWorldInteract(activeInteractable)} />
           ) : null}
 
