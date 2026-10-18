@@ -73,6 +73,7 @@ interface ReactWorldProps {
   resolveObjectSpriteSrc?: (objectTemplate: RoomObjectTemplate) => string | undefined
   centerWorldWhenSmaller?: boolean
   cameraVerticalMargin?: number
+  worldScale?: number
 }
 
 export interface CombatEncounterInteractable {
@@ -232,6 +233,11 @@ const COMBAT_INTERACTION_AREA = {
 const WORLD_OBJECT_CULL_MARGIN = 256
 const WORLD_REACT_COMMIT_INTERVAL_MS = 1000 / 30
 const LOCAL_PLAYER_MAX_PREDICTION_LEAD = 48
+const MIN_WORLD_SCALE = 0.5
+
+function getWorldSurfaceTransform(cameraX: number, cameraY: number, worldScale: number) {
+  return `translate3d(${Math.round(-cameraX * worldScale)}px, ${Math.round(-cameraY * worldScale)}px, 0) scale(${worldScale})`
+}
 
 interface NavigationBounds {
   left: number
@@ -996,6 +1002,7 @@ function ReactWorld({
   resolveObjectSpriteSrc,
   centerWorldWhenSmaller = false,
   cameraVerticalMargin = 0,
+  worldScale = 1,
 }: ReactWorldProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const surfaceRef = useRef<HTMLDivElement | null>(null)
@@ -1012,6 +1019,9 @@ function ReactWorld({
   const [runtime, setRuntime] = useState<WorldRuntimeState>(createInitialWorldRuntimeState)
   const viewportWidth = viewportSize.width
   const viewportHeight = viewportSize.height
+  const resolvedWorldScale = clamp(worldScale, MIN_WORLD_SCALE, 1)
+  const worldViewportWidth = viewportWidth / resolvedWorldScale
+  const worldViewportHeight = viewportHeight / resolvedWorldScale
 
   useEffect(() => {
     roomRef.current = room
@@ -1084,7 +1094,7 @@ function ReactWorld({
       ? resolveCameraPosition(
           currentPlayer.position,
           activeTemplate,
-          { width: viewportWidth, height: viewportHeight },
+          { width: worldViewportWidth, height: worldViewportHeight },
           centerWorldWhenSmaller,
           cameraVerticalMargin,
         )
@@ -1110,8 +1120,8 @@ function ReactWorld({
     currentUserId,
     room?.roomId,
     template.id,
-    viewportHeight,
-    viewportWidth,
+    worldViewportHeight,
+    worldViewportWidth,
   ])
 
   useEffect(() => {
@@ -1257,7 +1267,7 @@ function ReactWorld({
         const nextCamera = resolveCameraPosition(
           animatedCurrentPlayer,
           activeTemplate,
-          { width: viewportWidth, height: viewportHeight },
+          { width: worldViewportWidth, height: worldViewportHeight },
           centerWorldWhenSmaller,
           cameraVerticalMargin,
         )
@@ -1282,7 +1292,11 @@ function ReactWorld({
       runtimeRef.current = nextState
 
       if (surfaceRef.current) {
-        surfaceRef.current.style.transform = `translate3d(${Math.round(-nextCameraX)}px, ${Math.round(-nextCameraY)}px, 0)`
+        surfaceRef.current.style.transform = getWorldSurfaceTransform(
+          nextCameraX,
+          nextCameraY,
+          resolvedWorldScale,
+        )
       }
 
       Object.entries(nextPlayersBySession).forEach(([sessionId, position]) => {
@@ -1324,7 +1338,15 @@ function ReactWorld({
 
     frameId = window.requestAnimationFrame(tick)
     return () => window.cancelAnimationFrame(frameId)
-  }, [cameraVerticalMargin, centerWorldWhenSmaller, currentUserId, template.id, viewportHeight, viewportWidth])
+  }, [
+    cameraVerticalMargin,
+    centerWorldWhenSmaller,
+    currentUserId,
+    resolvedWorldScale,
+    template.id,
+    worldViewportHeight,
+    worldViewportWidth,
+  ])
 
   const playerViews = useMemo(() => {
     return (room?.players ?? []).map((player) => {
@@ -1748,9 +1770,9 @@ function ReactWorld({
 
   const visibleObjectRenderItems = useMemo(() => {
     const viewportLeft = runtime.cameraX - WORLD_OBJECT_CULL_MARGIN
-    const viewportRight = runtime.cameraX + viewportSize.width + WORLD_OBJECT_CULL_MARGIN
+    const viewportRight = runtime.cameraX + worldViewportWidth + WORLD_OBJECT_CULL_MARGIN
     const viewportTop = runtime.cameraY - WORLD_OBJECT_CULL_MARGIN
-    const viewportBottom = runtime.cameraY + viewportSize.height + WORLD_OBJECT_CULL_MARGIN
+    const viewportBottom = runtime.cameraY + worldViewportHeight + WORLD_OBJECT_CULL_MARGIN
 
     return objectRenderItems.filter(({ objectTemplate }) => {
       const halfWidth = objectTemplate.width / 2
@@ -1764,8 +1786,8 @@ function ReactWorld({
     objectRenderItems,
     runtime.cameraX,
     runtime.cameraY,
-    viewportSize.height,
-    viewportSize.width,
+    worldViewportHeight,
+    worldViewportWidth,
   ])
 
   const renderItems = useMemo(
@@ -1788,8 +1810,8 @@ function ReactWorld({
     }
 
     const rect = event.currentTarget.getBoundingClientRect()
-    const worldX = runtimeRef.current.cameraX + (event.clientX - rect.left)
-    const worldY = runtimeRef.current.cameraY + (event.clientY - rect.top)
+    const worldX = runtimeRef.current.cameraX + (event.clientX - rect.left) / resolvedWorldScale
+    const worldY = runtimeRef.current.cameraY + (event.clientY - rect.top) / resolvedWorldScale
     const target = {
       x: clamp(worldX, 32, template.world.width - 32),
       y: clamp(worldY, 24, template.world.height - 20),
@@ -1807,7 +1829,11 @@ function ReactWorld({
           width: `${template.world.width}px`,
           height: `${template.world.height}px`,
           backgroundColor: colorToCss(template.world.backgroundColor, '#dfe8d2'),
-          transform: `translate3d(${Math.round(-runtime.cameraX)}px, ${Math.round(-runtime.cameraY)}px, 0)`,
+          transform: getWorldSurfaceTransform(
+            runtime.cameraX,
+            runtime.cameraY,
+            resolvedWorldScale,
+          ),
         }}
       >
         {backgroundAsset ? (

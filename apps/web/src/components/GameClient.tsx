@@ -71,6 +71,10 @@ const PLAYER_NAMES_VISIBILITY_STORAGE_KEY = 'social-sena-player-names-visible'
 const SCENE_LOADING_EXTRA_HOLD_MS = 1000
 const SCENE_LOADING_FAILSAFE_MS = 5500
 const ENEMY_ESCAPE_INTERACTION_COOLDOWN_MS = 4000
+const PHONE_WORLD_SCALE = 0.75
+const TABLET_WORLD_SCALE = 0.85
+const PHONE_MAX_SHORT_SIDE_PX = 640
+const TABLET_MAX_SHORT_SIDE_PX = 1024
 type PlayerIdentityMode = 'icons' | 'names'
 type MovementInputState = {
   up: boolean
@@ -323,6 +327,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
   const [dialogueVisibleChars, setDialogueVisibleChars] = useState(0)
   const [npcInteractionLocked, setNpcInteractionLocked] = useState(false)
   const [mobileInteractionEnabled, setMobileInteractionEnabled] = useState(false)
+  const [responsiveWorldScale, setResponsiveWorldScale] = useState(1)
   const [activeInteractable, setActiveInteractable] = useState<WorldInteractableTarget | null>(null)
   const [sceneLoadingVisible, setSceneLoadingVisible] = useState(true)
   const [skinEditorOpen, setSkinEditorOpen] = useState(false)
@@ -859,17 +864,33 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
     const updateMobileInteractionMode = () => {
       const hasTouchSupport = navigator.maxTouchPoints > 0 || 'ontouchstart' in window
-      setMobileInteractionEnabled(mobileMedia.matches || coarseMedia.matches || hasTouchSupport)
+      const usesResponsiveMobileLayout = mobileMedia.matches || coarseMedia.matches || hasTouchSupport
+      const viewportWidth = window.visualViewport?.width ?? window.innerWidth
+      const viewportHeight = window.visualViewport?.height ?? window.innerHeight
+      const shortestViewportSide = Math.min(viewportWidth, viewportHeight)
+
+      setMobileInteractionEnabled(usesResponsiveMobileLayout)
+      setResponsiveWorldScale(
+        !usesResponsiveMobileLayout || shortestViewportSide > TABLET_MAX_SHORT_SIDE_PX
+          ? 1
+          : shortestViewportSide <= PHONE_MAX_SHORT_SIDE_PX
+            ? PHONE_WORLD_SCALE
+            : TABLET_WORLD_SCALE,
+      )
     }
 
     updateMobileInteractionMode()
 
     mobileMedia.addEventListener?.('change', updateMobileInteractionMode)
     coarseMedia.addEventListener?.('change', updateMobileInteractionMode)
+    window.addEventListener('resize', updateMobileInteractionMode)
+    window.visualViewport?.addEventListener('resize', updateMobileInteractionMode)
 
     return () => {
       mobileMedia.removeEventListener?.('change', updateMobileInteractionMode)
       coarseMedia.removeEventListener?.('change', updateMobileInteractionMode)
+      window.removeEventListener('resize', updateMobileInteractionMode)
+      window.visualViewport?.removeEventListener('resize', updateMobileInteractionMode)
     }
   }, [])
 
@@ -3198,6 +3219,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
             (activeTouchPrompt?.kind === 'merchant' ? activeTouchPrompt.npcId : null)
           }
           pointerInteractionEnabled={false}
+          worldScale={responsiveWorldScale}
         />
         <SceneLoadingOverlay
           visible={sceneLoadingVisible}
