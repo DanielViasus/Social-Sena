@@ -1598,6 +1598,8 @@ function collectOverlappingRoomRewards(room: RoomState, player: Presence) {
       roomId: room.roomId,
       objectId,
       object: null,
+      reason: 'collected',
+      actorUserId: player.userId,
     })
   })
 }
@@ -3032,6 +3034,8 @@ io.on('connection', (socket) => {
       roomId: room.roomId,
       objectId: roomObject.id,
       object: room.template.objects.find((candidate) => candidate.id === roomObject.id) ?? null,
+      reason: 'interaction',
+      actorUserId: player.userId,
     })
     callback?.({ ok: true, outcome: result.outcome, state: result.state })
   })

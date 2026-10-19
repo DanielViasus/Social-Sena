@@ -56,6 +56,7 @@ import SceneLoadingOverlay, { SCENE_LOADING_LAYER_ASSETS } from './SceneLoadingO
 import DialogueOverlay from './dialogue/DialogueOverlay'
 import MobileMovementJoystick from './MobileMovementJoystick'
 import MobileNpcInteractButton from './MobileNpcInteractButton'
+import { isCoinAssetId } from './coinAssetCatalog'
 import MerchantShopOverlay from './merchant/MerchantShopOverlay'
 import InitialSkinSetupOverlay from './skins/InitialSkinSetupOverlay'
 import SkinEditorOverlay from './skins/SkinEditorOverlay'
@@ -1216,6 +1217,20 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
 
     nextSocket.on(serverEvents.roomObjectStateChanged, (payload: RoomObjectStateChangedPayload) => {
+      const previousObject = roomRef.current?.roomId === payload.roomId
+        ? roomRef.current.template.objects.find((roomObject) => roomObject.id === payload.objectId)
+        : undefined
+      const wasCollectedByCurrentPlayer = payload.reason === 'collected'
+        && payload.actorUserId === sessionProfileRef.current.userId
+
+      if (
+        payload.object === null
+        && wasCollectedByCurrentPlayer
+        && isCoinAssetId(previousObject?.spriteAssetId)
+      ) {
+        void playUiSound('coin-pickup')
+      }
+
       setRoom((currentRoom) => {
         if (!currentRoom || currentRoom.roomId !== payload.roomId) {
           return currentRoom

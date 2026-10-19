@@ -11,6 +11,8 @@ import {
   type UserProfile,
 } from '@social-sena/shared'
 import { navigateInApp } from '../hooks/usePathname'
+import { createUiSoundController } from '../audio/chiptuneSounds'
+import { isCoinAssetId } from './coinAssetCatalog'
 import ReactWorld, { type WorldInteractableTarget } from './ReactWorld'
 import { getObjectColliderBoundsList } from './world/ObjectDecoration'
 import { PLAYER_COLLIDER_HEIGHT, PLAYER_COLLIDER_WIDTH } from './world/WorldPlayer'
@@ -130,6 +132,7 @@ export default function EditRoomTestMode({
   const pressedKeysRef = useRef(new Set<string>())
   const navigationTargetRef = useRef<Position | null>(null)
   const collectedObjectIdsRef = useRef(new Set<string>())
+  const [uiSoundController] = useState(createUiSoundController)
   const colliders = useMemo(
     () => runtimeTemplate.objects.flatMap(getObjectColliderBoundsList),
     [runtimeTemplate.objects],
@@ -142,6 +145,27 @@ export default function EditRoomTestMode({
   useEffect(() => {
     playerRef.current = player
   }, [player])
+
+  useEffect(() => {
+    uiSoundController.updateSettings({
+      sfxEnabled: profile.audioSettings.sfxEnabled,
+      sfxVolume: profile.audioSettings.sfxVolume,
+    })
+  }, [profile.audioSettings.sfxEnabled, profile.audioSettings.sfxVolume, uiSoundController])
+
+  useEffect(() => {
+    const unlockAudio = () => {
+      void uiSoundController.unlock()
+    }
+
+    window.addEventListener('pointerdown', unlockAudio, { passive: true })
+    window.addEventListener('keydown', unlockAudio)
+    return () => {
+      window.removeEventListener('pointerdown', unlockAudio)
+      window.removeEventListener('keydown', unlockAudio)
+      void uiSoundController.close()
+    }
+  }, [uiSoundController])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -255,14 +279,18 @@ export default function EditRoomTestMode({
       }
 
       const playerBounds = getPlayerBounds(nextPosition)
-      const collectedObjectIds = collectibleObjects
+      const collectedObjects = collectibleObjects
         .filter((objectTemplate) => (
           !collectedObjectIdsRef.current.has(objectTemplate.id)
           && overlaps(playerBounds, getObjectVisualBounds(objectTemplate))
         ))
+      const collectedObjectIds = collectedObjects
         .map((objectTemplate) => objectTemplate.id)
 
       if (collectedObjectIds.length > 0) {
+        if (collectedObjects.some((objectTemplate) => isCoinAssetId(objectTemplate.spriteAssetId))) {
+          void uiSoundController.play('coin-pickup')
+        }
         collectedObjectIds.forEach((objectId) => collectedObjectIdsRef.current.add(objectId))
         const collectedObjectIdSet = new Set(collectedObjectIds)
         setRuntimeTemplate((currentTemplate) => {
@@ -304,7 +332,7 @@ export default function EditRoomTestMode({
 
     animationFrame = window.requestAnimationFrame(tick)
     return () => window.cancelAnimationFrame(animationFrame)
-  }, [collectibleObjects, colliders, runtimeTemplate.world.height, runtimeTemplate.world.width])
+  }, [collectibleObjects, colliders, runtimeTemplate.world.height, runtimeTemplate.world.width, uiSoundController])
 
   const room = useMemo<RoomState>(() => ({
     roomId: TEST_ROOM_ID,

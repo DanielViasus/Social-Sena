@@ -13,12 +13,15 @@ export type UiSoundName =
   | 'cancel'
   | 'send'
   | 'dialogue-blip'
+  | 'coin-pickup'
 
 interface ChiptuneLayer {
   type: OscillatorType
   gain: number
   octaveOffset?: number
   detune?: number
+  frequencyMultiplier?: number
+  durationFactor?: number
 }
 
 interface ChiptuneNote {
@@ -26,6 +29,7 @@ interface ChiptuneNote {
   offset: number
   duration: number
   glideFactor?: number
+  gainFactor?: number
 }
 
 interface ChiptunePattern {
@@ -194,6 +198,21 @@ const UI_SOUND_PATTERNS: Record<UiSoundName, ChiptunePattern> = {
     layers: [{ type: 'square', gain: 0.018 }],
     notes: [{ frequency: 880, offset: 0, duration: 0.045, glideFactor: 0.75 }],
   },
+  'coin-pickup': {
+    unlockMode: 'passive',
+    startDelay: 0.001,
+    layers: [
+      { type: 'triangle', gain: 0.018 },
+      { type: 'square', gain: 0.0075, durationFactor: 0.24 },
+      { type: 'sine', gain: 0.008, detune: -5, frequencyMultiplier: 2.73, durationFactor: 0.42 },
+      { type: 'sine', gain: 0.004, detune: 7, frequencyMultiplier: 3.91, durationFactor: 0.22 },
+    ],
+    notes: [
+      { frequency: 1174.66, offset: 0, duration: 0.05, glideFactor: 1.08, gainFactor: 0.9 },
+      { frequency: 1760, offset: 0.032, duration: 0.085, glideFactor: 1.04 },
+      { frequency: 2349.32, offset: 0.078, duration: 0.105, glideFactor: 1.015, gainFactor: 0.55 },
+    ],
+  },
 }
 
 export function createUiSoundController(): UiSoundController {
@@ -255,12 +274,14 @@ export function createUiSoundController(): UiSoundController {
 
     pattern.notes.forEach((note) => {
       const toneStart = startTime + note.offset
-      const toneEnd = toneStart + note.duration
 
       pattern.layers.forEach((layer) => {
+        const toneEnd = toneStart + note.duration * (layer.durationFactor ?? 1)
         const oscillator = context.createOscillator()
         const gainNode = context.createGain()
-        const targetFrequency = note.frequency * 2 ** (layer.octaveOffset ?? 0)
+        const targetFrequency = note.frequency
+          * 2 ** (layer.octaveOffset ?? 0)
+          * (layer.frequencyMultiplier ?? 1)
 
         oscillator.type = layer.type
         oscillator.detune.setValueAtTime(layer.detune ?? 0, toneStart)
@@ -272,7 +293,7 @@ export function createUiSoundController(): UiSoundController {
 
         gainNode.gain.setValueAtTime(0.0001, toneStart)
         gainNode.gain.linearRampToValueAtTime(
-          layer.gain * sfxVolume,
+          layer.gain * (note.gainFactor ?? 1) * sfxVolume,
           toneStart + Math.min(0.012, note.duration * 0.3),
         )
         gainNode.gain.exponentialRampToValueAtTime(0.0001, toneEnd)

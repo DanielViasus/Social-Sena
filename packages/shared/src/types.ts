@@ -219,6 +219,8 @@ export interface RoomObjectStateChangedPayload {
   roomId: string
   objectId: string
   object: RoomObjectTemplate | null
+  reason?: 'collected' | 'interaction'
+  actorUserId?: string
 }
 
 export interface EnemyCombatParticipantSummary {
