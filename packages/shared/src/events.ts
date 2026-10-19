@@ -35,6 +35,7 @@ export const clientEvents = {
 
 export const serverEvents = {
   connectionAccepted: 'connection_accepted',
+  sessionReplaced: 'session_replaced',
   roomJoined: 'room_joined',
   roomState: 'room_state',
   roomObjectStateChanged: 'room_object_state_changed',

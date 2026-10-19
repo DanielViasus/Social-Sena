@@ -14,6 +14,7 @@ const SERVER_URL = import.meta.env.VITE_GAME_SERVER_URL ?? 'http://localhost:300
 interface PublishedRoomGateProps {
   session: AuthSession
   onLogout: () => void
+  onSessionReplaced: () => void
   onSessionChange?: (nextSession: AuthSession) => void
 }
 

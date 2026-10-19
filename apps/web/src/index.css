@@ -289,6 +289,12 @@ button {
   background: #10192a;
 }
 
+.hud-layout,
+.edit-room-test-mode {
+  --world-minimap-edge: 28px;
+  --world-minimap-size: clamp(148px, 13vw, 190px);
+}
+
 .fullscreen-world {
   width: 100%;
   height: 100vh;
@@ -2377,7 +2383,7 @@ button {
 
 .shortcut-board {
   position: absolute;
-  left: 28px;
+  left: calc(env(safe-area-inset-left) + var(--world-minimap-edge) + var(--world-minimap-size) + 16px);
   bottom: calc(28px + env(safe-area-inset-bottom));
   width: 148px;
   display: grid;
@@ -2394,8 +2400,8 @@ button {
 
 .debug-position-panel {
   position: absolute;
-  left: 28px;
-  bottom: calc(168px + env(safe-area-inset-bottom));
+  left: calc(env(safe-area-inset-left) + var(--world-minimap-edge));
+  bottom: calc(var(--world-minimap-edge) + var(--world-minimap-size) + 16px + env(safe-area-inset-bottom));
   display: grid;
   gap: 8px;
   min-width: 220px;
@@ -2815,6 +2821,12 @@ button {
 }
 
 @media (max-width: 960px) {
+  .hud-layout,
+  .edit-room-test-mode {
+    --world-minimap-edge: 18px;
+    --world-minimap-size: clamp(116px, 18vw, 144px);
+  }
+
   .user-card {
     top: 18px;
     left: 18px;
@@ -2938,6 +2950,12 @@ button {
 }
 
 @media (max-width: 640px) {
+  .hud-layout,
+  .edit-room-test-mode {
+    --world-minimap-edge: 14px;
+    --world-minimap-size: clamp(104px, 28vmin, 124px);
+  }
+
   .dropdown-panel.options-panel {
     width: calc(100vw - 20px);
     max-height: calc(100dvh - 20px);
@@ -3007,6 +3025,122 @@ button {
   background:
     radial-gradient(circle at top left, rgba(255, 244, 219, 0.38), transparent 24%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0) 35%);
+}
+
+.world-minimap {
+  position: absolute;
+  left: calc(env(safe-area-inset-left) + var(--world-minimap-edge));
+  bottom: calc(var(--world-minimap-edge) + env(safe-area-inset-bottom));
+  z-index: 1;
+  width: var(--world-minimap-size);
+  aspect-ratio: 1;
+  box-sizing: border-box;
+  padding: 6px;
+  overflow: hidden;
+  border: 4px solid rgba(14, 23, 31, 0.92);
+  border-radius: 4px;
+  background: rgba(21, 34, 43, 0.9);
+  box-shadow:
+    inset 0 0 0 2px rgba(202, 225, 221, 0.22),
+    0 12px 30px rgba(3, 9, 14, 0.34);
+  pointer-events: auto;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: opacity 140ms ease;
+}
+
+.world-minimap-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: rgba(7, 13, 18, 0.72);
+}
+
+.world-minimap-ground {
+  opacity: 0.64;
+}
+
+.world-minimap-obstacles {
+  fill: #52605d;
+  opacity: 0.74;
+}
+
+.world-minimap-walls {
+  fill: #27343b;
+  opacity: 0.96;
+}
+
+.world-minimap-doors {
+  fill: #bd8a49;
+  opacity: 0.96;
+}
+
+.world-minimap-camera {
+  fill: rgba(210, 244, 240, 0.08);
+  stroke: rgba(219, 255, 250, 0.68);
+  stroke-width: 1.5px;
+}
+
+.world-minimap-world-border {
+  fill: none;
+  stroke: rgba(223, 241, 238, 0.72);
+}
+
+.world-minimap-spawn {
+  fill: none;
+  stroke: #9cda80;
+  stroke-width: 1.5px;
+  opacity: 0.9;
+}
+
+.world-minimap-portal {
+  fill: #65d6d0;
+  stroke: #d8ffff;
+  stroke-width: 1.5px;
+}
+
+.world-minimap-npc {
+  fill: #e9c477;
+  stroke: #493b27;
+  stroke-width: 1px;
+}
+
+.world-minimap-enemy {
+  fill: #dd6965;
+  stroke: #5e2526;
+}
+
+.world-minimap-player {
+  fill: #91bce5;
+  stroke: #243e5a;
+}
+
+.world-minimap-self-player > circle:first-child {
+  fill: rgba(112, 235, 217, 0.16);
+  stroke: #d9fff9;
+}
+
+.world-minimap-self-player > circle:last-child {
+  fill: #65e2d0;
+  stroke: #173e3b;
+  stroke-width: 1px;
+}
+
+@media (max-width: 640px) {
+  .world-minimap {
+    padding: 4px;
+    border-width: 3px;
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .world-minimap {
+    pointer-events: none;
+  }
+
+  .hud-layout:has(.mobile-movement-joystick) .world-minimap {
+    opacity: 0.26;
+  }
 }
 
 .react-world-surface {

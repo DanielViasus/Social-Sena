@@ -8,17 +8,23 @@ import {
   type UserProfile,
 } from '@social-sena/shared'
 import { saveAuthSession, type AuthSession } from '../auth/localSession'
+import { listenForSessionReplacement } from '../auth/sessionReplacement'
 import { navigateInApp } from '../hooks/usePathname'
 import { canAccessRoomEditor } from '../rooms/roomEditorAccess'
 
 interface RoomEditorMenuPageProps {
   session: AuthSession
   onSessionChange: (session: AuthSession) => void
+  onSessionReplaced: () => void
 }
 
 const SERVER_URL = import.meta.env.VITE_GAME_SERVER_URL ?? 'http://localhost:3001'
 
-export default function RoomEditorMenuPage({ session, onSessionChange }: RoomEditorMenuPageProps) {
+export default function RoomEditorMenuPage({
+  session,
+  onSessionChange,
+  onSessionReplaced,
+}: RoomEditorMenuPageProps) {
   const sessionRef = useRef(session)
   const socketRef = useRef<Socket | null>(null)
   const [resolvedProfile, setResolvedProfile] = useState<UserProfile>(session.profile)
@@ -41,6 +47,7 @@ export default function RoomEditorMenuPage({ session, onSessionChange }: RoomEdi
   useEffect(() => {
     const socket = io(SERVER_URL, { autoConnect: true })
     socketRef.current = socket
+    const stopListeningForSessionReplacement = listenForSessionReplacement(socket, onSessionReplaced)
     const requestMaps = () => {
       socket.emit(
         clientEvents.listRoomEditorMaps,
@@ -57,7 +64,10 @@ export default function RoomEditorMenuPage({ session, onSessionChange }: RoomEdi
     }
 
     socket.on('connect', () => {
-      socket.emit(clientEvents.connectToGame, { profile: sessionRef.current.profile })
+      socket.emit(clientEvents.connectToGame, {
+        clientSessionId: sessionRef.current.clientSessionId,
+        profile: sessionRef.current.profile,
+      })
     })
     socket.on(serverEvents.connectionAccepted, ({ profile }: ConnectionAcceptedPayload) => {
       const nextSession: AuthSession = { ...sessionRef.current, profile }
@@ -78,10 +88,11 @@ export default function RoomEditorMenuPage({ session, onSessionChange }: RoomEdi
     })
 
     return () => {
+      stopListeningForSessionReplacement()
       socketRef.current = null
       socket.disconnect()
     }
-  }, [onSessionChange])
+  }, [onSessionChange, onSessionReplaced])
 
   const deleteMap = (map: RoomEditorMapSummary) => {
     const socket = socketRef.current

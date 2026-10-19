@@ -278,8 +278,14 @@ export interface ChatMessage {
 }
 
 export interface ConnectToGamePayload {
+  clientSessionId: string
   token?: string
   profile: UserProfile
+}
+
+export interface SessionReplacedPayload {
+  code: 'SESSION_REPLACED'
+  message: string
 }
 
 export interface ConnectionAcceptedPayload {

@@ -29,6 +29,7 @@ import {
   type UserProfile,
 } from '@social-sena/shared'
 import { saveAuthSession, type AuthSession } from '../auth/localSession'
+import { listenForSessionReplacement } from '../auth/sessionReplacement'
 import eraseToolIconSrc from '../assets/room-editor/sprites/icon_Erase.svg'
 import paintToolIconSrc from '../assets/room-editor/sprites/icon_Paint.svg'
 import selectToolIconSrc from '../assets/room-editor/sprites/icon_Select.svg'
@@ -621,9 +622,10 @@ function createPlacedTeleportTemplate(
 interface EditRoomPageProps {
   session: AuthSession
   onSessionChange: (session: AuthSession) => void
+  onSessionReplaced: () => void
 }
 
-export default function EditRoomPage({ session, onSessionChange }: EditRoomPageProps) {
+export default function EditRoomPage({ session, onSessionChange, onSessionReplaced }: EditRoomPageProps) {
   const sessionRef = useRef(session)
   const socketRef = useRef<Socket | null>(null)
   const requestedMapCodeRef = useRef<string | null>(null)
@@ -693,10 +695,14 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
   useEffect(() => {
     const socket = io(SERVER_URL, { autoConnect: true })
     socketRef.current = socket
+    const stopListeningForSessionReplacement = listenForSessionReplacement(socket, onSessionReplaced)
 
     socket.on('connect', () => {
       setValidationFailed(false)
-      socket.emit(clientEvents.connectToGame, { profile: sessionRef.current.profile })
+      socket.emit(clientEvents.connectToGame, {
+        clientSessionId: sessionRef.current.clientSessionId,
+        profile: sessionRef.current.profile,
+      })
     })
 
     socket.on(serverEvents.connectionAccepted, ({ profile }: ConnectionAcceptedPayload) => {
@@ -780,10 +786,11 @@ export default function EditRoomPage({ session, onSessionChange }: EditRoomPageP
     })
 
     return () => {
+      stopListeningForSessionReplacement()
       socketRef.current = null
       socket.disconnect()
     }
-  }, [clearEditorSelection, onSessionChange])
+  }, [clearEditorSelection, onSessionChange, onSessionReplaced])
 
   useEffect(() => {
     let isActive = true

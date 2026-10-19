@@ -8,6 +8,9 @@ import {
 } from '@social-sena/shared'
 
 const STORAGE_KEY = 'social-sena-auth-session'
+const CLIENT_SESSION_STORAGE_KEY = 'social-sena-client-session'
+const SESSION_REPLACEMENT_STORAGE_KEY = 'social-sena-session-replacement'
+const SESSION_REAUTHENTICATED_STORAGE_KEY = 'social-sena-session-reauthenticated'
 const SKIN_PREFERENCES_KEY = 'social-sena-skin-preferences'
 
 interface StoredSkinPreferenceEntry {
@@ -18,12 +21,59 @@ interface StoredSkinPreferenceEntry {
 type StoredSkinPreferences = Record<string, string | StoredSkinPreferenceEntry>
 
 export interface AuthSession {
+  clientSessionId: string
   provider: 'local' | 'auth0'
   level: number
   experience: number
   inventory: PlayerInventory
   pictureUrl: string | null
   profile: UserProfile
+}
+
+interface StoredClientSession {
+  clientSessionId: string
+  userId: string
+}
+
+interface SessionReplacementMarker {
+  clientSessionId: string
+  message: string
+  userId: string
+}
+
+interface ClearAuthSessionOptions {
+  preserveClientSessionId?: boolean
+}
+
+function readStoredClientSession(): Partial<StoredClientSession> | null {
+  try {
+    const storedValue = window.sessionStorage.getItem(CLIENT_SESSION_STORAGE_KEY)
+    if (!storedValue) {
+      return null
+    }
+
+    const storedSession = JSON.parse(storedValue) as Partial<StoredClientSession>
+    return storedSession && typeof storedSession === 'object' ? storedSession : null
+  } catch {
+    window.sessionStorage.removeItem(CLIENT_SESSION_STORAGE_KEY)
+    return null
+  }
+}
+
+function getOrCreateClientSessionId(userId: string) {
+  const storedSession = readStoredClientSession()
+  if (
+    storedSession?.userId === userId &&
+    typeof storedSession.clientSessionId === 'string' &&
+    storedSession.clientSessionId.length > 0
+  ) {
+    return storedSession.clientSessionId
+  }
+
+  const clientSessionId = crypto.randomUUID()
+  const nextStoredSession: StoredClientSession = { clientSessionId, userId }
+  window.sessionStorage.setItem(CLIENT_SESSION_STORAGE_KEY, JSON.stringify(nextStoredSession))
+  return clientSessionId
 }
 
 function normalizeUsername(value: string) {
@@ -157,6 +207,7 @@ export function readStoredAuthSession(): AuthSession | null {
     const parsedSession = JSON.parse(storedValue) as AuthSession
     return {
       ...parsedSession,
+      clientSessionId: getOrCreateClientSessionId(parsedSession.profile.userId),
       experience: typeof parsedSession.experience === 'number' ? parsedSession.experience : 0,
       inventory: normalizeInventory(parsedSession.inventory),
       profile: {
@@ -224,23 +275,136 @@ export function savePreferredSkinColors(userId: string, skinId: string, skinColo
   })
 }
 
-export function clearAuthSession() {
+export function clearAuthSession(
+  clientSessionId?: string,
+  options: ClearAuthSessionOptions = {},
+) {
   window.sessionStorage.removeItem(STORAGE_KEY)
-  window.localStorage.removeItem(STORAGE_KEY)
+  if (!options.preserveClientSessionId) {
+    window.sessionStorage.removeItem(CLIENT_SESSION_STORAGE_KEY)
+  }
+  window.sessionStorage.removeItem(SESSION_REAUTHENTICATED_STORAGE_KEY)
+  window.localStorage.removeItem(SESSION_REPLACEMENT_STORAGE_KEY)
+
+  if (!clientSessionId) {
+    window.localStorage.removeItem(STORAGE_KEY)
+    return
+  }
+
+  try {
+    const storedValue = window.localStorage.getItem(STORAGE_KEY)
+    if (!storedValue) {
+      return
+    }
+
+    const storedSession = JSON.parse(storedValue) as Partial<AuthSession>
+    if (!storedSession.clientSessionId || storedSession.clientSessionId === clientSessionId) {
+      window.localStorage.removeItem(STORAGE_KEY)
+    }
+  } catch {
+    window.localStorage.removeItem(STORAGE_KEY)
+  }
+}
+
+export function readSessionReplacementMessage() {
+  const storedValue = window.localStorage.getItem(SESSION_REPLACEMENT_STORAGE_KEY)
+  if (!storedValue) {
+    return null
+  }
+
+  try {
+    const marker = JSON.parse(storedValue) as Partial<SessionReplacementMarker>
+    if (
+      typeof marker.clientSessionId !== 'string' ||
+      typeof marker.message !== 'string' ||
+      typeof marker.userId !== 'string'
+    ) {
+      return storedValue
+    }
+
+    const tabSession = readStoredClientSession()
+    if (
+      typeof tabSession?.clientSessionId === 'string' &&
+      tabSession.clientSessionId !== marker.clientSessionId
+    ) {
+      window.localStorage.removeItem(SESSION_REPLACEMENT_STORAGE_KEY)
+      return null
+    }
+
+    if (!tabSession?.clientSessionId) {
+      const storedAuthValue = window.localStorage.getItem(STORAGE_KEY)
+      if (storedAuthValue) {
+        const storedAuthSession = JSON.parse(storedAuthValue) as Partial<AuthSession>
+        if (
+          storedAuthSession.profile?.userId === marker.userId &&
+          typeof storedAuthSession.clientSessionId === 'string' &&
+          storedAuthSession.clientSessionId !== marker.clientSessionId
+        ) {
+          window.localStorage.removeItem(SESSION_REPLACEMENT_STORAGE_KEY)
+          return null
+        }
+      }
+    }
+
+    return marker.message
+  } catch {
+    return storedValue
+  }
+}
+
+export function saveSessionReplacementMessage(
+  message: string,
+  session: Pick<SessionReplacementMarker, 'clientSessionId' | 'userId'>,
+) {
+  const marker: SessionReplacementMarker = {
+    clientSessionId: session.clientSessionId,
+    message,
+    userId: session.userId,
+  }
+  window.localStorage.setItem(SESSION_REPLACEMENT_STORAGE_KEY, JSON.stringify(marker))
+}
+
+export function clearSessionReplacementMessage() {
+  window.localStorage.removeItem(SESSION_REPLACEMENT_STORAGE_KEY)
+  window.sessionStorage.removeItem(SESSION_REAUTHENTICATED_STORAGE_KEY)
+}
+
+export function markSessionReplacementReauthenticated() {
+  if (!window.localStorage.getItem(SESSION_REPLACEMENT_STORAGE_KEY)) {
+    return
+  }
+
+  window.sessionStorage.setItem(SESSION_REAUTHENTICATED_STORAGE_KEY, 'true')
+}
+
+export function consumeSessionReplacementReauthenticated() {
+  const wasReauthenticated =
+    window.sessionStorage.getItem(SESSION_REAUTHENTICATED_STORAGE_KEY) === 'true'
+
+  window.sessionStorage.removeItem(SESSION_REAUTHENTICATED_STORAGE_KEY)
+  if (!wasReauthenticated) {
+    return false
+  }
+
+  window.localStorage.removeItem(SESSION_REPLACEMENT_STORAGE_KEY)
+  window.sessionStorage.removeItem(CLIENT_SESSION_STORAGE_KEY)
+  return true
 }
 
 export function createLocalAuthSession(displayName: string): AuthSession {
   const usernameBase = normalizeUsername(displayName) || 'jugador'
   const suffix = crypto.randomUUID().slice(0, 8)
+  const userId = `player_${suffix}`
 
   return {
+    clientSessionId: getOrCreateClientSessionId(userId),
     provider: 'local',
     level: 1,
     experience: 0,
     inventory: {},
     pictureUrl: null,
     profile: {
-      userId: `player_${suffix}`,
+      userId,
       username: `${usernameBase}_${suffix.slice(0, 4)}`,
       displayName: displayName.trim(),
       role: DEFAULT_USER_ROLE,
@@ -262,6 +426,7 @@ export function createAuth0Session(options: {
   const preferredSkinColors = readPreferredSkinColors(options.userId, preferredSkinId)
 
   return {
+    clientSessionId: getOrCreateClientSessionId(options.userId),
     provider: 'auth0',
     level: 1,
     experience: 0,

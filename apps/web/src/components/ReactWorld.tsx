@@ -43,6 +43,7 @@ import {
   getTeleportWarningArea,
 } from './world/WorldTeleport'
 import { WorldCombatEncounter } from './world/WorldCombatEncounter'
+import WorldMiniMap from './world/WorldMiniMap'
 import {
   getEnemySpriteAsset,
   getNpcSpriteAsset,
@@ -2073,6 +2074,32 @@ function ReactWorld({
           )
         })}
       </div>
+
+      <WorldMiniMap
+        template={template}
+        camera={{
+          x: runtime.cameraX,
+          y: runtime.cameraY,
+          width: worldViewportWidth,
+          height: worldViewportHeight,
+        }}
+        players={visiblePlayerViews.map((playerView) => ({
+          id: playerView.player.sessionId,
+          x: playerView.animatedPosition.x,
+          y: playerView.animatedPosition.y,
+          isSelf: playerView.isSelf,
+        }))}
+        enemies={enemyViews.map((enemyView) => ({
+          id: enemyView.enemyTemplate.id,
+          x: enemyView.displayX,
+          y: enemyView.displayY,
+        }))}
+        npcs={npcViews.map((npcView) => ({
+          id: npcView.npcTemplate.id,
+          x: npcView.npcTemplate.x,
+          y: npcView.npcTemplate.y,
+        }))}
+      />
     </div>
   )
 }

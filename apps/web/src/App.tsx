@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { isAuth0Configured, resolvePostLoginRoute } from './auth/auth0Config'
 import {
   clearAuthSession,
@@ -46,32 +46,69 @@ function LocalApp() {
     setSession(nextSession)
   }
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     clearAuthSession()
     redirectToLobbyIfNeeded()
     setSession(null)
-  }
+  }, [])
+
+  const handleSessionReplaced = useCallback(() => {
+    clearAuthSession(session?.clientSessionId, { preserveClientSessionId: true })
+    redirectToLobbyIfNeeded()
+    setSession(null)
+  }, [session?.clientSessionId])
 
   if (!session) {
     return <LoginScreen auth0Ready={isAuth0Configured} onLogin={handleLogin} />
   }
 
   if (isAccessRolePath(pathname)) {
-    return <AccessRolePage session={session} onSessionChange={setSession} />
+    return (
+      <AccessRolePage
+        session={session}
+        onSessionChange={setSession}
+        onSessionReplaced={handleSessionReplaced}
+      />
+    )
   }
 
   if (isEditRoomPath(pathname)) {
     if (!hasEditRoomContext()) {
-      return <RoomEditorMenuPage session={session} onSessionChange={setSession} />
+      return (
+        <RoomEditorMenuPage
+          session={session}
+          onSessionChange={setSession}
+          onSessionReplaced={handleSessionReplaced}
+        />
+      )
     }
-    return <EditRoomPage session={session} onSessionChange={setSession} />
+    return (
+      <EditRoomPage
+        session={session}
+        onSessionChange={setSession}
+        onSessionReplaced={handleSessionReplaced}
+      />
+    )
   }
 
   if (isRoomEditorMenuPath(pathname)) {
-    return <RoomEditorMenuPage session={session} onSessionChange={setSession} />
+    return (
+      <RoomEditorMenuPage
+        session={session}
+        onSessionChange={setSession}
+        onSessionReplaced={handleSessionReplaced}
+      />
+    )
   }
 
-  return <PublishedRoomGate session={session} onSessionChange={setSession} onLogout={handleLogout} />
+  return (
+    <PublishedRoomGate
+      session={session}
+      onSessionChange={setSession}
+      onLogout={handleLogout}
+      onSessionReplaced={handleSessionReplaced}
+    />
+  )
 }
 
 function App() {

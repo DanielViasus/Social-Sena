@@ -9,6 +9,7 @@ import {
   isAuth0Configured,
   resolvePostLoginRoute,
 } from './auth/auth0Config'
+import { markSessionReplacementReauthenticated } from './auth/localSession'
 
 function redirectRootToTavern() {
   if (window.location.pathname !== '/') {
@@ -32,6 +33,8 @@ function redirectRootToTavern() {
 redirectRootToTavern()
 
 function handleAuth0Redirect(appState?: AppState) {
+  markSessionReplacementReauthenticated()
+
   const requestedPath =
     typeof appState?.returnTo === 'string' && appState.returnTo.length > 0
       ? appState.returnTo

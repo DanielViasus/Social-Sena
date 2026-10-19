@@ -33,6 +33,7 @@ export const userProfileSchema = z.object({
 })
 
 export const connectToGameSchema = z.object({
+  clientSessionId: z.string().uuid(),
   token: z.string().optional(),
   profile: userProfileSchema,
 })

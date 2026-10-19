@@ -14,6 +14,8 @@ export type UiSoundName =
   | 'send'
   | 'dialogue-blip'
   | 'coin-pickup'
+  | 'portal-departure'
+  | 'spawn-arrival'
 
 interface ChiptuneLayer {
   type: OscillatorType
@@ -209,6 +211,36 @@ const UI_SOUND_PATTERNS: Record<UiSoundName, ChiptunePattern> = {
     notes: [
       { frequency: 1046.5, offset: 0, duration: 0.058, glideFactor: 1.025 },
       { frequency: 1760, offset: 0.042, duration: 0.135, glideFactor: 1.008 },
+    ],
+  },
+  'portal-departure': {
+    unlockMode: 'gesture',
+    startDelay: 0.002,
+    layers: [
+      { type: 'triangle', gain: 0.014 },
+      { type: 'sine', gain: 0.0062, detune: 7, frequencyMultiplier: 1.5, durationFactor: 0.72 },
+      { type: 'sine', gain: 0.0032, detune: -5, frequencyMultiplier: 2.41, durationFactor: 0.42 },
+      { type: 'square', gain: 0.0011, frequencyMultiplier: 2, durationFactor: 0.18 },
+    ],
+    notes: [
+      { frequency: 293.66, offset: 0, duration: 0.12, glideFactor: 1.36 },
+      { frequency: 440, offset: 0.055, duration: 0.13, glideFactor: 1.42 },
+      { frequency: 523.25, offset: 0.115, duration: 0.13, glideFactor: 1.55 },
+    ],
+  },
+  'spawn-arrival': {
+    unlockMode: 'passive',
+    startDelay: 0.002,
+    layers: [
+      { type: 'triangle', gain: 0.0145 },
+      { type: 'sine', gain: 0.006, detune: -7, frequencyMultiplier: 1.5, durationFactor: 0.7 },
+      { type: 'sine', gain: 0.003, detune: 5, frequencyMultiplier: 2.41, durationFactor: 0.4 },
+      { type: 'square', gain: 0.001, frequencyMultiplier: 2, durationFactor: 0.16 },
+    ],
+    notes: [
+      { frequency: 523.25, offset: 0, duration: 0.085, glideFactor: 0.76 },
+      { frequency: 440, offset: 0.05, duration: 0.105, glideFactor: 0.82 },
+      { frequency: 293.66, offset: 0.11, duration: 0.14, glideFactor: 1.01 },
     ],
   },
 }

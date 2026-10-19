@@ -39,6 +39,7 @@ import {
   type TypingStateChangedPayload,
 } from '@social-sena/shared'
 import { saveAuthSession, savePreferredSkin, savePreferredSkinColors, type AuthSession } from '../auth/localSession'
+import { listenForSessionReplacement } from '../auth/sessionReplacement'
 import type { DialogueDefinition } from '../dialogue/registry'
 import { getDialogueById } from '../dialogue/registry'
 import {
@@ -173,6 +174,7 @@ function hasMovementInput(input: MovementInputState) {
 
 interface GameClientProps {
   onLogout: () => void
+  onSessionReplaced: () => void
   session: AuthSession
   onSessionChange?: (nextSession: AuthSession) => void
 }
@@ -273,7 +275,7 @@ function MenuAvatarPreview({
   )
 }
 
-function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
+function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: GameClientProps) {
   const MAX_HEADLINE_SPEECH_CHARS = 30
   const FRIEND_REQUEST_POPUP_DURATION_MS = 8000
   const MAX_FLOATING_MESSAGES_MOBILE = 3
@@ -391,6 +393,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     roomId: string | null
     assetsReady: boolean
     roomReady: boolean
+    playSpawnArrivalSound: boolean
   } | null>(null)
   const sceneLoadSequenceRef = useRef(0)
   const lastDialogueAudioProgressRef = useRef<{ lineKey: string; visibleChars: number }>({
@@ -978,6 +981,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
 
     socketRef.current = nextSocket
+    const stopListeningForSessionReplacement = listenForSessionReplacement(nextSocket, onSessionReplaced)
 
     nextSocket.on('connect', () => {
       clearAllFriendRequestPopupTimeouts()
@@ -1016,7 +1020,10 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       socialStateInitializedRef.current = false
       partyStateInitializedRef.current = false
       localTypingStateRef.current = false
-      nextSocket.emit(clientEvents.connectToGame, { profile: sessionProfileRef.current })
+      nextSocket.emit(clientEvents.connectToGame, {
+        clientSessionId: sessionRef.current.clientSessionId,
+        profile: sessionProfileRef.current,
+      })
     })
 
     nextSocket.on('disconnect', () => {
@@ -1185,6 +1192,9 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
 
     nextSocket.on(serverEvents.serverError, (payload: ServerErrorPayload) => {
+      if (payload.code === 'SESSION_REPLACED') {
+        return
+      }
       enqueueActivityNotice('Aviso del sistema', payload.message)
     })
 
@@ -1398,6 +1408,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     })
 
     return () => {
+      stopListeningForSessionReplacement()
       clearAllFriendRequestPopupTimeouts()
       clearAllPartyInvitePopupTimeouts()
       clearAllActivityNoticeTimeouts()
@@ -1410,6 +1421,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     clearAllActivityNoticeTimeouts,
     clearAllFriendRequestPopupTimeouts,
     clearAllPartyInvitePopupTimeouts,
+    onSessionReplaced,
     session.profile.userId,
   ])
 
@@ -1499,6 +1511,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       return
     }
 
+    const playSpawnArrivalSound = pendingSceneLoad.playSpawnArrivalSound
     pendingSceneLoadRef.current = null
     clearSceneLoadingHideTimeout()
     sceneLoadingHideTimeoutRef.current = window.setTimeout(() => {
@@ -1509,10 +1522,17 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
 
       clearSceneLoadingFailsafeTimeout()
       setSceneLoadingVisible(false)
+      if (playSpawnArrivalSound) {
+        void playUiSound('spawn-arrival')
+      }
     }, SCENE_LOADING_EXTRA_HOLD_MS)
   })
 
-  const startSceneLoad = useEffectEvent((templateId: string, roomId: string | null) => {
+  const startSceneLoad = useEffectEvent((
+    templateId: string,
+    roomId: string | null,
+    playSpawnArrivalSound = false,
+  ) => {
     const targetTemplate = getRoomTemplateById(templateId)
     if (!targetTemplate) {
       clearSceneLoadingHideTimeout()
@@ -1532,6 +1552,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       roomId,
       assetsReady: false,
       roomReady: false,
+      playSpawnArrivalSound,
     }
     setSceneLoadingVisible(true)
 
@@ -2639,6 +2660,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       roomId?: string
       transition?: 'direct' | 'teleport' | 'follow-leader'
       allowPartyFollower?: boolean
+      playPortalSoundPair?: boolean
     },
   ) => {
     const socket = socketRef.current
@@ -2648,6 +2670,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     }
 
     const transition = options?.transition ?? 'teleport'
+    const playPortalSoundPair = options?.playPortalSoundPair === true
     const currentParty = partyRef.current
     if (
       transition === 'teleport' &&
@@ -2665,7 +2688,10 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     setFloatingMessages([])
     setActiveSpeechByUserId({})
     setTypingByUserId({})
-    startSceneLoad(targetTemplate.id, options?.roomId ?? null)
+    if (playPortalSoundPair) {
+      void playUiSound('portal-departure')
+    }
+    startSceneLoad(targetTemplate.id, options?.roomId ?? null, playPortalSoundPair)
 
     const nextPath = `/${targetTemplate.routeSegment}`
     if (window.location.pathname !== nextPath) {
@@ -2726,7 +2752,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       }
     }
 
-    transitionToRoom(targetTemplate.id)
+    transitionToRoom(targetTemplate.id, undefined, { playPortalSoundPair: true })
   })
 
   const handleEnemyTouchInteract = useEffectEvent((enemyTemplate: RoomEnemyTemplate) => {
@@ -2796,7 +2822,11 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
       if (typeof targetRoutePath === 'string') {
         void transitionToRoutePath(targetRoutePath)
       } else {
-        transitionToRoom(interactable.teleportTarget.templateId, interactable.teleportTarget.position)
+        transitionToRoom(
+          interactable.teleportTarget.templateId,
+          interactable.teleportTarget.position,
+          { playPortalSoundPair: true },
+        )
       }
       return
     }

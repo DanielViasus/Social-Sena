@@ -9,6 +9,7 @@ import {
   type UserRole,
 } from '@social-sena/shared'
 import { saveAuthSession, type AuthSession } from '../auth/localSession'
+import { listenForSessionReplacement } from '../auth/sessionReplacement'
 import { getAccessRoleReturnPath, navigateInApp } from '../hooks/usePathname'
 
 const SERVER_URL = import.meta.env.VITE_GAME_SERVER_URL ?? 'http://localhost:3001'
@@ -24,6 +25,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
 interface AccessRolePageProps {
   session: AuthSession
   onSessionChange: (session: AuthSession) => void
+  onSessionReplaced: () => void
 }
 
 interface UpdateRoleResponse {
@@ -32,7 +34,7 @@ interface UpdateRoleResponse {
   profile?: UserProfile
 }
 
-export default function AccessRolePage({ session, onSessionChange }: AccessRolePageProps) {
+export default function AccessRolePage({ session, onSessionChange, onSessionReplaced }: AccessRolePageProps) {
   const socketRef = useRef<Socket | null>(null)
   const sessionRef = useRef(session)
   const [selectedRole, setSelectedRole] = useState<UserRole>(session.profile.role)
@@ -57,10 +59,14 @@ export default function AccessRolePage({ session, onSessionChange }: AccessRoleP
   useEffect(() => {
     const socket = io(SERVER_URL, { autoConnect: true })
     socketRef.current = socket
+    const stopListeningForSessionReplacement = listenForSessionReplacement(socket, onSessionReplaced)
 
     socket.on('connect', () => {
       setMessage('Validando tu rol actual...')
-      socket.emit(clientEvents.connectToGame, { profile: sessionRef.current.profile })
+      socket.emit(clientEvents.connectToGame, {
+        clientSessionId: sessionRef.current.clientSessionId,
+        profile: sessionRef.current.profile,
+      })
     })
 
     socket.on(serverEvents.connectionAccepted, ({ profile }: ConnectionAcceptedPayload) => {
@@ -78,10 +84,11 @@ export default function AccessRolePage({ session, onSessionChange }: AccessRoleP
     })
 
     return () => {
+      stopListeningForSessionReplacement()
       socket.disconnect()
       socketRef.current = null
     }
-  }, [updateSessionProfile])
+  }, [onSessionReplaced, updateSessionProfile])
 
   const handleSaveRole = () => {
     const socket = socketRef.current

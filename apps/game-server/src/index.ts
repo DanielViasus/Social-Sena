@@ -56,6 +56,7 @@ import {
   type RoomEnemyCombatStatePayload,
   type RoomEnemyState,
   type RoomTransitionRequestedPayload,
+  type SessionReplacedPayload,
   setTypingStateSchema,
   stopNavigationSchema,
   sendChatMessageSchema,
@@ -77,6 +78,7 @@ import {
 } from '@social-sena/shared'
 
 interface SessionState {
+  clientSessionId: string
   sessionId: string
   profile: UserProfile
   progress: PlayerProgress
@@ -89,6 +91,11 @@ interface SessionState {
     right: boolean
   }
   keyboardControlling: boolean
+}
+
+interface ActiveClientSessionState {
+  attemptSequence: number
+  clientSessionId: string
 }
 
 interface RectBounds {
@@ -265,6 +272,9 @@ const io = new Server(httpServer, {
 })
 
 const sessions = new Map<string, SessionState>()
+const activeClientSessionByUserId = new Map<string, ActiveClientSessionState>()
+const revokedClientSessionIdsByUserId = new Map<string, Set<string>>()
+let nextConnectionAttemptSequence = 0
 const accessRoleChangeEnabled =
   process.env.NODE_ENV !== 'production' || process.env.ENABLE_ACCESS_ROLE_PAGE === 'true'
 const rooms = new Map<string, RoomState>()
@@ -1451,7 +1461,67 @@ async function joinSessionToRoom(
   return presence
 }
 
-async function disconnectConflictingSessionsForUser(userId: string, currentSocketId: string) {
+function revokeClientSession(userId: string, clientSessionId: string) {
+  const revokedSessionIds = revokedClientSessionIdsByUserId.get(userId) ?? new Set<string>()
+  revokedSessionIds.add(clientSessionId)
+  revokedClientSessionIdsByUserId.set(userId, revokedSessionIds)
+}
+
+function claimClientSession(userId: string, clientSessionId: string, attemptSequence: number) {
+  if (revokedClientSessionIdsByUserId.get(userId)?.has(clientSessionId)) {
+    return false
+  }
+
+  const activeSession = activeClientSessionByUserId.get(userId)
+  if (!activeSession) {
+    activeClientSessionByUserId.set(userId, { attemptSequence, clientSessionId })
+    return true
+  }
+
+  if (activeSession.clientSessionId === clientSessionId) {
+    if (attemptSequence > activeSession.attemptSequence) {
+      activeSession.attemptSequence = attemptSequence
+    }
+    return true
+  }
+
+  if (attemptSequence < activeSession.attemptSequence) {
+    revokeClientSession(userId, clientSessionId)
+    return false
+  }
+
+  revokeClientSession(userId, activeSession.clientSessionId)
+  activeClientSessionByUserId.set(userId, { attemptSequence, clientSessionId })
+  return true
+}
+
+const SESSION_REPLACED_PAYLOAD: SessionReplacedPayload = {
+  code: 'SESSION_REPLACED',
+  message: 'Tu cuenta se abrió en otro dispositivo. Vuelve a autenticarte para continuar.',
+}
+
+async function notifySessionReplaced(socket: Socket) {
+  await new Promise<void>((resolve) => {
+    let settled = false
+    const finish = () => {
+      if (settled) {
+        return
+      }
+      settled = true
+      clearTimeout(timeoutId)
+      resolve()
+    }
+    const timeoutId = setTimeout(finish, 2500)
+
+    socket.emit(serverEvents.sessionReplaced, SESSION_REPLACED_PAYLOAD, finish)
+  })
+}
+
+async function disconnectConflictingSessionsForUser(
+  userId: string,
+  currentSocketId: string,
+  currentClientSessionId: string,
+) {
   const conflictingEntries = Array.from(sessions.entries()).filter(
     ([socketId, session]) => socketId !== currentSocketId && session.profile.userId === userId,
   )
@@ -1461,10 +1531,9 @@ async function disconnectConflictingSessionsForUser(userId: string, currentSocke
     const conflictingSocket = io.sockets.sockets.get(socketId)
     if (conflictingSocket) {
       await removeSessionPresenceFromCurrentRoom(conflictingSocket, session)
-      conflictingSocket.emit(serverEvents.serverError, {
-        code: 'SESSION_REPLACED',
-        message: 'Tu cuenta se abrio en otra ventana o pestaña.',
-      })
+      if (session.clientSessionId !== currentClientSessionId) {
+        await notifySessionReplaced(conflictingSocket)
+      }
       sessions.delete(socketId)
       conflictingSocket.disconnect(true)
     } else {
@@ -2595,6 +2664,8 @@ setInterval(() => {
 
 io.on('connection', (socket) => {
   socket.on(clientEvents.connectToGame, async (rawPayload) => {
+    nextConnectionAttemptSequence += 1
+    const connectionAttemptSequence = nextConnectionAttemptSequence
     const parsed = connectToGameSchema.safeParse(rawPayload)
 
     if (!parsed.success) {
@@ -2607,8 +2678,20 @@ io.on('connection', (socket) => {
 
     const resolvedProfileResult = await gameRepository.resolveUserProfile(parsed.data.profile)
     const resolvedProfile = resolvedProfileResult.profile
+    const clientSessionId = parsed.data.clientSessionId
+
+    if (!socket.connected) {
+      return
+    }
+
+    if (!claimClientSession(resolvedProfile.userId, clientSessionId, connectionAttemptSequence)) {
+      await notifySessionReplaced(socket)
+      socket.disconnect(true)
+      return
+    }
 
     const session: SessionState = {
+      clientSessionId,
       sessionId: socket.id,
       profile: resolvedProfile,
       progress: resolvedProfileResult.progress,
@@ -2624,7 +2707,21 @@ io.on('connection', (socket) => {
     }
 
     sessions.set(socket.id, session)
-    await disconnectConflictingSessionsForUser(resolvedProfile.userId, socket.id)
+    await disconnectConflictingSessionsForUser(resolvedProfile.userId, socket.id, clientSessionId)
+
+    const activeClientSession = activeClientSessionByUserId.get(resolvedProfile.userId)
+    if (
+      !socket.connected ||
+      sessions.get(socket.id) !== session ||
+      activeClientSession?.clientSessionId !== clientSessionId
+    ) {
+      sessions.delete(socket.id)
+      if (socket.connected) {
+        await notifySessionReplaced(socket)
+        socket.disconnect(true)
+      }
+      return
+    }
 
     const connectionAcceptedPayload: ConnectionAcceptedPayload = {
       sessionId: socket.id,
