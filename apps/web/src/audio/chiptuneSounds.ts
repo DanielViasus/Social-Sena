@@ -29,7 +29,6 @@ interface ChiptuneNote {
   offset: number
   duration: number
   glideFactor?: number
-  gainFactor?: number
 }
 
 interface ChiptunePattern {
@@ -202,15 +201,14 @@ const UI_SOUND_PATTERNS: Record<UiSoundName, ChiptunePattern> = {
     unlockMode: 'passive',
     startDelay: 0.001,
     layers: [
-      { type: 'triangle', gain: 0.018 },
-      { type: 'square', gain: 0.0075, durationFactor: 0.24 },
-      { type: 'sine', gain: 0.008, detune: -5, frequencyMultiplier: 2.73, durationFactor: 0.42 },
-      { type: 'sine', gain: 0.004, detune: 7, frequencyMultiplier: 3.91, durationFactor: 0.22 },
+      { type: 'triangle', gain: 0.0135 },
+      { type: 'sine', gain: 0.0068, detune: -7, frequencyMultiplier: 2.71, durationFactor: 0.46 },
+      { type: 'sine', gain: 0.0034, detune: 6, frequencyMultiplier: 4.08, durationFactor: 0.24 },
+      { type: 'square', gain: 0.0012, frequencyMultiplier: 2, durationFactor: 0.11 },
     ],
     notes: [
-      { frequency: 1174.66, offset: 0, duration: 0.05, glideFactor: 1.08, gainFactor: 0.9 },
-      { frequency: 1760, offset: 0.032, duration: 0.085, glideFactor: 1.04 },
-      { frequency: 2349.32, offset: 0.078, duration: 0.105, glideFactor: 1.015, gainFactor: 0.55 },
+      { frequency: 1046.5, offset: 0, duration: 0.058, glideFactor: 1.025 },
+      { frequency: 1760, offset: 0.042, duration: 0.135, glideFactor: 1.008 },
     ],
   },
 }
@@ -293,7 +291,7 @@ export function createUiSoundController(): UiSoundController {
 
         gainNode.gain.setValueAtTime(0.0001, toneStart)
         gainNode.gain.linearRampToValueAtTime(
-          layer.gain * (note.gainFactor ?? 1) * sfxVolume,
+          layer.gain * sfxVolume,
           toneStart + Math.min(0.012, note.duration * 0.3),
         )
         gainNode.gain.exponentialRampToValueAtTime(0.0001, toneEnd)
