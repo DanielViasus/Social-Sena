@@ -3241,7 +3241,7 @@ function GameClient({ session, onLogout, onSessionChange }: GameClientProps) {
     !npcInteractionLocked
 
   return (
-    <main className="hud-layout">
+    <main className={`hud-layout${mobileInteractionEnabled ? ' is-mobile-controls' : ''}`}>
       <div className="world-canvas fullscreen-world">
         <ReactWorld
           room={room}

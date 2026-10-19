@@ -672,15 +672,14 @@ button {
 }
 
 .mobile-movement-joystick {
-  --mobile-joystick-size: min(200px, calc(100vw - 140px), calc(100vh - 112px));
-  --mobile-joystick-size: min(200px, calc(100vw - 140px), calc(100dvh - 112px));
+  --mobile-joystick-size: 150px;
   position: absolute;
-  left: calc(20px + env(safe-area-inset-left));
-  bottom: calc(20px + env(safe-area-inset-bottom));
   width: var(--mobile-joystick-size);
   height: var(--mobile-joystick-size);
   border-radius: 50%;
-  pointer-events: auto;
+  transform: translate(-50%, -50%);
+  animation: mobile-joystick-appear 90ms ease-out both;
+  pointer-events: none;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
@@ -725,6 +724,20 @@ button {
 
 .mobile-movement-joystick.is-active .mobile-movement-joystick-knob {
   transition: none;
+}
+
+.hud-layout.is-mobile-controls .react-world-viewport {
+  touch-action: none;
+}
+
+@keyframes mobile-joystick-appear {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 .hud-layer.is-mobile-controls .chat-button.is-offset-for-interaction {
