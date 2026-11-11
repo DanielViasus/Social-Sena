@@ -13,7 +13,6 @@ import type {
   RoomTeleportTemplate,
   RoomTemplate
 } from '@social-sena/shared'
-import { resolveAvatarPreset, resolveAvatarSheetUrl } from '../game/avatar/avatarSprites'
 import {
   ObjectDecoration,
   getObjectNavigationBoundsList,
@@ -154,7 +153,9 @@ type RenderLayerItem =
       perspectiveY: number
       player: Presence
       animatedPosition: AnimatedPlayerPosition
-      frame: ReturnType<typeof getAvatarFrame>
+      view: 'f' | 'b'
+      moving: boolean
+      flipX: boolean
       isSelf: boolean
     }
   | {
@@ -654,35 +655,6 @@ function getPatrollingNpcPosition(
   }
 }
 
-function getAvatarFrame(
-  player: Presence,
-  now: number,
-  facingPose: FacingPose,
-  visuallyMoving = player.moving,
-) {
-  const preset = resolveAvatarPreset(player.skinId)
-  const sheetUrl = resolveAvatarSheetUrl(preset, player.skinColors)
-  const useBack = facingPose === 'back-left' || facingPose === 'back-right'
-  const flipX = facingPose === 'front-left' || facingPose === 'back-left'
-  const frames = visuallyMoving
-    ? useBack && preset.walkBackFrames?.length
-      ? preset.walkBackFrames
-      : preset.walkFrames
-    : useBack && preset.idleBackFrames?.length
-      ? preset.idleBackFrames
-      : preset.idleFrames
-  const frameDuration = 192
-  const frameIndex = Math.floor(now / frameDuration) % frames.length
-
-  return {
-    preset,
-    sheetUrl,
-    texture: frames[frameIndex],
-    frameIndex,
-    flipX,
-  }
-}
-
 function getPlayerColliderBounds(position: Position) {
   return {
     left: position.x - PLAYER_COLLIDER_WIDTH / 2,
@@ -723,7 +695,9 @@ function getPerspectiveAwareRenderItems(
   playerViews: Array<{
     player: Presence
     animatedPosition: AnimatedPlayerPosition
-    frame: ReturnType<typeof getAvatarFrame>
+    view: 'f' | 'b'
+    moving: boolean
+    flipX: boolean
     isSelf: boolean
   }>,
   npcViews: Array<{
@@ -774,13 +748,15 @@ function getPerspectiveAwareRenderItems(
     iconFrame,
   }))
 
-  const playerItems: RenderLayerItem[] = playerViews.map(({ player, animatedPosition, frame, isSelf }) => ({
+  const playerItems: RenderLayerItem[] = playerViews.map(({ player, animatedPosition, view, moving, flipX, isSelf }) => ({
     kind: 'player',
     key: player.sessionId,
     perspectiveY: getPlayerPerspectiveY(animatedPosition.y),
     player,
     animatedPosition,
-    frame,
+    moving,
+    view,
+    flipX,
     isSelf,
   }))
 
@@ -1352,19 +1328,18 @@ function ReactWorld({
   const playerViews = useMemo(() => {
     return (room?.players ?? []).map((player) => {
       const animatedPosition = runtime.playersBySession[player.sessionId] ?? player.position
-      const facingPose = runtime.facingBySession[player.sessionId] ?? 'front-right'
-      const frame = getAvatarFrame(
-        player,
-        runtime.now,
-        facingPose,
-        runtime.movingBySession[player.sessionId] ?? player.moving,
-      )
+      const moving = runtime.movingBySession[player.sessionId] ?? player.moving
+      const facing = runtime.facingBySession[player.sessionId] ?? resolveFacingPose(player, 'front-right')
+      const view = facing === 'back-left' || facing === 'back-right' ? 'b' as const : 'f' as const
+      const flipX = facing === 'front-left' || facing === 'back-left'
       const isSelf = player.userId === currentUserId
 
       return {
         player,
         animatedPosition,
-        frame,
+        moving,
+        view,
+        flipX,
         isSelf,
       }
     })
@@ -1373,7 +1348,6 @@ function ReactWorld({
     room?.players,
     runtime.facingBySession,
     runtime.movingBySession,
-    runtime.now,
     runtime.playersBySession,
   ])
 
@@ -1526,7 +1500,7 @@ function ReactWorld({
           ? patrolPosition.flipX
           : state !== 'out' && currentPlayerView
             ? resolvedNpcTemplate.x > currentPlayerView.animatedPosition.x
-            : false
+            : npcTemplate.flippedX ?? false
 
       return {
         npcTemplate: resolvedNpcTemplate,
@@ -2053,14 +2027,16 @@ function ReactWorld({
             <div key={item.key} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 20 + index }}>
               <WorldPlayer
                 player={item.player}
+                moving={item.moving}
+                view={item.view}
                 displayX={item.animatedPosition.x}
                 displayY={item.animatedPosition.y}
                 isSelf={item.isSelf}
+                flipX={item.flipX}
                 playerIdentityMode={playerIdentityMode}
                 speechText={activeSpeechByUserId[item.player.userId] ?? null}
                 isTyping={Boolean(typingByUserId[item.player.userId])}
                 typingIndicatorText={typingIndicatorText}
-                frame={item.frame}
                 debugEnabled={debugEnabled}
                 motionElementRef={(element) => {
                   if (element) {

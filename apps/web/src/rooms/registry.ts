@@ -2,9 +2,8 @@ import { getDefaultRoomTemplate, getRoomTemplateByRoute, type RoomTemplate } fro
 import CenterRoom from './templates/CenterRoom'
 import MazmorraDemo from './templates/mazmorra_demo'
 import Room_1909 from './templates/Room_1909'
-import Tavern from './templates/Tavern'
 
-const webRoomTemplates = [Tavern, Room_1909, CenterRoom, MazmorraDemo]
+const webRoomTemplates = [Room_1909, CenterRoom, MazmorraDemo]
 
 const roomTemplateByRoute = new Map(
   webRoomTemplates.map((template) => [template.routeSegment.toLowerCase(), template]),

@@ -1,3 +1,4 @@
+import AnimationEditorPage from './AnimationEditorPage'
 import { useAuth0 } from '@auth0/auth0-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { resolvePostLoginRoute } from '../auth/auth0Config'
@@ -19,6 +20,7 @@ import EditRoomPage from './EditRoomPage'
 import RoomEditorMenuPage from './RoomEditorMenuPage'
 import {
   isAccessRolePath,
+  isAnimationEditorPath,
   hasEditRoomContext,
   isEditRoomPath,
   isRoomEditorMenuPath,
@@ -231,6 +233,10 @@ function Auth0App() {
         )
       }
 
+      if (isAnimationEditorPath(pathname)) {
+        return <AnimationEditorPage />
+      }
+
       if (isEditRoomPath(pathname)) {
         if (!hasEditRoomContext()) {
           return (
@@ -292,6 +298,10 @@ function Auth0App() {
         onSessionReplaced={handleAuth0SessionReplaced}
       />
     )
+  }
+
+  if (isAnimationEditorPath(pathname)) {
+    return <AnimationEditorPage />
   }
 
   if (isEditRoomPath(pathname)) {

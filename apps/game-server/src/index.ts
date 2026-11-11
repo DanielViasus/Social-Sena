@@ -40,7 +40,6 @@ import {
   updateAccessRoleSchema,
   updateSkinSchema,
   unregisterRoomTemplate,
-  updateInventorySchema,
   type ActivityNoticePayload,
   type EnemyCombatEncounterStatePayload,
   type EnemyCombatPhase,
@@ -68,7 +67,10 @@ import {
   type FriendSummary,
   type PlayerFacing,
   type PlayerInventory,
+  type PlayerInventoryUpdatedPayload,
   type PlayerProgress,
+  type PlayerProgressSource,
+  type PlayerProgressUpdatedPayload,
   type Position,
   type Presence,
   type RoomState,
@@ -605,6 +607,68 @@ function getPresenceForUser(userId: string): Presence | null {
   }
 
   return null
+}
+
+/**
+ * Punto único y autoritativo para conceder experiencia desde combate, misiones
+ * o recompensas. No se expone como evento del cliente para impedir auto-premios.
+ */
+export async function awardExperienceToUser(
+  userId: string,
+  amount: number,
+  source: PlayerProgressSource,
+): Promise<PlayerProgress | null> {
+  const award = await gameRepository.addPlayerExperience(userId, amount)
+  if (!award) {
+    return null
+  }
+
+  const { previousProgress, progress, experienceGained } = award
+  const payload: PlayerProgressUpdatedPayload = {
+    userId,
+    progress,
+    experienceGained,
+    previousLevel: previousProgress.level,
+    leveledUp: progress.level > previousProgress.level,
+    source,
+  }
+
+  const targetSocketIds: string[] = []
+  sessions.forEach((session, socketId) => {
+    if (
+      session.profile.userId !== userId
+      || session.progress.experience > progress.experience
+    ) {
+      return
+    }
+
+    session.progress = progress
+    targetSocketIds.push(socketId)
+  })
+
+  targetSocketIds.forEach((socketId) => {
+    io.to(socketId).emit(serverEvents.playerProgressUpdated, payload)
+  })
+
+  if (payload.leveledUp) {
+    rooms.forEach((room) => {
+      room.players.forEach((player) => {
+        if (player.userId !== userId) {
+          return
+        }
+
+        player.level = progress.level
+        io.to(room.roomId).emit(serverEvents.playerMoved, player)
+      })
+    })
+
+    await Promise.all([
+      refreshSocialStateForAllSessions(),
+      refreshPartyStateForAllSessions(),
+    ])
+  }
+
+  return progress
 }
 
 function emitActivityNoticeToUserIds(userIds: string[], title: string, message: string) {
@@ -1641,36 +1705,133 @@ function getRoomCollectibleObjects(template: RoomTemplate) {
   return collectibleObjects
 }
 
-function collectOverlappingRoomRewards(room: RoomState, player: Presence) {
-  const playerBounds = getPlayerColliderBounds(player.position)
-  const collectedObjectIds = new Set(
-    getRoomCollectibleObjects(room.template)
-      .filter((roomObject) => (
-        roomObject.width > 0
-        && roomObject.height > 0
-        && overlapsRect(playerBounds, getObjectVisualBounds(roomObject))
-      ))
-      .map((roomObject) => roomObject.id),
-  )
-
-  if (collectedObjectIds.size === 0) {
+function restoreRoomCollectibles(
+  room: RoomState,
+  roomObjects: RoomTemplate['objects'],
+) {
+  if (rooms.get(room.roomId) !== room) {
     return
   }
+
+  const currentObjectIds = new Set(room.template.objects.map((roomObject) => roomObject.id))
+  const restoredObjects = roomObjects.filter((roomObject) => !currentObjectIds.has(roomObject.id))
+  if (restoredObjects.length === 0) {
+    return
+  }
+
+  room.template = {
+    ...room.template,
+    objects: [...room.template.objects, ...restoredObjects],
+  }
+
+  restoredObjects.forEach((roomObject) => {
+    io.to(room.roomId).emit(serverEvents.roomObjectStateChanged, {
+      roomId: room.roomId,
+      objectId: roomObject.id,
+      object: roomObject,
+      reason: 'restored',
+    })
+  })
+}
+
+async function persistCollectedRoomRewards(
+  room: RoomState,
+  player: Presence,
+  collectedObjects: RoomTemplate['objects'],
+) {
+  const additions = collectedObjects.reduce<Record<string, number>>((currentValue, roomObject) => {
+    const reward = roomObject.collectibleReward
+    if (!reward || !reward.inventoryItemId.trim() || reward.quantity <= 0) {
+      return currentValue
+    }
+
+    currentValue[reward.inventoryItemId] = (
+      currentValue[reward.inventoryItemId] ?? 0
+    ) + reward.quantity
+    return currentValue
+  }, {})
+  const result = await gameRepository.addPlayerInventoryItems(player.userId, additions)
+
+  if (!result) {
+    restoreRoomCollectibles(room, collectedObjects)
+    return
+  }
+
+  const payload: PlayerInventoryUpdatedPayload = {
+    userId: player.userId,
+    inventory: result.inventory,
+    changes: result.changes,
+    source: 'pickup',
+  }
+
+  sessions.forEach((session, socketId) => {
+    if (session.profile.userId !== player.userId) {
+      return
+    }
+
+    session.inventory = result.inventory
+    io.to(socketId).emit(serverEvents.playerInventoryUpdated, payload)
+  })
+
+  if (rooms.get(room.roomId) !== room) {
+    return
+  }
+
+  collectedObjects.forEach((roomObject) => {
+    io.to(room.roomId).emit(serverEvents.roomObjectStateChanged, {
+      roomId: room.roomId,
+      objectId: roomObject.id,
+      object: null,
+      collectedObject: roomObject,
+      reason: 'collected',
+      actorUserId: player.userId,
+    })
+  })
+}
+
+function collectOverlappingRoomRewards(room: RoomState, player: Presence) {
+  const playerBounds = getPlayerColliderBounds(player.position)
+  const collectedObjects = getRoomCollectibleObjects(room.template)
+    .filter((roomObject) => (
+      roomObject.width > 0
+      && roomObject.height > 0
+      && overlapsRect(playerBounds, getObjectVisualBounds(roomObject))
+    ))
+
+  if (collectedObjects.length === 0) {
+    return
+  }
+
+  const collectedObjectIds = new Set(
+    collectedObjects.map((roomObject) => roomObject.id),
+  )
 
   room.template = {
     ...room.template,
     objects: room.template.objects.filter((roomObject) => !collectedObjectIds.has(roomObject.id)),
   }
 
-  collectedObjectIds.forEach((objectId) => {
+  const persistedRewardObjects = collectedObjects.filter(
+    (roomObject) => roomObject.collectibleReward !== undefined,
+  )
+  const transientCollectibleObjects = collectedObjects.filter(
+    (roomObject) => roomObject.collectibleReward === undefined,
+  )
+
+  transientCollectibleObjects.forEach((roomObject) => {
     io.to(room.roomId).emit(serverEvents.roomObjectStateChanged, {
       roomId: room.roomId,
-      objectId,
+      objectId: roomObject.id,
       object: null,
+      collectedObject: roomObject,
       reason: 'collected',
       actorUserId: player.userId,
     })
   })
+
+  if (persistedRewardObjects.length > 0) {
+    void persistCollectedRoomRewards(room, player, persistedRewardObjects)
+  }
 }
 
 function getClosestEnemyChaseTarget(
@@ -3277,11 +3438,10 @@ io.on('connection', (socket) => {
     })
   })
 
-  socket.on(clientEvents.updateInventory, (rawPayload, callback) => {
-    const parsed = updateInventorySchema.safeParse(rawPayload)
+  socket.on(clientEvents.updateInventory, (_rawPayload, callback) => {
     const session = sessions.get(socket.id)
 
-    if (!parsed.success || !session) {
+    if (!session) {
       callback?.({
         ok: false,
         message: 'No fue posible actualizar el inventario.',
@@ -3289,11 +3449,9 @@ io.on('connection', (socket) => {
       return
     }
 
-    session.inventory = { ...parsed.data.inventory }
-    void gameRepository.savePlayerInventory(session.profile.userId, session.inventory)
-
     callback?.({
-      ok: true,
+      ok: false,
+      message: 'El inventario solo puede modificarse mediante acciones verificadas por el servidor.',
       inventory: session.inventory,
     })
   })

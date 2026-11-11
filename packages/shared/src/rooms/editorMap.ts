@@ -1,7 +1,11 @@
 import type { RoomEditorAssetData, RoomEditorPlacementData, SavedRoomEditorMap } from '../types'
-import { ROOM_REWARDS_LAYER_ID } from '../constants'
+import {
+  ROOM_REWARDS_LAYER_ID,
+  getCoinInventoryItemIdFromAssetId,
+} from '../constants'
 import type {
   RoomObjectInteractionVariantTemplate,
+  RoomNpcTemplate,
   RoomObjectKind,
   RoomObjectTemplate,
   RoomTeleportTemplate,
@@ -14,7 +18,8 @@ const LAYER_PRIORITY: Record<string, number> = {
   doors: 2,
   'object-decoration': 3,
   [ROOM_REWARDS_LAYER_ID]: 4,
-  teleports: 5,
+  npcs: 5,
+  teleports: 6,
 }
 
 function normalizeEntryPath(path: string) {
@@ -69,44 +74,49 @@ function createObjectVariant(
       }))
     : []
   const collider = colliders[0]
-  const isInteractablePlacement = placement.layerId === 'doors' || placement.layerId === 'teleports'
+  const isInteractablePlacement = placement.layerId === 'doors'
+    || placement.layerId === 'teleports'
+    || placement.layerId === 'npcs'
+  const placementWarningArea = placement.warningArea ?? asset.warningArea
+  const placementInteractionArea = placement.interactionArea ?? asset.interactionArea
+  const placementIconContainer = placement.interactionIconContainer ?? asset.interactionIconContainer
   const warningArea = isInteractablePlacement
     ? {
-        ...(asset.warningArea ?? {
+        ...(placementWarningArea ?? {
           width: (asset.occupiedColumns + 4) * 128,
           height: (asset.occupiedRows + 4) * 128,
           offsetX: 0,
           offsetY: 0,
         }),
         offsetX: placement.flippedX
-          ? -(asset.warningArea?.offsetX ?? 0)
-          : asset.warningArea?.offsetX ?? 0,
+          ? -(placementWarningArea?.offsetX ?? 0)
+          : placementWarningArea?.offsetX ?? 0,
       }
     : undefined
   const interactionArea = isInteractablePlacement
     ? {
-        ...(asset.interactionArea ?? {
+        ...(placementInteractionArea ?? {
           width: (asset.occupiedColumns + 2) * 128,
           height: (asset.occupiedRows + 2) * 128,
           offsetX: 0,
           offsetY: 0,
         }),
         offsetX: placement.flippedX
-          ? -(asset.interactionArea?.offsetX ?? 0)
-          : asset.interactionArea?.offsetX ?? 0,
+          ? -(placementInteractionArea?.offsetX ?? 0)
+          : placementInteractionArea?.offsetX ?? 0,
       }
     : undefined
   const interactionIconContainer = isInteractablePlacement
     ? {
-        ...(asset.interactionIconContainer ?? {
+        ...(placementIconContainer ?? {
           width: 128,
           height: 129,
           offsetX: 0,
           offsetY: -Math.round((asset.frameHeight + 129) / 2),
         }),
         offsetX: placement.flippedX
-          ? -(asset.interactionIconContainer?.offsetX ?? 0)
-          : asset.interactionIconContainer?.offsetX ?? 0,
+          ? -(placementIconContainer?.offsetX ?? 0)
+          : placementIconContainer?.offsetX ?? 0,
       }
     : undefined
 
@@ -183,7 +193,7 @@ export function createRoomTemplateFromEditorMap(map: SavedRoomEditorMap): RoomTe
   const assets = new Map(map.document.assets.map((asset) => [asset.id, asset]))
   const layers = new Map(map.document.layers.map((layer) => [layer.id, layer]))
   const objects = map.document.placements.flatMap((placement): RoomObjectTemplate[] => {
-    if (placement.layerId === 'teleports') return []
+    if (placement.layerId === 'teleports' || placement.layerId === 'npcs') return []
 
     const asset = assets.get(placement.assetId)
     if (!asset) return []
@@ -201,10 +211,16 @@ export function createRoomTemplateFromEditorMap(map: SavedRoomEditorMap): RoomTe
             && candidate.id.replace(/-S[01]$/i, '') === asset.id.replace(/-S[01]$/i, '')
           ))
           .map((candidate) => createObjectVariant(placement, candidate, collidersEnabled))
+    const coinInventoryItemId = placement.layerId === ROOM_REWARDS_LAYER_ID
+      ? getCoinInventoryItemIdFromAssetId(asset.id)
+      : null
     return [{
       id: `published-${placement.layerId}-${placement.cellX}-${placement.cellY}`,
       kind: resolveKind(placement.layerId, asset.category),
       collectible: placement.layerId === ROOM_REWARDS_LAYER_ID,
+      collectibleReward: coinInventoryItemId
+        ? { inventoryItemId: coinInventoryItemId, quantity: 1 }
+        : undefined,
       opacity: placement.assetId === 'component-teleport' ? 0 : 1,
       flippedX: placement.flippedX,
       layerOrder: LAYER_PRIORITY[placement.layerId] ?? 2,
@@ -246,7 +262,7 @@ export function createRoomTemplateFromEditorMap(map: SavedRoomEditorMap): RoomTe
       height: variant.height,
       fillColor: 0x496a73,
       strokeColor: 0xa8dcdf,
-      opacity: 1,
+      opacity: placement.assetId === 'component-teleport' ? 0 : 1,
       spriteAssetId: placement.assetId === 'component-teleport' ? undefined : placement.assetId,
       collider,
       zIndexRef,
@@ -273,6 +289,71 @@ export function createRoomTemplateFromEditorMap(map: SavedRoomEditorMap): RoomTe
       iconHeight: iconContainer?.height ?? 129,
       interactionId: `editor-teleport-${placement.cellX}-${placement.cellY}`,
       teleportTarget: { routePath: placement.teleportTargetPath },
+    }]
+  })
+
+  const npcs = map.document.placements.flatMap((placement): RoomNpcTemplate[] => {
+    if (placement.layerId !== 'npcs' || placement.assetId !== 'component-npc-mage') return []
+
+    const asset = assets.get(placement.assetId)
+    if (!asset) return []
+    const layer = layers.get(placement.layerId)
+    if (layer?.enabled === false) return []
+
+    const variant = createObjectVariant(
+      placement,
+      asset,
+      layer?.collidersEnabled !== false,
+    )
+    const centerToBottomOffset = variant.height / 2
+    const collider = variant.collider
+      ? { ...variant.collider, offsetY: variant.collider.offsetY - centerToBottomOffset }
+      : undefined
+    const zIndexRef = variant.zIndexRef
+      ? { ...variant.zIndexRef, offsetY: variant.zIndexRef.offsetY - centerToBottomOffset }
+      : undefined
+    const iconContainer = variant.interactionIconContainer
+    const npcId = `published-npc-${placement.cellX}-${placement.cellY}-${placement.assetId}`
+
+    return [{
+      entityType: 'npc',
+      id: npcId,
+      label: placement.name,
+      x: variant.x,
+      y: variant.y + centerToBottomOffset,
+      width: variant.width,
+      height: variant.height,
+      opacity: 1,
+      flippedX: placement.flippedX,
+      spriteSheetAssetId: 'npc-mage-sheet',
+      spriteSheetWidth: 512,
+      spriteSheetHeight: 1280,
+      spriteFrameWidth: 128,
+      spriteFrameHeight: 128,
+      spriteFrames: [
+        { key: `${npcId}-idle-0`, row: 0, column: 0 },
+        { key: `${npcId}-idle-1`, row: 0, column: 1 },
+        { key: `${npcId}-idle-2`, row: 0, column: 2 },
+        { key: `${npcId}-idle-3`, row: 0, column: 3 },
+      ],
+      spriteFrameDurationMs: 250,
+      iconFrameDurationMs: 400,
+      iconWarningAssetIds: ['npc-alert-0', 'npc-alert-1', 'npc-alert-2', 'npc-alert-3'],
+      iconInteractionAssetIds: ['npc-interaction-e-0', 'npc-interaction-e-1'],
+      iconOffsetX: iconContainer?.offsetX ?? 0,
+      iconOffsetY: (iconContainer?.offsetY ?? -136) - centerToBottomOffset,
+      iconWidth: iconContainer?.width ?? 128,
+      iconHeight: iconContainer?.height ?? 128,
+      collider,
+      zIndexRef,
+      warningArea: variant.warningArea
+        ? { ...variant.warningArea, offsetY: variant.warningArea.offsetY - centerToBottomOffset }
+        : undefined,
+      interactionArea: variant.interactionArea
+        ? { ...variant.interactionArea, offsetY: variant.interactionArea.offsetY - centerToBottomOffset }
+        : undefined,
+      interactionId: npcId,
+      dialogueId: 'lobby-guide-intro',
     }]
   })
 
@@ -317,7 +398,7 @@ export function createRoomTemplateFromEditorMap(map: SavedRoomEditorMap): RoomTe
       marginY: 300,
     },
     objects,
-    npcs: [],
+    npcs,
     teleports,
     enemies: [],
   }

@@ -3,9 +3,9 @@ import { memo, type CSSProperties, type Ref } from 'react'
 import {
   resolveAvatarPreset,
   resolveAvatarPrimaryColor,
-  type AvatarPreset,
-  type AvatarTextureDefinition,
 } from '../../game/avatar/avatarSprites'
+import { LayeredAvatar } from './LayeredAvatar'
+import { avatarAnimations, chapFrontEquipment, chapBackEquipment, type AvatarView } from '../../game/avatar/layeredAvatar'
 import { createAvatarBubblePalette } from '../../game/avatar/avatarUiColors'
 
 interface WorldPlayerProps {
@@ -13,16 +13,13 @@ interface WorldPlayerProps {
   displayX: number
   displayY: number
   isSelf: boolean
+  moving: boolean
+  view: AvatarView
+  flipX: boolean
   playerIdentityMode: 'icons' | 'names'
   speechText?: string | null
   isTyping?: boolean
   typingIndicatorText?: string
-  frame: {
-    preset: AvatarPreset
-    texture: AvatarTextureDefinition
-    sheetUrl: string
-    flipX: boolean
-  }
   debugEnabled: boolean
   motionElementRef?: Ref<HTMLDivElement>
 }
@@ -61,14 +58,17 @@ function WorldPlayerComponent({
   displayX,
   displayY,
   isSelf,
+  moving,
+  flipX,
+  view,
   playerIdentityMode,
   speechText,
   isTyping = false,
   typingIndicatorText = '...',
-  frame,
   debugEnabled,
   motionElementRef,
 }: WorldPlayerProps) {
+  const animationName = moving ? (view === 'b' ? 'walkBack' : 'walkFront') : 'idle'
   const isSpeechActive = Boolean(speechText) || isTyping
   const labelText = isTyping ? typingIndicatorText : speechText || player.displayName
   const leaderPrimaryColor =
@@ -129,27 +129,7 @@ function WorldPlayerComponent({
       }}
     >
       <div className={`react-world-avatar-glow ${isSelf ? 'is-self' : ''}`} />
-      <div
-        className="react-world-avatar-sprite"
-        style={{
-          width: `${frame.preset.frameWidth}px`,
-          height: `${frame.preset.frameHeight}px`,
-          transform: frame.flipX ? 'translateX(-50%) scaleX(-1)' : 'translateX(-50%) scaleX(1)',
-        }}
-      >
-        <img
-          src={frame.sheetUrl}
-          alt={player.displayName}
-          draggable={false}
-          className="react-world-avatar-spritesheet"
-          style={{
-            width: `${frame.preset.sheetWidth}px`,
-            height: `${frame.preset.sheetHeight}px`,
-            left: `${-frame.texture.column * frame.preset.frameWidth}px`,
-            top: `${-frame.texture.row * frame.preset.frameHeight}px`,
-          }}
-        />
-      </div>
+      <LayeredAvatar view={view} flipX={flipX} equipment={view === 'b' ? chapBackEquipment : chapFrontEquipment} animationName={animationName} animation={avatarAnimations[animationName]} displayName={player.displayName} />
       <div className="react-world-avatar-label-group">
         <div
           className={`react-world-avatar-label-group-shell is-${identityDisplayMode}`}
@@ -199,14 +179,13 @@ export const WorldPlayer = memo(
   WorldPlayerComponent,
   (previous, next) =>
     previous.player === next.player
+    && previous.moving === next.moving
+    && previous.view === next.view
+    && previous.flipX === next.flipX
     && previous.isSelf === next.isSelf
     && previous.playerIdentityMode === next.playerIdentityMode
     && previous.speechText === next.speechText
     && previous.isTyping === next.isTyping
     && previous.typingIndicatorText === next.typingIndicatorText
-    && previous.debugEnabled === next.debugEnabled
-    && previous.frame.preset === next.frame.preset
-    && previous.frame.sheetUrl === next.frame.sheetUrl
-    && previous.frame.texture === next.frame.texture
-    && previous.frame.flipX === next.frame.flipX,
+    && previous.debugEnabled === next.debugEnabled,
 )

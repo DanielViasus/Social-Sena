@@ -46,6 +46,29 @@ create table if not exists player_progress (
   updated_at timestamptz not null default now()
 );
 
+update player_progress
+set
+  -- Debe mantenerse alineado con PLAYER_EXPERIENCE_CURVE_BASE en shared/progression.ts.
+  level = floor(sqrt(least(2000000000, greatest(0, experience))::double precision / 100))::integer + 1,
+  experience = least(2000000000, greatest(0, experience)),
+  updated_at = now()
+where
+  experience < 0
+  or experience > 2000000000
+  or level <> floor(sqrt(least(2000000000, greatest(0, experience))::double precision / 100))::integer + 1;
+
+alter table player_progress
+drop constraint if exists player_progress_level_check;
+
+alter table player_progress
+add constraint player_progress_level_check check (level >= 1);
+
+alter table player_progress
+drop constraint if exists player_progress_experience_check;
+
+alter table player_progress
+add constraint player_progress_experience_check check (experience between 0 and 2000000000);
+
 create table if not exists player_inventory (
   user_id text primary key references users(user_id) on delete cascade,
   inventory jsonb not null default '{}'::jsonb,

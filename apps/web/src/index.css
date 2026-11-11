@@ -590,6 +590,29 @@ button {
   color: #4f5f6d;
 }
 
+.user-meta-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.user-meta-coins {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.user-meta-coin-icon {
+  display: inline-block;
+  flex: 0 0 auto;
+  background-position: 0 0;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
 .options-anchor {
   position: absolute;
   top: calc(28px + env(safe-area-inset-top));
@@ -899,6 +922,95 @@ button {
   outline-offset: 3px;
 }
 
+.inventory-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000003;
+  display: grid;
+  place-items: center;
+  padding: 48px;
+  pointer-events: auto;
+}
+
+.inventory-overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  padding: 0;
+  background:
+    radial-gradient(circle at 50% 28%, rgba(74, 91, 113, 0.2), transparent 44%),
+    rgba(3, 6, 10, 0.78);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  cursor: default;
+}
+
+.inventory-overlay-shell {
+  position: relative;
+  z-index: 1;
+  width: min(920px, calc(100vw - 96px));
+  height: min(620px, calc(100dvh - 96px));
+  animation: inventory-overlay-enter 140ms steps(3, end) both;
+}
+
+.inventory-overlay-panel {
+  width: 100%;
+  height: 100%;
+  border: 4px solid #171c24;
+  border-radius: 8px;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0) 34%),
+    #252b34;
+  box-shadow:
+    inset 0 0 0 2px rgba(224, 236, 244, 0.1),
+    inset 0 -8px 0 rgba(8, 11, 16, 0.2),
+    0 28px 80px rgba(0, 0, 0, 0.58);
+}
+
+.inventory-overlay-close {
+  position: absolute;
+  top: -18px;
+  right: -18px;
+  width: 48px;
+  height: 48px;
+  border: 3px solid #171c24;
+  border-radius: 6px;
+  background: #d95454;
+  color: #fff;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.72rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow:
+    inset 0 -5px 0 rgba(88, 20, 20, 0.34),
+    0 10px 20px rgba(0, 0, 0, 0.4);
+  transition: transform 100ms steps(2, end), filter 100ms linear;
+}
+
+.inventory-overlay-close:hover {
+  filter: brightness(1.1);
+  transform: translateY(-2px);
+}
+
+.inventory-overlay-close:focus-visible {
+  outline: 3px solid #fff4b8;
+  outline-offset: 3px;
+}
+
+@keyframes inventory-overlay-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 @media (max-width: 720px) {
   .merchant-shop-overlay {
     padding: 28px 20px 20px;
@@ -918,6 +1030,22 @@ button {
     right: -12px;
     width: 46px;
     height: 46px;
+  }
+
+  .inventory-overlay {
+    padding: 28px 20px 20px;
+  }
+
+  .inventory-overlay-shell {
+    width: calc(100vw - 40px);
+    height: calc(100dvh - 48px);
+  }
+
+  .inventory-overlay-close {
+    top: -14px;
+    right: -10px;
+    width: 44px;
+    height: 44px;
   }
 }
 
@@ -3361,30 +3489,28 @@ button {
   background: rgba(255, 210, 111, 0.16);
 }
 
-.react-world-avatar-sprite {
+/* Shared 128px canvases preserve the alignment authored in each skin piece. */
+.react-world-layered-avatar {
   position: absolute;
-  left: 50%;
+  left: 0;
   bottom: 0;
-  overflow: hidden;
-  display: block;
-  max-width: none;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
-  user-select: none;
-  -webkit-user-drag: none;
-  transform-origin: center bottom;
-  backface-visibility: hidden;
+  width: 128px;
+  height: 128px;
+  transform: translateX(-50%);
+  isolation: isolate;
+  pointer-events: none;
 }
 
-.react-world-avatar-spritesheet {
+.react-world-avatar-layer,
+.react-world-avatar-shadow-layer {
   position: absolute;
-  display: block;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   max-width: none;
+  transform-origin: center;
   image-rendering: pixelated;
-  image-rendering: crisp-edges;
   user-select: none;
-  -webkit-user-drag: none;
-  backface-visibility: hidden;
 }
 
 .react-world-avatar-label-group {
@@ -4756,8 +4882,9 @@ button {
 
 .room-editor-menu-maps {
   min-height: 150px;
+  height: 270px;
   display: grid;
-  grid-template-rows: 38px minmax(0, 1fr);
+  grid-template-rows: 38px minmax(0, 1fr) 38px;
   overflow: hidden;
   background: #242424;
   border: 2px solid;
@@ -4790,6 +4917,7 @@ button {
 }
 
 .room-editor-menu-map-list {
+  min-height: 0;
   max-height: 230px;
   display: grid;
   align-content: start;
@@ -4921,6 +5049,7 @@ button {
 
 .room-editor-menu-actions {
   display: grid;
+  grid-template-rows: repeat(4, 52px);
   gap: 12px;
 }
 
@@ -4965,11 +5094,13 @@ button {
 }
 
 .room-editor-menu-exit {
+  grid-row: 4;
   background: #a9a9a9;
   border-color: #dddddd #484848 #484848 #dddddd;
 }
 
 .room-editor-menu-role {
+  grid-row: 3;
   background: #b8a4cd;
   border-color: #e2d7ef #655674 #655674 #e2d7ef;
 }
@@ -5611,6 +5742,12 @@ button {
   border-color: #efc1c1 #744242 #744242 #efc1c1;
 }
 
+.edit-room-details-interaction-area > header button {
+  color: #202020;
+  background: #b8b8b8;
+  border-color: #eeeeee #555555 #555555 #eeeeee;
+}
+
 .edit-room-details-collider-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -5801,6 +5938,17 @@ button {
 .edit-room-teleport-asset.is-selected {
   border-color: #b8f6f2 #4a8885 #4a8885 #b8f6f2;
   box-shadow: inset 0 0 0 2px #619391;
+}
+
+.edit-room-npc-preview > img {
+  width: 512px;
+  height: 1280px;
+  transform: scale(0.5);
+}
+
+.edit-room-npc-asset.is-selected {
+  border-color: #d5def2 #52627f #52627f #d5def2;
+  box-shadow: inset 0 0 0 2px #7f8fac;
 }
 
 .edit-room-coins-preview .world-coins,
@@ -6166,6 +6314,29 @@ button {
   bottom: 0;
   left: 50%;
   transform-origin: center bottom;
+}
+
+.edit-room-paint-preview-npc {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  transform-origin: center;
+  opacity: 0.48;
+  filter: brightness(1.12);
+  image-rendering: pixelated;
+}
+
+.edit-room-paint-preview-npc-sheet {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: 512px;
+  height: 1280px;
+  max-width: none;
+  image-rendering: pixelated;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .edit-room-tools-body {
@@ -6751,4 +6922,582 @@ button {
     grid-template-columns: 170px minmax(300px, 1fr) 180px;
     overflow-x: auto;
   }
+}
+
+.room-editor-menu-animate {
+  background: #a6bdcf;
+  border-color: #dceaf4 #536573 #536573 #dceaf4;
+}
+
+.animation-editor-title {
+  margin: 0;
+  font-size: 0.65rem;
+  line-height: 1.7;
+}
+
+.animation-editor-layout {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.animation-editor-layout > .edit-room-workspace {
+  grid-row: 1;
+}
+
+.animation-editor-sidebar {
+  min-width: 0;
+  min-height: 0;
+  background: #303030;
+  overflow: auto;
+}
+
+.animation-editor-sidebar.is-left {
+  grid-column: 1;
+  border-right: 3px solid #121212;
+}
+
+.animation-editor-sidebar.is-right {
+  grid-column: 3;
+  border-left: 3px solid #121212;
+}
+
+.animation-editor-viewport {
+  display: block;
+}
+
+.animation-editor-stage {
+  display: grid;
+  place-items: center;
+  width: max-content;
+  min-width: 100%;
+  min-height: 100%;
+  padding: 64px;
+}
+
+.animation-editor-scene {
+  position: relative;
+  width: 128px;
+  height: 128px;
+  background-color: #383838;
+  background-image:
+    linear-gradient(to right, #ffffff0a 1px, transparent 1px),
+    linear-gradient(to bottom, #ffffff0a 1px, transparent 1px),
+    linear-gradient(to right, #ffffff05 0.15px, transparent 0.15px),
+    linear-gradient(to bottom, #ffffff05 0.15px, transparent 0.15px);
+  background-size: 16px 16px, 16px 16px, 1px 1px, 1px 1px;
+  outline: 1px solid #939393;
+  box-shadow: 0 8px 24px #0005;
+}
+
+.animation-editor-grid-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background-size: 4px 4px;
+}
+
+.animation-editor-scene-size {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 0;
+  color: #bdbdbd;
+  font-size: 0.45rem;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.animation-editor-start {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  padding: 20px;
+  overflow: auto;
+  color: inherit;
+  font: inherit;
+  background: transparent;
+  border: 0;
+}
+
+.animation-editor-start[open] {
+  display: grid;
+  place-items: center;
+}
+
+.animation-editor-start::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.animation-editor-start-card {
+  display: grid;
+  gap: 16px;
+  width: min(100%, 380px);
+  padding: 24px;
+  background: #303030;
+  border: 2px solid;
+  border-color: #737373 #111 #111 #737373;
+}
+
+.animation-editor-start-card h2 {
+  margin: 0;
+  font-size: 0.65rem;
+  line-height: 1.8;
+}
+
+.animation-editor-start-card p {
+  margin: 0;
+  color: #bdbdbd;
+  font-size: 0.48rem;
+  line-height: 1.9;
+}
+
+.animation-editor-start-card button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.animation-editor-skin-preview {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 128px;
+  height: 128px;
+  transform: translate(-50%, -50%);
+  isolation: isolate;
+}
+
+.animation-editor-skin-preview img {
+  position: absolute;
+  inset: 0;
+  width: 128px;
+  height: 128px;
+  image-rendering: pixelated;
+}
+
+.animation-editor-upload input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.animation-editor-upload:focus-within {
+  outline: 2px solid #8bc8d4;
+}
+
+/* Use the level editor's panel, frame rows and nested asset rows directly. */
+.animation-editor-hierarchy {
+  grid-row: 1;
+  overflow: hidden;
+}
+
+.animation-editor-frame-row {
+  grid-template-columns: 22px minmax(0, 1fr) 28px 28px;
+}
+
+.animation-editor-frame-images {
+  padding-left: 14px;
+}
+
+.animation-editor-image-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 26px;
+  min-width: 0;
+  border-top: 1px solid #292929;
+}
+
+.animation-editor-image-row > .edit-room-layer-child {
+  grid-template-columns: 14px minmax(0, 1fr);
+  border-top: 0;
+}
+
+.animation-editor-upload {
+  position: relative;
+}
+
+.animation-editor-image-row,
+.animation-editor-image-row > .edit-room-layer-child {
+  cursor: grab;
+}
+
+.animation-editor-image-row.is-dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+
+.animation-editor-image-row.is-drop-before {
+  box-shadow: inset 0 2px #8bc8d4;
+}
+
+.animation-editor-image-row.is-drop-after {
+  box-shadow: inset 0 -2px #8bc8d4;
+}
+
+.animation-editor-details {
+  grid-row: 1;
+  overflow: hidden;
+  border-bottom: 0;
+}
+
+.animation-editor-preview-layer {
+  position: absolute;
+  inset: 0;
+  width: 128px;
+  height: 128px;
+}
+
+.animation-editor-selection-tint {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  mask-size: 100% 100%;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  animation: animation-editor-selection-color 0.4s ease-in-out infinite alternate;
+}
+
+@keyframes animation-editor-selection-color {
+  from { background-color: #ffffff66; }
+  to { background-color: #45e6cf80; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animation-editor-selection-tint {
+    animation: none;
+    background-color: #45e6cf80;
+  }
+}
+
+.animation-editor-history-controls {
+  display: flex;
+  gap: 6px;
+}
+
+.animation-editor-page .edit-room-exit-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.animation-editor-page > .edit-room-toolbar {
+  flex-wrap: wrap;
+}
+
+.animation-editor-page {
+  grid-template-rows: minmax(76px, auto) minmax(0, 1fr) 30px;
+}
+
+.animation-editor-tools {
+  grid-row: 1;
+  max-width: calc(100% - 24px);
+}
+
+.animation-editor-tools-body {
+  width: 280px;
+  max-width: 100%;
+  min-height: 56px;
+}
+
+.animation-editor-scene-scale {
+  position: relative;
+}
+
+.animation-editor-playback-status {
+  margin-left: auto;
+  padding: 0 8px;
+  color: #b7bcc5;
+  font-size: 0.43rem;
+  white-space: nowrap;
+}
+
+.animation-editor-save-controls {
+  flex-wrap: wrap;
+}
+
+.animation-editor-saved-select {
+  width: 170px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  color: #202020;
+  font: inherit;
+  font-size: 0.45rem;
+  background: #efefef;
+  border: 2px solid;
+  border-color: #555 #eee #eee #555;
+}
+
+.animation-editor-page > .edit-room-statusbar {
+  gap: 16px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.animation-editor-frame-actions {
+  display: grid;
+  gap: 9px;
+}
+
+.animation-editor-saved-select {
+  width: 100%;
+  color: #dedede;
+  background: #202020;
+  border-color: #111 #5b5b5b #5b5b5b #111;
+}
+
+.animation-editor-save-dialog {
+  margin: auto;
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
+  font: inherit;
+}
+
+.animation-editor-save-dialog:not([open]) {
+  display: none;
+}
+
+.animation-editor-save-dialog::backdrop {
+  background: rgba(10, 10, 10, 0.76);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.animation-editor-save-dialog form {
+  display: grid;
+  gap: 14px;
+}
+
+.room-editor-menu-tabs {
+  display: flex;
+  gap: 6px;
+  border-bottom: 2px solid #111;
+}
+
+.room-editor-menu-tabs button {
+  flex: 1;
+  min-height: 42px;
+  padding: 8px;
+  color: #bdbdbd;
+  font: inherit;
+  font-size: 0.5rem;
+  line-height: 1.7;
+  background: #242424;
+  border: 2px solid;
+  border-color: #555 #111 #111 #555;
+  cursor: pointer;
+}
+
+.room-editor-menu-tabs button[aria-selected="true"] {
+  color: #fff;
+  background: #454545;
+  border-bottom-color: #8bc8d4;
+}
+
+.room-editor-menu-tabs button:focus-visible {
+  outline: 2px solid #8bc8d4;
+  outline-offset: -4px;
+}
+
+.animation-editor-pivot {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.animation-editor-pivot::before,
+.animation-editor-pivot::after {
+  position: absolute;
+  content: '';
+  background: #44ff71;
+}
+
+.animation-editor-pivot::before {
+  left: -7px;
+  top: 0;
+  width: 15px;
+  height: 1px;
+}
+
+.animation-editor-pivot::after {
+  left: 0;
+  top: -7px;
+  width: 1px;
+  height: 15px;
+}
+
+.animation-editor-pivot-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.animation-editor-pivot-button-icon {
+  position: relative;
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+}
+
+.animation-editor-pivot-button-icon > .animation-editor-pivot {
+  left: 7px;
+  top: 7px;
+}
+
+.animation-editor-pivot-button[aria-pressed="true"] {
+  background: #83c98f;
+  border-color: #3f7549 #c1efc8 #c1efc8 #3f7549;
+}
+
+.animation-editor-viewport.is-placing-pivot,
+.animation-editor-viewport.is-placing-pivot * {
+  cursor: crosshair;
+}
+
+.animation-editor-pivot-controls {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 7px;
+  align-items: center;
+}
+
+.animation-editor-pivot-controls > .animation-editor-pivot-button {
+  width: 32px;
+  min-height: 32px;
+  padding: 0;
+}
+
+.edit-room-property-group {
+  min-width: 0;
+  margin: 0;
+  padding: 10px 8px;
+  background: #222;
+  border: 1px solid #454545;
+}
+
+.edit-room-property-group legend {
+  padding: 0 5px;
+  color: #dedede;
+  font-size: 0.45rem;
+}
+
+.edit-room-property-group legend span {
+  color: #929292;
+  font-size: 0.34rem;
+}
+
+.edit-room-property-axes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.edit-room-property-axis {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 5px;
+  color: #929292;
+  font-size: 0.42rem;
+}
+
+.edit-room-property-stack {
+  display: grid;
+  gap: 9px;
+}
+
+.edit-room-details-collider-fields .edit-room-property-axis {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.edit-room-property-axis > span {
+  flex: 0 0 auto;
+}
+
+.animation-editor-frame-row,
+.animation-editor-frame-row > .edit-room-layer-select {
+  cursor: grab;
+}
+
+.animation-editor-frame-row.is-dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+
+.animation-editor-frame-row.is-drop-before {
+  box-shadow: inset 0 2px #8bc8d4;
+}
+
+.animation-editor-frame-row.is-drop-after {
+  box-shadow: inset 0 -2px #8bc8d4;
+}
+
+.edit-room-axis-scrubber {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  min-height: 28px;
+  cursor: ew-resize;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.edit-room-axis-scrubber:hover,
+.edit-room-axis-scrubber:focus-visible,
+.edit-room-axis-scrubber.is-scrubbing {
+  color: #8bc8d4;
+  background: #303a3d;
+  outline: 1px solid #62787f;
+  outline-offset: -1px;
+}
+
+.animation-editor-scene-scale > .animation-editor-scene-size {
+  bottom: calc(100% + 44px);
+}
+
+.animation-editor-zoom-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.animation-editor-inspector {
+  grid-row: 1;
+}
+
+.animation-editor-inspector > .animation-editor-details {
+  border-bottom: 3px solid #121212;
+}
+
+.animation-editor-viewport.is-replacing-image {
+  box-shadow: inset 0 0 0 2px #8bc8d4;
+}
+
+.animation-editor-reference-drop-hint {
+  position: absolute;
+  z-index: 200;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 24px);
+  padding: 10px;
+  color: #c9eef5;
+  font-size: 0.43rem;
+  line-height: 1.7;
+  text-align: center;
+  background: #17282ee6;
+  border: 1px solid #8bc8d4;
+  pointer-events: none;
 }

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type {
   FriendRequestSummary,
   FriendSummary,
+  InventoryItemQuantityChange,
   PartyInviteSummary,
   PartyMemberSummary,
   PartyOutgoingInviteSummary,
@@ -19,7 +20,10 @@ import type {
 } from '@social-sena/shared'
 import {
   DEFAULT_USER_ROLE,
+  MAX_INVENTORY_ITEM_QUANTITY,
+  derivePlayerProgress,
   normalizeAudioSettings,
+  normalizePlayerExperience,
   normalizeUserRole,
   PARTY_INVITE_TTL_MS,
 } from '@social-sena/shared'
@@ -43,7 +47,20 @@ interface ResolvedUserProfileResult {
   outgoingPartyInvites: PartyOutgoingInviteSummary[]
 }
 
+export interface PlayerExperienceAwardResult {
+  previousProgress: PlayerProgress
+  progress: PlayerProgress
+  experienceGained: number
+}
+
+export interface PlayerInventoryGrantResult {
+  inventory: PlayerInventory
+  changes: InventoryItemQuantityChange[]
+}
+
 const developmentRolesByUserId = new Map<string, UserRole>()
+const developmentProgressByUserId = new Map<string, PlayerProgress>()
+const developmentInventoryByUserId = new Map<string, PlayerInventory>()
 
 function normalizeSkinColors(value: unknown): SkinColorSelections {
   if (!value || typeof value !== 'object') {
@@ -78,7 +95,9 @@ function normalizeInventory(value: unknown): PlayerInventory {
       }
 
       const rawQuantity = 'quantity' in itemValue ? itemValue.quantity : undefined
-      const quantity = typeof rawQuantity === 'number' && Number.isFinite(rawQuantity) ? Math.max(0, Math.floor(rawQuantity)) : 0
+      const quantity = typeof rawQuantity === 'number' && Number.isFinite(rawQuantity)
+        ? Math.min(MAX_INVENTORY_ITEM_QUANTITY, Math.max(0, Math.floor(rawQuantity)))
+        : 0
       const rawMetadata = 'metadata' in itemValue ? itemValue.metadata : undefined
       const metadata =
         rawMetadata && typeof rawMetadata === 'object'
@@ -98,6 +117,40 @@ function normalizeInventory(value: unknown): PlayerInventory {
       return [[itemId, metadata && Object.keys(metadata).length > 0 ? { quantity, metadata } : { quantity }]]
     }),
   )
+}
+
+function addInventoryQuantities(
+  currentInventory: PlayerInventory,
+  additions: Record<string, number>,
+): PlayerInventoryGrantResult | null {
+  const inventory = normalizeInventory(currentInventory)
+  const changes: InventoryItemQuantityChange[] = []
+
+  Object.entries(additions).forEach(([rawItemId, rawQuantity]) => {
+    const itemId = rawItemId.trim()
+    const quantityToAdd = typeof rawQuantity === 'number' && Number.isFinite(rawQuantity)
+      ? Math.min(MAX_INVENTORY_ITEM_QUANTITY, Math.max(0, Math.floor(rawQuantity)))
+      : 0
+
+    if (!itemId || quantityToAdd <= 0) {
+      return
+    }
+
+    const currentItem = inventory[itemId]
+    const currentQuantity = currentItem?.quantity ?? 0
+    const quantity = Math.min(MAX_INVENTORY_ITEM_QUANTITY, currentQuantity + quantityToAdd)
+    const quantityAdded = quantity - currentQuantity
+    if (quantityAdded <= 0) {
+      return
+    }
+
+    inventory[itemId] = currentItem?.metadata
+      ? { quantity, metadata: { ...currentItem.metadata } }
+      : { quantity }
+    changes.push({ itemId, quantityAdded, quantity })
+  })
+
+  return changes.length > 0 ? { inventory, changes } : null
 }
 
 function normalizeFriendRows(
@@ -587,17 +640,22 @@ class GameRepository {
   async resolveUserProfile(incomingProfile: UserProfile): Promise<ResolvedUserProfileResult> {
     const pool = getDbPool()
     if (!pool) {
+      const progress = developmentProgressByUserId.get(incomingProfile.userId)
+        ?? derivePlayerProgress(0)
+      developmentProgressByUserId.set(incomingProfile.userId, progress)
+      const inventory = normalizeInventory(
+        developmentInventoryByUserId.get(incomingProfile.userId),
+      )
+      developmentInventoryByUserId.set(incomingProfile.userId, inventory)
+
       return {
         profile: {
           ...incomingProfile,
           role: developmentRolesByUserId.get(incomingProfile.userId) ?? DEFAULT_USER_ROLE,
         },
         needsOnboarding: false,
-        progress: {
-          level: 1,
-          experience: 0,
-        },
-        inventory: {},
+        progress,
+        inventory,
         friends: [],
         incomingFriendRequests: [],
         outgoingFriendRequestUserIds: [],
@@ -746,6 +804,25 @@ class GameRepository {
           `,
           [incomingProfile.userId],
         )
+        const persistedProgress = progressResult.rows[0]
+        const progress = derivePlayerProgress(persistedProgress?.experience ?? 0)
+
+        if (
+          persistedProgress
+          && (
+            persistedProgress.level !== progress.level
+            || persistedProgress.experience !== progress.experience
+          )
+        ) {
+          await client.query(
+            `
+              update player_progress
+              set level = $2, experience = $3, updated_at = now()
+              where user_id = $1
+            `,
+            [incomingProfile.userId, progress.level, progress.experience],
+          )
+        }
         await client.query('COMMIT')
 
         return {
@@ -757,10 +834,7 @@ class GameRepository {
             audioSettings: normalizeAudioSettings(profileResult.rows[0].audio_settings),
           },
           needsOnboarding: !profileResult.rows[0].onboarding_completed,
-          progress: {
-            level: progressResult.rows[0]?.level ?? 1,
-            experience: progressResult.rows[0]?.experience ?? 0,
-          },
+          progress,
           inventory: normalizeInventory(inventoryResult.rows[0]?.inventory),
           friends: normalizeFriendRows(friendsResult.rows),
           incomingFriendRequests: normalizeFriendRequestRows(incomingRequestsResult.rows),
@@ -942,7 +1016,9 @@ class GameRepository {
   async getPlayerProgress(userId: string): Promise<PlayerProgress> {
     const pool = getDbPool()
     if (!pool) {
-      return { level: 1, experience: 0 }
+      const progress = developmentProgressByUserId.get(userId) ?? derivePlayerProgress(0)
+      developmentProgressByUserId.set(userId, progress)
+      return progress
     }
 
     try {
@@ -968,20 +1044,117 @@ class GameRepository {
         [userId],
       )
 
-      return {
-        level: result.rows[0]?.level ?? 1,
-        experience: result.rows[0]?.experience ?? 0,
+      const persistedProgress = result.rows[0]
+      const progress = derivePlayerProgress(persistedProgress?.experience ?? 0)
+
+      if (
+        persistedProgress
+        && (
+          persistedProgress.level !== progress.level
+          || persistedProgress.experience !== progress.experience
+        )
+      ) {
+        await pool.query(
+          `
+            update player_progress
+            set level = $2, experience = $3, updated_at = now()
+            where user_id = $1
+          `,
+          [userId, progress.level, progress.experience],
+        )
       }
+
+      return progress
     } catch (error) {
       console.error('[db] No fue posible leer el progreso del jugador.', error)
-      return { level: 1, experience: 0 }
+      return derivePlayerProgress(0)
+    }
+  }
+
+  async addPlayerExperience(
+    userId: string,
+    amount: number,
+  ): Promise<PlayerExperienceAwardResult | null> {
+    const experienceToAdd = normalizePlayerExperience(amount)
+    if (experienceToAdd <= 0) {
+      return null
+    }
+
+    const pool = getDbPool()
+    if (!pool) {
+      const previousProgress = developmentProgressByUserId.get(userId)
+        ?? derivePlayerProgress(0)
+      const progress = derivePlayerProgress(previousProgress.experience + experienceToAdd)
+      const experienceGained = progress.experience - previousProgress.experience
+
+      if (experienceGained <= 0) {
+        return null
+      }
+
+      developmentProgressByUserId.set(userId, progress)
+      return { previousProgress, progress, experienceGained }
+    }
+
+    const client = await pool.connect()
+
+    try {
+      await client.query('BEGIN')
+      await client.query(
+        `
+          insert into player_progress (user_id)
+          values ($1)
+          on conflict (user_id) do nothing
+        `,
+        [userId],
+      )
+
+      const currentResult = await client.query<{
+        level: number
+        experience: number
+      }>(
+        `
+          select level, experience
+          from player_progress
+          where user_id = $1
+          for update
+        `,
+        [userId],
+      )
+      const previousProgress = derivePlayerProgress(currentResult.rows[0]?.experience ?? 0)
+      const progress = derivePlayerProgress(previousProgress.experience + experienceToAdd)
+      const experienceGained = progress.experience - previousProgress.experience
+
+      if (experienceGained <= 0) {
+        await client.query('COMMIT')
+        return null
+      }
+
+      await client.query(
+        `
+          update player_progress
+          set level = $2, experience = $3, updated_at = now()
+          where user_id = $1
+        `,
+        [userId, progress.level, progress.experience],
+      )
+      await client.query('COMMIT')
+
+      return { previousProgress, progress, experienceGained }
+    } catch (error) {
+      await client.query('ROLLBACK')
+      console.error('[db] No fue posible sumar experiencia al jugador.', error)
+      return null
+    } finally {
+      client.release()
     }
   }
 
   async getPlayerInventory(userId: string): Promise<PlayerInventory> {
     const pool = getDbPool()
     if (!pool) {
-      return {}
+      const inventory = normalizeInventory(developmentInventoryByUserId.get(userId))
+      developmentInventoryByUserId.set(userId, inventory)
+      return inventory
     }
 
     try {
@@ -1013,9 +1186,77 @@ class GameRepository {
     }
   }
 
+  async addPlayerInventoryItems(
+    userId: string,
+    additions: Record<string, number>,
+  ): Promise<PlayerInventoryGrantResult | null> {
+    const pool = getDbPool()
+    if (!pool) {
+      const result = addInventoryQuantities(
+        developmentInventoryByUserId.get(userId) ?? {},
+        additions,
+      )
+      if (result) {
+        developmentInventoryByUserId.set(userId, result.inventory)
+      }
+      return result
+    }
+
+    const client = await pool.connect()
+
+    try {
+      await client.query('BEGIN')
+      await client.query(
+        `
+          insert into player_inventory (user_id)
+          values ($1)
+          on conflict (user_id) do nothing
+        `,
+        [userId],
+      )
+
+      const currentResult = await client.query<{ inventory: unknown }>(
+        `
+          select inventory
+          from player_inventory
+          where user_id = $1
+          for update
+        `,
+        [userId],
+      )
+      const result = addInventoryQuantities(
+        normalizeInventory(currentResult.rows[0]?.inventory),
+        additions,
+      )
+
+      if (!result) {
+        await client.query('COMMIT')
+        return null
+      }
+
+      await client.query(
+        `
+          update player_inventory
+          set inventory = $2::jsonb, updated_at = now()
+          where user_id = $1
+        `,
+        [userId, JSON.stringify(result.inventory)],
+      )
+      await client.query('COMMIT')
+      return result
+    } catch (error) {
+      await client.query('ROLLBACK')
+      console.error('[db] No fue posible agregar elementos al inventario del jugador.', error)
+      return null
+    } finally {
+      client.release()
+    }
+  }
+
   async savePlayerInventory(userId: string, inventory: PlayerInventory) {
     const pool = getDbPool()
     if (!pool) {
+      developmentInventoryByUserId.set(userId, normalizeInventory(inventory))
       return
     }
 

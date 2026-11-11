@@ -4,6 +4,8 @@ import {
   clientEvents,
   serverEvents,
   DEFAULT_AUDIO_SETTINGS,
+  PLAYER_COIN_INVENTORY_ITEM_ID,
+  ROOM_COIN_ASSET_ID,
   createRoomTemplateFromEditorMap,
   getRoomTemplateById,
   getRoomTemplateByRoute,
@@ -23,6 +25,8 @@ import {
   type PartyStatePayload,
   type PartySummary,
   type PlayerFacing,
+  type PlayerInventoryUpdatedPayload,
+  type PlayerProgressUpdatedPayload,
   type Position,
   type Presence,
   type RoomEnemyTemplate,
@@ -57,7 +61,8 @@ import SceneLoadingOverlay, { SCENE_LOADING_LAYER_ASSETS } from './SceneLoadingO
 import DialogueOverlay from './dialogue/DialogueOverlay'
 import MobileMovementJoystick from './MobileMovementJoystick'
 import MobileNpcInteractButton from './MobileNpcInteractButton'
-import { isCoinAssetId } from './coinAssetCatalog'
+import { getCoinSpriteDefinition, isCoinAssetId } from './coinAssetCatalog'
+import InventoryOverlay from './inventory/InventoryOverlay'
 import MerchantShopOverlay from './merchant/MerchantShopOverlay'
 import InitialSkinSetupOverlay from './skins/InitialSkinSetupOverlay'
 import SkinEditorOverlay from './skins/SkinEditorOverlay'
@@ -290,6 +295,7 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
   const [typingIndicatorFrame, setTypingIndicatorFrame] = useState(0)
   const [connected, setConnected] = useState(false)
   const [optionsOpen, setOptionsOpen] = useState(false)
+  const [inventoryOpen, setInventoryOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   const [quickChatOpen, setQuickChatOpen] = useState(false)
   const [playerIdentityMode, setPlayerIdentityMode] = useState<PlayerIdentityMode>(() => {
@@ -418,6 +424,53 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
     window.clearTimeout(timeoutId)
     sceneLoadingFailsafeTimeoutRef.current = null
   })
+  const applyPlayerProgressUpdate = useEffectEvent((payload: PlayerProgressUpdatedPayload) => {
+    const currentSession = sessionRef.current
+    if (
+      payload.userId !== currentSession.profile.userId
+      || payload.progress.experience < currentSession.experience
+    ) {
+      return
+    }
+
+    const nextSession: AuthSession = {
+      ...currentSession,
+      level: payload.progress.level,
+      experience: payload.progress.experience,
+    }
+
+    sessionRef.current = nextSession
+    if (nextSession.provider === 'local') {
+      saveAuthSession(nextSession)
+    }
+    onSessionChange?.(nextSession)
+
+    setRoom((currentRoom) => currentRoom
+      ? {
+          ...currentRoom,
+          players: currentRoom.players.map((player) => player.userId === payload.userId
+            ? { ...player, level: payload.progress.level }
+            : player),
+        }
+      : currentRoom)
+  })
+  const applyPlayerInventoryUpdate = useEffectEvent((payload: PlayerInventoryUpdatedPayload) => {
+    const currentSession = sessionRef.current
+    if (payload.userId !== currentSession.profile.userId) {
+      return
+    }
+
+    const nextSession: AuthSession = {
+      ...currentSession,
+      inventory: payload.inventory,
+    }
+
+    sessionRef.current = nextSession
+    if (nextSession.provider === 'local') {
+      saveAuthSession(nextSession)
+    }
+    onSessionChange?.(nextSession)
+  })
   if (!uiSoundControllerRef.current) {
     uiSoundControllerRef.current = createUiSoundController()
   }
@@ -426,6 +479,29 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
   }
   const activeTemplate = resolveRoomTemplateFromPath(pathname)
   const playerInitial = session.profile.displayName.slice(0, 1).toUpperCase()
+  const coinQuantity = session.inventory[PLAYER_COIN_INVENTORY_ITEM_ID]?.quantity ?? 0
+  const coinSpriteDefinition = getCoinSpriteDefinition(ROOM_COIN_ASSET_ID)
+  const coinIconSize = 14
+  const coinIconStyle = coinSpriteDefinition
+    ? {
+        width: `${coinIconSize}px`,
+        height: `${coinIconSize}px`,
+        backgroundImage: `url(${JSON.stringify(coinSpriteDefinition.url)})`,
+        backgroundSize: `${(coinSpriteDefinition.sheetWidth / coinSpriteDefinition.frameWidth) * coinIconSize}px ${(coinSpriteDefinition.sheetHeight / coinSpriteDefinition.frameHeight) * coinIconSize}px`,
+      } satisfies CSSProperties
+    : undefined
+  const closeInventory = useCallback(() => {
+    if (!inventoryOpen) {
+      return
+    }
+
+    void uiSoundControllerRef.current?.play('panel-close')
+    setInventoryOpen(false)
+  }, [inventoryOpen])
+  const toggleInventory = useCallback(() => {
+    void uiSoundControllerRef.current?.play(inventoryOpen ? 'panel-close' : 'panel-open')
+    setInventoryOpen(!inventoryOpen)
+  }, [inventoryOpen])
   const typingIndicatorText = ['.', '..', '...'][typingIndicatorFrame] ?? '...'
   const availableSkins = getAvailableAvatarPresets()
 
@@ -939,6 +1015,34 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
         return
       }
 
+      if (event.key.toLowerCase() === 'i') {
+        if (
+          !inventoryOpen && (
+            !connected ||
+            !room ||
+            sceneLoadingVisible ||
+            chatOpen ||
+            quickChatOpen ||
+            optionsOpen ||
+            Boolean(activeDialogue) ||
+            Boolean(activeTouchPrompt) ||
+            Boolean(partyLeaderFollowPrompt) ||
+            skinEditorOpen ||
+            initialSkinSetupOpen
+          )
+        ) {
+          return
+        }
+
+        event.preventDefault()
+        toggleInventory()
+        return
+      }
+
+      if (inventoryOpen) {
+        return
+      }
+
       if (event.key.toLowerCase() === 'p') {
         event.preventDefault()
         setDebugEnabled((currentValue) => !currentValue)
@@ -959,7 +1063,21 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [activeDialogue, initialSkinSetupOpen])
+  }, [
+    activeDialogue,
+    activeTouchPrompt,
+    chatOpen,
+    connected,
+    initialSkinSetupOpen,
+    inventoryOpen,
+    optionsOpen,
+    partyLeaderFollowPrompt,
+    quickChatOpen,
+    room,
+    sceneLoadingVisible,
+    skinEditorOpen,
+    toggleInventory,
+  ])
 
   useEffect(() => {
     const hasTypingPlayers = Object.keys(typingByUserId).length > 0
@@ -1091,8 +1209,9 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
           notify: false,
         })
 
+        const currentSession = sessionRef.current
         const nextSession: AuthSession = {
-          ...session,
+          ...currentSession,
           level: progress.level,
           experience: progress.experience,
           inventory,
@@ -1100,7 +1219,7 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
         }
 
         sessionRef.current = nextSession
-        if (session.provider === 'local') {
+        if (currentSession.provider === 'local') {
           saveAuthSession(nextSession)
         }
         savePreferredSkin(profile.userId, profile.skinId)
@@ -1137,6 +1256,9 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
         })
       },
     )
+
+    nextSocket.on(serverEvents.playerProgressUpdated, applyPlayerProgressUpdate)
+    nextSocket.on(serverEvents.playerInventoryUpdated, applyPlayerInventoryUpdate)
 
     nextSocket.on(serverEvents.socialState, ({ friends, incomingFriendRequests, outgoingFriendRequestUserIds }: SocialStatePayload) => {
       applySocialState({
@@ -1230,13 +1352,14 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
       const previousObject = roomRef.current?.roomId === payload.roomId
         ? roomRef.current.template.objects.find((roomObject) => roomObject.id === payload.objectId)
         : undefined
+      const collectedObject = previousObject ?? payload.collectedObject
       const wasCollectedByCurrentPlayer = payload.reason === 'collected'
         && payload.actorUserId === sessionProfileRef.current.userId
 
       if (
         payload.object === null
         && wasCollectedByCurrentPlayer
-        && isCoinAssetId(previousObject?.spriteAssetId)
+        && isCoinAssetId(collectedObject?.spriteAssetId)
       ) {
         void playUiSound('coin-pickup')
       }
@@ -1494,7 +1617,24 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
     : ''
   const isDialogueLineComplete = dialogueVisibleChars >= currentDialogueLine.length
   const quickChatShortcutDisabled =
-    chatOpen || Boolean(activeDialogue) || Boolean(activeTouchPrompt) || initialSkinSetupOpen || skinEditorOpen
+    chatOpen ||
+    inventoryOpen ||
+    Boolean(activeDialogue) ||
+    Boolean(activeTouchPrompt) ||
+    initialSkinSetupOpen ||
+    skinEditorOpen
+  const inventoryShortcutDisabled =
+    !connected ||
+    !room ||
+    sceneLoadingVisible ||
+    chatOpen ||
+    quickChatOpen ||
+    optionsOpen ||
+    Boolean(activeDialogue) ||
+    Boolean(activeTouchPrompt) ||
+    Boolean(partyLeaderFollowPrompt) ||
+    skinEditorOpen ||
+    initialSkinSetupOpen
   const playerIdentityShortcutLabel =
     playerIdentityMode === 'icons' ? 'siglas' : 'nombres'
   const quickChatShortcutLabel = chatOpen
@@ -1645,6 +1785,12 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
         return
       }
 
+      if (inventoryOpen) {
+        event.preventDefault()
+        closeInventory()
+        return
+      }
+
       if (optionsOpen) {
         event.preventDefault()
         void playUiSound('menu-close')
@@ -1670,7 +1816,15 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
 
     window.addEventListener('keydown', handleEscapeMenuShortcut)
     return () => window.removeEventListener('keydown', handleEscapeMenuShortcut)
-  }, [activeDialogue, activeTouchPrompt, initialSkinSetupOpen, optionsOpen, skinEditorOpen])
+  }, [
+    activeDialogue,
+    activeTouchPrompt,
+    closeInventory,
+    initialSkinSetupOpen,
+    inventoryOpen,
+    optionsOpen,
+    skinEditorOpen,
+  ])
 
   const requestStopMovement = useEffectEvent(() => {
     const socket = socketRef.current
@@ -1762,6 +1916,7 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
         chatOpen ||
         quickChatOpen ||
         optionsOpen ||
+        inventoryOpen ||
         activeDialogue ||
         activeTouchPrompt ||
         partyLeaderFollowPrompt ||
@@ -1823,6 +1978,7 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
     chatOpen,
     connected,
     initialSkinSetupOpen,
+    inventoryOpen,
     mobileInteractionEnabled,
     optionsOpen,
     partyLeaderFollowPrompt,
@@ -1848,6 +2004,7 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
       !chatOpen &&
       !quickChatOpen &&
       !optionsOpen &&
+      !inventoryOpen &&
       !activeDialogue &&
       !activeTouchPrompt &&
       !partyLeaderFollowPrompt &&
@@ -1864,6 +2021,7 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
     chatOpen,
     connected,
     initialSkinSetupOpen,
+    inventoryOpen,
     optionsOpen,
     partyLeaderFollowPrompt,
     quickChatOpen,
@@ -3236,10 +3394,18 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
       return
     }
 
-    if (chatOpen || activeDialogue || activeTouchPrompt || initialSkinSetupOpen || skinEditorOpen) {
+    if (chatOpen || inventoryOpen || activeDialogue || activeTouchPrompt || initialSkinSetupOpen || skinEditorOpen) {
       closeQuickChat(false)
     }
-  }, [activeDialogue, activeTouchPrompt, chatOpen, initialSkinSetupOpen, quickChatOpen, skinEditorOpen])
+  }, [
+    activeDialogue,
+    activeTouchPrompt,
+    chatOpen,
+    initialSkinSetupOpen,
+    inventoryOpen,
+    quickChatOpen,
+    skinEditorOpen,
+  ])
 
   useEffect(() => {
     const handleQuickChatShortcut = (event: KeyboardEvent) => {
@@ -3254,7 +3420,15 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
         tagName === 'textarea' ||
         target?.isContentEditable === true
 
-      if (isTyping || chatOpen || activeDialogue || activeTouchPrompt || initialSkinSetupOpen || skinEditorOpen) {
+      if (
+        isTyping ||
+        chatOpen ||
+        inventoryOpen ||
+        activeDialogue ||
+        activeTouchPrompt ||
+        initialSkinSetupOpen ||
+        skinEditorOpen
+      ) {
         return
       }
 
@@ -3264,7 +3438,7 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
 
     window.addEventListener('keydown', handleQuickChatShortcut)
     return () => window.removeEventListener('keydown', handleQuickChatShortcut)
-  }, [activeDialogue, activeTouchPrompt, chatOpen, initialSkinSetupOpen, skinEditorOpen])
+  }, [activeDialogue, activeTouchPrompt, chatOpen, initialSkinSetupOpen, inventoryOpen, skinEditorOpen])
 
   const mobileMovementControlsVisible =
     mobileInteractionEnabled &&
@@ -3274,6 +3448,7 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
     !chatOpen &&
     !quickChatOpen &&
     !optionsOpen &&
+    !inventoryOpen &&
     !activeDialogue &&
     !activeTouchPrompt &&
     !partyLeaderFollowPrompt &&
@@ -3302,8 +3477,8 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
           onInteract={handleWorldInteract}
           onEnemyTouchInteract={handleEnemyTouchInteract}
           onActiveInteractableChange={setActiveInteractable}
-          navigationEnabled={!mobileInteractionEnabled && !activeDialogue && !activeTouchPrompt && !skinEditorOpen && !initialSkinSetupOpen}
-          interactionEnabled={!activeDialogue && !activeTouchPrompt && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen}
+          navigationEnabled={!mobileInteractionEnabled && !inventoryOpen && !activeDialogue && !activeTouchPrompt && !skinEditorOpen && !initialSkinSetupOpen}
+          interactionEnabled={!inventoryOpen && !activeDialogue && !activeTouchPrompt && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen}
           blockedEnemyInteractionIds={blockedEnemyInteractionIds}
           suppressInteractionIconForId={
             activeDialogue?.npcId ??
@@ -3426,7 +3601,17 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
                 }}
               >
                 <strong>{session.profile.displayName}</strong>
-                <span style={{ color: userMetaFrameColors.subInk }}>lvl. {session.level}</span>
+                <span className="user-meta-status" style={{ color: userMetaFrameColors.subInk }}>
+                  <span>Nv. {session.level}</span>
+                  <span className="user-meta-coins" aria-label={`${coinQuantity} monedas`}>
+                    <span
+                      className="user-meta-coin-icon"
+                      aria-hidden="true"
+                      style={coinIconStyle}
+                    />
+                    <span>{coinQuantity}</span>
+                  </span>
+                </span>
               </div>
             </div>
           </section>
@@ -4168,6 +4353,15 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
                   <span className="shortcut-key">P</span>
                   <span className="shortcut-label">colision</span>
                 </button>
+                <button
+                  type="button"
+                  className={`shortcut-chip ${inventoryShortcutDisabled ? 'is-disabled' : ''}`}
+                  onClick={toggleInventory}
+                  disabled={inventoryShortcutDisabled}
+                >
+                  <span className="shortcut-key">I</span>
+                  <span className="shortcut-label">inventario</span>
+                </button>
                 <button type="button" className="shortcut-chip" onClick={toggleSkinEditor}>
                   <span className="shortcut-key">M</span>
                   <span className="shortcut-label">skins</span>
@@ -4207,6 +4401,10 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
                 Rol: {session.profile.role}
               </span>
             </section>
+          ) : null}
+
+          {inventoryOpen ? (
+            <InventoryOverlay onClose={closeInventory} />
           ) : null}
 
           {skinEditorOpen ? (

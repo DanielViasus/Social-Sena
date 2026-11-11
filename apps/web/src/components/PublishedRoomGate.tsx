@@ -47,7 +47,9 @@ export default function PublishedRoomGate(props: PublishedRoomGateProps) {
       .catch((error: unknown) => {
         if ((error as { name?: string }).name !== 'AbortError') {
           console.warn('[room-editor] No fue posible comprobar la ruta publicada.', error)
-          setNotFoundPath(null)
+          const isStaticRoute = path === '/'
+            || availableRoomRoutes.some((route) => route.toLowerCase() === path.toLowerCase())
+          setNotFoundPath(isStaticRoute ? null : path)
           setResolvedPath(path)
         }
       })

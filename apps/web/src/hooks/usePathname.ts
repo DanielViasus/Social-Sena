@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 const ACCESS_ROLE_PATH = '/accessrole'
 const EDIT_ROOM_PATH = '/editroom'
 const ROOM_EDITOR_MENU_PATH = '/editor'
+const ANIMATION_EDITOR_PATH = '/editor/animations'
 const ACCESS_ROLE_RETURN_PATH_KEY = 'social-sena-access-role-return-path'
 
 function getCurrentLocationPath() {
@@ -26,10 +27,15 @@ export function isRoomEditorMenuPath(pathname: string) {
   return pathname.toLowerCase() === ROOM_EDITOR_MENU_PATH
 }
 
+export function isAnimationEditorPath(pathname: string) {
+  return pathname.toLowerCase() === ANIMATION_EDITOR_PATH
+}
+
 export function isStandalonePagePath(pathname: string) {
   return isAccessRolePath(pathname)
     || isEditRoomPath(pathname)
     || isRoomEditorMenuPath(pathname)
+    || isAnimationEditorPath(pathname)
 }
 
 export function getAccessRoleReturnPath() {

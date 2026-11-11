@@ -196,7 +196,9 @@ export function WorldTeleport({
         />
       )}
 
-      {teleportTemplate.label ? <div className="react-world-teleport-label">{teleportTemplate.label}</div> : null}
+      {teleportTemplate.label && (teleportTemplate.opacity ?? 1) > 0.02 ? (
+        <div className="react-world-teleport-label">{teleportTemplate.label}</div>
+      ) : null}
 
       {shouldShowIcon ? (
         iconFrame ? (

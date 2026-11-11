@@ -172,10 +172,20 @@ export default function EditRoomTestMode({
   const navigationTargetRef = useRef<Position | null>(null)
   const collectedObjectIdsRef = useRef(new Set<string>())
   const [uiSoundController] = useState(createUiSoundController)
-  const colliders = useMemo(
-    () => runtimeTemplate.objects.flatMap(getObjectNavigationBoundsList),
-    [runtimeTemplate.objects],
-  )
+  const colliders = useMemo(() => [
+    ...runtimeTemplate.objects.flatMap(getObjectNavigationBoundsList),
+    ...(runtimeTemplate.npcs ?? []).flatMap((npcTemplate) => {
+      const collider = npcTemplate.collider
+      if (!collider || collider.width <= 0 || collider.height <= 0) return []
+
+      return [{
+        left: npcTemplate.x + collider.offsetX - collider.width / 2,
+        right: npcTemplate.x + collider.offsetX + collider.width / 2,
+        top: npcTemplate.y + collider.offsetY - collider.height / 2,
+        bottom: npcTemplate.y + collider.offsetY + collider.height / 2,
+      }]
+    }),
+  ], [runtimeTemplate.npcs, runtimeTemplate.objects])
   const collectibleObjects = useMemo(
     () => runtimeTemplate.objects.filter((objectTemplate) => objectTemplate.collectible === true),
     [runtimeTemplate.objects],

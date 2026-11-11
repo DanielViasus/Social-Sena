@@ -102,6 +102,17 @@ export interface PlayerProgress {
   experience: number
 }
 
+export type PlayerProgressSource = 'combat' | 'mission' | 'reward' | 'system'
+
+export interface PlayerProgressUpdatedPayload {
+  userId: string
+  progress: PlayerProgress
+  experienceGained: number
+  previousLevel: number
+  leveledUp: boolean
+  source: PlayerProgressSource
+}
+
 export type InventoryMetadataValue = string | number | boolean | null
 export type InventoryItemMetadata = Record<string, InventoryMetadataValue>
 
@@ -111,6 +122,19 @@ export interface InventoryItemState {
 }
 
 export type PlayerInventory = Record<string, InventoryItemState>
+
+export interface InventoryItemQuantityChange {
+  itemId: string
+  quantityAdded: number
+  quantity: number
+}
+
+export interface PlayerInventoryUpdatedPayload {
+  userId: string
+  inventory: PlayerInventory
+  changes: InventoryItemQuantityChange[]
+  source: 'pickup' | 'system'
+}
 
 export interface FriendSummary {
   userId: string
@@ -219,7 +243,8 @@ export interface RoomObjectStateChangedPayload {
   roomId: string
   objectId: string
   object: RoomObjectTemplate | null
-  reason?: 'collected' | 'interaction'
+  collectedObject?: RoomObjectTemplate
+  reason?: 'collected' | 'interaction' | 'restored'
   actorUserId?: string
 }
 
@@ -353,10 +378,20 @@ export interface RoomEditorPlacementData {
   flippedX: boolean
   name?: string
   colliders?: RoomEditorColliderData[]
+  warningArea?: RoomEditorAreaData
+  interactionArea?: RoomEditorAreaData
+  interactionIconContainer?: RoomEditorAreaData
   teleportTargetPath?: string
 }
 
 export interface RoomEditorColliderData {
+  width: number
+  height: number
+  offsetX: number
+  offsetY: number
+}
+
+export interface RoomEditorAreaData {
   width: number
   height: number
   offsetX: number
@@ -372,24 +407,9 @@ export interface RoomEditorAssetData {
   occupiedRows: number
   colliders: RoomEditorColliderData[]
   zIndexOffsetY: number
-  warningArea?: {
-    width: number
-    height: number
-    offsetX: number
-    offsetY: number
-  }
-  interactionArea?: {
-    width: number
-    height: number
-    offsetX: number
-    offsetY: number
-  }
-  interactionIconContainer?: {
-    width: number
-    height: number
-    offsetX: number
-    offsetY: number
-  }
+  warningArea?: RoomEditorAreaData
+  interactionArea?: RoomEditorAreaData
+  interactionIconContainer?: RoomEditorAreaData
   interactionState?: 0 | 1
 }
 

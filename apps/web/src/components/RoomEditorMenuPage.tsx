@@ -10,6 +10,7 @@ import {
 import { saveAuthSession, type AuthSession } from '../auth/localSession'
 import { listenForSessionReplacement } from '../auth/sessionReplacement'
 import { navigateInApp } from '../hooks/usePathname'
+import { deleteAnimation, listAnimations, type AnimationSummary } from '../game/avatar/animationEditorStorage'
 import { canAccessRoomEditor } from '../rooms/roomEditorAccess'
 
 interface RoomEditorMenuPageProps {
@@ -29,6 +30,36 @@ export default function RoomEditorMenuPage({
   const socketRef = useRef<Socket | null>(null)
   const [resolvedProfile, setResolvedProfile] = useState<UserProfile>(session.profile)
   const canUseRoomEditor = canAccessRoomEditor(resolvedProfile.role)
+  const [activeTab, setActiveTab] = useState<'levels' | 'animations'>('levels')
+  const [animations, setAnimations] = useState<AnimationSummary[]>([])
+  const [animationsStatus, setAnimationsStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [deletingAnimationId, setDeletingAnimationId] = useState<string | null>(null)
+  const [animationActionMessage, setAnimationActionMessage] = useState('')
+
+  const removeAnimation = async (animation: AnimationSummary) => {
+    if (deletingAnimationId) return
+    if (!window.confirm(`¿Eliminar permanentemente la animación “${animation.name}”?`)) return
+    setDeletingAnimationId(animation.id)
+    setAnimationActionMessage('Eliminando animación…')
+    try {
+      await deleteAnimation(animation.id)
+      setAnimations((previous) => previous.filter((item) => item.id !== animation.id))
+      setAnimationActionMessage(`“${animation.name}” fue eliminada.`)
+    } catch (error) {
+      setAnimationActionMessage(error instanceof Error ? error.message : 'No se pudo eliminar la animación.')
+    } finally {
+      setDeletingAnimationId(null)
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    listAnimations().then((records) => {
+      if (!cancelled) { setAnimations(records); setAnimationsStatus('ready') }
+    }).catch(() => { if (!cancelled) setAnimationsStatus('error') })
+    return () => { cancelled = true }
+  }, [])
+
   const [mapCode, setMapCode] = useState('')
   const [maps, setMaps] = useState<RoomEditorMapSummary[]>([])
   const [mapsStatus, setMapsStatus] = useState<'loading' | 'ready' | 'error'>(
@@ -170,7 +201,33 @@ export default function RoomEditorMenuPage({
 
         <h1 id="room-editor-menu-title">Editor de escenas</h1>
 
-        <section className="room-editor-menu-maps" aria-labelledby="room-editor-maps-title">
+        <div className="room-editor-menu-tabs" role="tablist" aria-label="Contenido guardado">
+          {([
+            { id: 'levels', label: 'Niveles' },
+            { id: 'animations', label: 'Assets y animaciones' },
+          ] as const).map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              id={`editor-tab-${tab.id}`}
+              aria-controls={`editor-panel-${tab.id}`}
+              aria-selected={activeTab === tab.id}
+              tabIndex={activeTab === tab.id ? 0 : -1}
+              onClick={() => setActiveTab(tab.id)}
+              onKeyDown={(event) => {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+                event.preventDefault()
+                const nextTab = event.key === 'Home' ? 'levels' : event.key === 'End' ? 'animations' : activeTab === 'levels' ? 'animations' : 'levels'
+                setActiveTab(nextTab)
+                window.document.getElementById(`editor-tab-${nextTab}`)?.focus()
+              }}
+            >{tab.label}</button>
+          ))}
+        </div>
+
+        {activeTab === 'levels' ? (
+        <section id="editor-panel-levels" role="tabpanel" className="room-editor-menu-maps" aria-labelledby="editor-tab-levels">
           <header>
             <strong id="room-editor-maps-title">
               {resolvedProfile.role === 'developer' ? 'Mapas disponibles' : 'Mis mapas'}
@@ -204,7 +261,45 @@ export default function RoomEditorMenuPage({
           {mapActionMessage ? <p className="room-editor-menu-map-message">{mapActionMessage}</p> : null}
         </section>
 
+        ) : (
+          <section id="editor-panel-animations" role="tabpanel" className="room-editor-menu-maps" aria-labelledby="editor-tab-animations">
+            <header><strong>Animaciones guardadas</strong><output>{animations.length}</output></header>
+            <div className="room-editor-menu-map-list">
+              {animationsStatus === 'loading' ? <p>Cargando animaciones…</p>
+                : animationsStatus === 'error' ? <p>No se pudieron leer las animaciones de este navegador.</p>
+                : animations.length === 0 ? <p>Todavía no hay animaciones guardadas en este navegador.</p>
+                : animations.map((animation) => (
+                  <article key={animation.id} className="room-editor-menu-map-row">
+                    <button type="button" className="room-editor-menu-map-open" disabled={deletingAnimationId === animation.id} title={`Abrir ${animation.name}`} onClick={() => navigateInApp(`/editor/animations?animation=${encodeURIComponent(animation.id)}`)}>
+                      <span><strong>{animation.name}</strong><small>Animación · Guardada en este navegador</small></span>
+                    </button>
+                    <button
+                      type="button"
+                      className="room-editor-menu-map-delete"
+                      aria-label={`Eliminar animación ${animation.name}`}
+                      title={`Eliminar ${animation.name}`}
+                      disabled={Boolean(deletingAnimationId)}
+                      onClick={() => { void removeAnimation(animation) }}
+                    >{deletingAnimationId === animation.id ? '…' : '×'}</button>
+                  </article>
+                ))}
+            </div>
+            {animationActionMessage && <p className="room-editor-menu-map-message" role="status">{animationActionMessage}</p>}
+          </section>
+        )}
+
         <div className="room-editor-menu-actions">
+          {activeTab === 'animations' ? (
+          <button
+            type="button"
+            className="room-editor-menu-animate"
+            onClick={() => navigateInApp('/editor/animations')}
+            title="Abrir el editor de animaciones"
+          >
+            Crear animación
+          </button>
+          ) : (
+            <>
           <button
             type="button"
             className="room-editor-menu-create"
@@ -237,6 +332,8 @@ export default function RoomEditorMenuPage({
               Abrir mapa
             </button>
           </div>
+            </>
+          )}
           <button
             type="button"
             className="room-editor-menu-role"
@@ -254,7 +351,7 @@ export default function RoomEditorMenuPage({
         </div>
 
         {!canUseRoomEditor ? (
-          <p className="room-editor-menu-denied">El rol visitante puede entrar a salas, pero no crearlas.</p>
+          <p className="room-editor-menu-denied" style={{ visibility: activeTab === 'levels' ? 'visible' : 'hidden' }}>El rol visitante puede entrar a salas, pero no crearlas.</p>
         ) : null}
       </section>
     </main>

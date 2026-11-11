@@ -1,3 +1,4 @@
+import EditorGridGuides from './EditorGridGuides'
 import {
   useCallback,
   useEffect,
@@ -16,10 +17,12 @@ import {
   serverEvents,
   type ConnectionAcceptedPayload,
   type Position,
+  type RoomNpcTemplate,
   type RoomObjectKind,
   type RoomObjectInteractionVariantTemplate,
   type RoomObjectTemplate,
   type RoomTeleportTemplate,
+  type RoomEditorAreaData,
   type RoomEditorColliderData,
   type RoomEditorLayerData,
   type RoomEditorPlacementData,
@@ -31,6 +34,7 @@ import {
 import { saveAuthSession, type AuthSession } from '../auth/localSession'
 import { listenForSessionReplacement } from '../auth/sessionReplacement'
 import eraseToolIconSrc from '../assets/room-editor/sprites/icon_Erase.svg'
+import mageNpcSheetSrc from '../assets/npc/mago/Mage.svg'
 import paintToolIconSrc from '../assets/room-editor/sprites/icon_Paint.svg'
 import selectToolIconSrc from '../assets/room-editor/sprites/icon_Select.svg'
 import testToolIconSrc from '../assets/room-editor/sprites/Icon_Test.svg'
@@ -53,6 +57,7 @@ import {
 import EditRoomTestMode from './EditRoomTestMode'
 import { Coins } from './world/Coins'
 import { ObjectDecoration } from './world/ObjectDecoration'
+import { WorldNpc } from './world/WorldNpc'
 
 const SERVER_URL = import.meta.env.VITE_GAME_SERVER_URL ?? 'http://localhost:3001'
 const MIN_ZOOM = 0.25
@@ -61,6 +66,7 @@ const ZOOM_STEP = 0.25
 const MAX_EDIT_HISTORY = 100
 const DEFAULT_SPAWN_ID = 'default'
 const TELEPORT_EDITOR_ASSET_ID = 'component-teleport'
+const NPC_MAGE_EDITOR_ASSET_ID = 'component-npc-mage'
 
 const TELEPORT_EDITOR_ASSET: RoomEditorAsset = {
   id: TELEPORT_EDITOR_ASSET_ID,
@@ -96,6 +102,45 @@ const TELEPORT_EDITOR_ASSET: RoomEditorAsset = {
   url: '',
 }
 
+const NPC_MAGE_EDITOR_ASSET: RoomEditorAsset = {
+  id: NPC_MAGE_EDITOR_ASSET_ID,
+  fileName: NPC_MAGE_EDITOR_ASSET_ID,
+  category: 'NPC',
+  name: 'Mago',
+  frameWidth: 128,
+  frameHeight: 128,
+  occupiedColumns: 1,
+  occupiedRows: 1,
+  colliders: [{
+    width: 68,
+    height: 24,
+    offsetX: 0,
+    offsetY: 52,
+  }],
+  zIndexOffsetY: 52,
+  warningArea: {
+    width: 750,
+    height: 750,
+    offsetX: 0,
+    offsetY: -6,
+  },
+  interactionArea: {
+    width: 350,
+    height: 350,
+    offsetX: 0,
+    offsetY: 10,
+  },
+  interactionIconContainer: {
+    width: 128,
+    height: 128,
+    offsetX: 0,
+    offsetY: -136,
+  },
+  sourceWidth: 512,
+  sourceHeight: 1280,
+  url: mageNpcSheetSrc,
+}
+
 function createGlobalRouteSlug(sceneName: string) {
   const words = sceneName
     .normalize('NFD')
@@ -114,6 +159,7 @@ const REQUIRED_EDITOR_LAYERS: EditorLayer[] = [
   { id: 'doors', name: 'Door', enabled: true, collidersEnabled: true, required: true },
   { id: 'object-decoration', name: 'ObjectDecoration', enabled: true, collidersEnabled: true, required: true },
   { id: ROOM_REWARDS_LAYER_ID, name: 'Rewards', enabled: true, collidersEnabled: false, required: true },
+  { id: 'npcs', name: 'NPCs', enabled: true, collidersEnabled: true, required: true },
   { id: 'teleports', name: 'Teleports', enabled: true, collidersEnabled: true, required: true },
 ]
 
@@ -123,7 +169,8 @@ const EDITOR_LAYER_PRIORITY: Record<string, number> = {
   doors: 2,
   'object-decoration': 3,
   [ROOM_REWARDS_LAYER_ID]: 4,
-  teleports: 5,
+  npcs: 5,
+  teleports: 6,
 }
 
 const EDITOR_LAYER_COLORS: Record<string, string> = {
@@ -132,6 +179,7 @@ const EDITOR_LAYER_COLORS: Record<string, string> = {
   doors: '#a18469',
   'object-decoration': '#907b99',
   [ROOM_REWARDS_LAYER_ID]: '#a68f5b',
+  npcs: '#7f8fac',
   teleports: '#619391',
 }
 
@@ -182,6 +230,11 @@ function normalizeEditorLayers(savedLayers: EditorLayer[]) {
 }
 
 type PlacedRoomAsset = RoomEditorPlacementData
+
+type EditableInteractionAreaKey =
+  | 'warningArea'
+  | 'interactionArea'
+  | 'interactionIconContainer'
 
 function getPlacedAssetKey(placement: PlacedRoomAsset) {
   return `${placement.layerId}:${placement.cellX}:${placement.cellY}:${placement.assetId}`
@@ -295,6 +348,11 @@ function clonePlacedAsset(placement: PlacedRoomAsset): PlacedRoomAsset {
   return {
     ...placement,
     colliders: placement.colliders?.map((collider) => ({ ...collider })),
+    warningArea: placement.warningArea ? { ...placement.warningArea } : undefined,
+    interactionArea: placement.interactionArea ? { ...placement.interactionArea } : undefined,
+    interactionIconContainer: placement.interactionIconContainer
+      ? { ...placement.interactionIconContainer }
+      : undefined,
   }
 }
 
@@ -332,6 +390,20 @@ function arePlacementCollidersEqual(
       && collider.offsetX === nextCollider.offsetX
       && collider.offsetY === nextCollider.offsetY
   })
+}
+
+function arePlacementAreasEqual(
+  left: RoomEditorAreaData | undefined,
+  right: RoomEditorAreaData | undefined,
+) {
+  return left === right || Boolean(
+    left
+    && right
+    && left.width === right.width
+    && left.height === right.height
+    && left.offsetX === right.offsetX
+    && left.offsetY === right.offsetY,
+  )
 }
 
 function normalizeEditorInteger(
@@ -461,29 +533,34 @@ function createPlacedObjectVariant(
       }))
     : []
   const collider = colliders[0]
-  const isInteractablePlacement = placement.layerId === 'doors' || placement.layerId === 'teleports'
+  const isInteractablePlacement = placement.layerId === 'doors'
+    || placement.layerId === 'teleports'
+    || placement.layerId === 'npcs'
+  const placementWarningArea = placement.warningArea ?? asset.warningArea
+  const placementInteractionArea = placement.interactionArea ?? asset.interactionArea
+  const placementIconContainer = placement.interactionIconContainer ?? asset.interactionIconContainer
   const warningArea = isInteractablePlacement
     ? {
-        ...asset.warningArea,
+        ...placementWarningArea,
         offsetX: placement.flippedX
-          ? -asset.warningArea.offsetX
-          : asset.warningArea.offsetX,
+          ? -placementWarningArea.offsetX
+          : placementWarningArea.offsetX,
       }
     : undefined
   const interactionArea = isInteractablePlacement
     ? {
-        ...asset.interactionArea,
+        ...placementInteractionArea,
         offsetX: placement.flippedX
-          ? -asset.interactionArea.offsetX
-          : asset.interactionArea.offsetX,
+          ? -placementInteractionArea.offsetX
+          : placementInteractionArea.offsetX,
       }
     : undefined
   const interactionIconContainer = isInteractablePlacement
     ? {
-        ...asset.interactionIconContainer,
+        ...placementIconContainer,
         offsetX: placement.flippedX
-          ? -asset.interactionIconContainer.offsetX
-          : asset.interactionIconContainer.offsetX,
+          ? -placementIconContainer.offsetX
+          : placementIconContainer.offsetX,
       }
     : undefined
   return {
@@ -616,6 +693,68 @@ function createPlacedTeleportTemplate(
     iconHeight: iconContainer?.height ?? 129,
     interactionId: `editor-teleport-${placement.cellX}-${placement.cellY}`,
     teleportTarget: { routePath: placement.teleportTargetPath },
+  }
+}
+
+function createPlacedNpcTemplate(
+  placement: PlacedRoomAsset,
+  asset: RoomEditorAsset,
+  collidersEnabled = true,
+): RoomNpcTemplate | null {
+  if (placement.layerId !== 'npcs' || placement.assetId !== NPC_MAGE_EDITOR_ASSET_ID) {
+    return null
+  }
+
+  const variant = createPlacedObjectVariant(placement, asset, collidersEnabled)
+  const centerToBottomOffset = variant.height / 2
+  const collider = variant.collider
+    ? { ...variant.collider, offsetY: variant.collider.offsetY - centerToBottomOffset }
+    : undefined
+  const zIndexRef = variant.zIndexRef
+    ? { ...variant.zIndexRef, offsetY: variant.zIndexRef.offsetY - centerToBottomOffset }
+    : undefined
+  const iconContainer = variant.interactionIconContainer
+  const npcId = `editor-npc-${placement.cellX}-${placement.cellY}-${placement.assetId}`
+
+  return {
+    entityType: 'npc',
+    id: npcId,
+    label: placement.name,
+    x: variant.x,
+    y: variant.y + centerToBottomOffset,
+    width: variant.width,
+    height: variant.height,
+    opacity: 1,
+    flippedX: placement.flippedX,
+    spriteSheetAssetId: 'npc-mage-sheet',
+    spriteSheetWidth: 512,
+    spriteSheetHeight: 1280,
+    spriteFrameWidth: 128,
+    spriteFrameHeight: 128,
+    spriteFrames: [
+      { key: `${npcId}-idle-0`, row: 0, column: 0 },
+      { key: `${npcId}-idle-1`, row: 0, column: 1 },
+      { key: `${npcId}-idle-2`, row: 0, column: 2 },
+      { key: `${npcId}-idle-3`, row: 0, column: 3 },
+    ],
+    spriteFrameDurationMs: 250,
+    iconFrameDurationMs: 400,
+    iconWarningAssetIds: ['npc-alert-0', 'npc-alert-1', 'npc-alert-2', 'npc-alert-3'],
+    iconInteractionAssetIds: ['npc-interaction-e-0', 'npc-interaction-e-1'],
+    iconOffsetX: iconContainer?.offsetX ?? 0,
+    iconOffsetY: (iconContainer?.offsetY ?? -136) - centerToBottomOffset,
+    iconWidth: iconContainer?.width ?? 128,
+    iconHeight: iconContainer?.height ?? 128,
+    collider,
+    zIndexRef,
+    warningArea: variant.warningArea
+      ? { ...variant.warningArea, offsetY: variant.warningArea.offsetY - centerToBottomOffset }
+      : undefined,
+    interactionArea: variant.interactionArea
+      ? { ...variant.interactionArea, offsetY: variant.interactionArea.offsetY - centerToBottomOffset }
+      : undefined,
+    interactionId: npcId,
+    dialogueId: 'lobby-guide-intro',
   }
 }
 
@@ -1084,6 +1223,7 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
   const availableAssets = useMemo(
     () => [
       TELEPORT_EDITOR_ASSET,
+      NPC_MAGE_EDITOR_ASSET,
       ...coinEditorAssets,
       ...assetCategories.flatMap((category) => category.assets),
     ],
@@ -1161,6 +1301,17 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
   const selectedDetailColliders = selectedDetailPlacement
     ? selectedDetailPlacement.colliders ?? selectedDetailAsset?.colliders ?? []
     : []
+  const selectedDetailWarningArea = selectedDetailPlacement
+    ? selectedDetailPlacement.warningArea ?? selectedDetailAsset?.warningArea ?? null
+    : null
+  const selectedDetailInteractionArea = selectedDetailPlacement
+    ? selectedDetailPlacement.interactionArea ?? selectedDetailAsset?.interactionArea ?? null
+    : null
+  const selectedDetailIconContainer = selectedDetailPlacement
+    ? selectedDetailPlacement.interactionIconContainer
+      ?? selectedDetailAsset?.interactionIconContainer
+      ?? null
+    : null
   const selectedSpawnPoint = selectedSpawnId
     ? spawnPoints.find((spawnPoint) => spawnPoint.id === selectedSpawnId) ?? null
     : null
@@ -1170,7 +1321,7 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
       getEditorLayerPriority(left.layerId) - getEditorLayerPriority(right.layerId)
     )), [layerById, placedAssets])
   const testObjects = useMemo(() => placedAssets.flatMap((placement) => {
-    if (placement.layerId === 'teleports') return []
+    if (placement.layerId === 'teleports' || placement.layerId === 'npcs') return []
 
     const asset = assetById.get(placement.assetId)
     const layer = layerById.get(placement.layerId)
@@ -1191,6 +1342,20 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
       layer?.collidersEnabled ?? true,
     )
     return teleport ? [teleport] : []
+  }), [assetById, layerById, placedAssets])
+  const testNpcs = useMemo(() => placedAssets.flatMap((placement) => {
+    if (placement.layerId !== 'npcs') return []
+
+    const asset = assetById.get(placement.assetId)
+    const layer = layerById.get(placement.layerId)
+    if (!asset || layer?.enabled === false) return []
+
+    const npc = createPlacedNpcTemplate(
+      placement,
+      asset,
+      layer?.collidersEnabled ?? true,
+    )
+    return npc ? [npc] : []
   }), [assetById, layerById, placedAssets])
 
   if (!resolvedProfile && !validationFailed) {
@@ -1285,7 +1450,7 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
       marginY: 300,
     },
     objects: testObjects,
-    npcs: [],
+    npcs: testNpcs,
     teleports: testTeleports,
     enemies: [],
   }
@@ -1374,6 +1539,12 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
           || asset.name !== nextAsset.name
           || asset.teleportTargetPath !== nextAsset.teleportTargetPath
           || !arePlacementCollidersEqual(asset.colliders, nextAsset.colliders)
+          || !arePlacementAreasEqual(asset.warningArea, nextAsset.warningArea)
+          || !arePlacementAreasEqual(asset.interactionArea, nextAsset.interactionArea)
+          || !arePlacementAreasEqual(
+            asset.interactionIconContainer,
+            nextAsset.interactionIconContainer,
+          )
       })
 
     if (!didChange) {
@@ -1454,6 +1625,74 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
         : 'Teleport sin URL de destino',
     )
     return normalizedPath
+  }
+
+  const getSelectedInteractionArea = (areaKey: EditableInteractionAreaKey) => {
+    if (areaKey === 'warningArea') return selectedDetailWarningArea
+    if (areaKey === 'interactionArea') return selectedDetailInteractionArea
+    return selectedDetailIconContainer
+  }
+
+  const commitSelectedInteractionAreaValue = (
+    areaKey: EditableInteractionAreaKey,
+    field: keyof RoomEditorAreaData,
+    rawValue: string,
+  ) => {
+    if (
+      !selectedDetailPlacement
+      || (selectedDetailPlacement.layerId !== 'teleports' && selectedDetailPlacement.layerId !== 'npcs')
+    ) {
+      return 0
+    }
+
+    const currentArea = getSelectedInteractionArea(areaKey)
+    if (!currentArea) return 0
+
+    const isDimension = field === 'width' || field === 'height'
+    const displayedCurrentValue = field === 'offsetX' && selectedDetailPlacement.flippedX
+      ? -currentArea.offsetX
+      : currentArea[field]
+    const nextDisplayedValue = normalizeEditorInteger(
+      rawValue,
+      isDimension ? 1 : -4096,
+      isDimension ? 8192 : 4096,
+      displayedCurrentValue,
+    )
+    const nextStoredValue = field === 'offsetX' && selectedDetailPlacement.flippedX
+      ? -nextDisplayedValue
+      : nextDisplayedValue
+    const nextArea = { ...currentArea, [field]: nextStoredValue }
+    const areaLabel = areaKey === 'warningArea'
+      ? 'Área de alerta'
+      : areaKey === 'interactionArea'
+        ? 'Área de interacción'
+        : 'Icono de interacción'
+
+    updateSelectedDetailPlacement(
+      { ...selectedDetailPlacement, [areaKey]: nextArea },
+      `${areaLabel} actualizada`,
+    )
+    return nextDisplayedValue
+  }
+
+  const resetSelectedInteractionArea = (areaKey: EditableInteractionAreaKey) => {
+    if (
+      !selectedDetailPlacement
+      || (selectedDetailPlacement.layerId !== 'teleports' && selectedDetailPlacement.layerId !== 'npcs')
+      || selectedDetailPlacement[areaKey] === undefined
+    ) {
+      return
+    }
+
+    const areaLabel = areaKey === 'warningArea'
+      ? 'Área de alerta'
+      : areaKey === 'interactionArea'
+        ? 'Área de interacción'
+        : 'Icono de interacción'
+    updateSelectedDetailPlacement(
+      { ...selectedDetailPlacement, [areaKey]: undefined },
+      `${areaLabel} restaurada desde el asset original`,
+    )
   }
 
   const commitSelectedDetailCoordinate = (axis: 'x' | 'y', rawValue: string) => {
@@ -2302,6 +2541,43 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
     if (layer?.enabled === false) {
       return null
     }
+    if (placement.layerId === 'npcs') {
+      const npcTemplate = createPlacedNpcTemplate(
+        placement,
+        asset,
+        layer?.collidersEnabled ?? true,
+      )
+      if (!npcTemplate) return null
+
+      return (
+        <div
+          key={`${placement.layerId}-${placement.cellX}-${placement.cellY}`}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            pointerEvents: 'none',
+            zIndex: getEditorLayerPriority(placement.layerId),
+          }}
+        >
+          <WorldNpc
+            npcTemplate={npcTemplate}
+            debugEnabled={isDebugEnabled}
+            state="out"
+            flipX={placement.flippedX}
+            spriteFrame={{
+              key: `${npcTemplate.id}-editor-preview`,
+              sheetUrl: asset.url,
+              sheetWidth: 512,
+              sheetHeight: 1280,
+              frameWidth: 128,
+              frameHeight: 128,
+              row: 0,
+              column: 0,
+            }}
+          />
+        </div>
+      )
+    }
     const objectTemplate = createPlacedObjectTemplate(
       placement,
       asset,
@@ -2479,7 +2755,7 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
         </section>
 
         <section className="edit-room-save-controls" aria-label="Guardar mapa">
-          <strong className="edit-room-scene-name">{mapName}</strong>
+          <strong className="edit-room-scene-name" title={mapName} aria-label={`Escena actual: ${mapName}`}>{mapName}</strong>
           <button type="button" onClick={() => saveMap()} disabled={isSavingMap}>
             {savedMapCode && savedMapOwnerUserId !== resolvedProfile?.userId
               ? 'Guardar copia'
@@ -2530,7 +2806,11 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
             >
               {selectedDetailPlacement ? (
                 <div
-                  key={`${getPlacedAssetKey(selectedDetailPlacement)}-${selectedDetailPlacement.name ?? 'default'}-${selectedDetailPlacement.teleportTargetPath ?? 'no-target'}`}
+                  key={`${getPlacedAssetKey(selectedDetailPlacement)}-${selectedDetailPlacement.flippedX ? 'flipped' : 'normal'}-${selectedDetailPlacement.name ?? 'default'}-${selectedDetailPlacement.teleportTargetPath ?? 'no-target'}-${JSON.stringify({
+                    warningArea: selectedDetailPlacement.warningArea,
+                    interactionArea: selectedDetailPlacement.interactionArea,
+                    interactionIconContainer: selectedDetailPlacement.interactionIconContainer,
+                  })}`}
                   className="edit-room-details-content"
                 >
                   <dl className="edit-room-details-fields">
@@ -2589,9 +2869,12 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
                         </dd>
                       </div>
                     ) : null}
-                    <div className="edit-room-details-field">
-                      <dt>Pivote X</dt>
-                      <dd>
+                  </dl>
+                  <fieldset className="edit-room-property-group">
+                    <legend>Pivote <span>(unidades)</span></legend>
+                    <div className="edit-room-property-axes">
+                      <label className="edit-room-property-axis">
+                        <span>X</span>
                         <input
                           type="number"
                           className="edit-room-details-input"
@@ -2627,11 +2910,9 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
                             }
                           }}
                         />
-                      </dd>
-                    </div>
-                    <div className="edit-room-details-field">
-                      <dt>Pivote Y</dt>
-                      <dd>
+                      </label>
+                      <label className="edit-room-property-axis">
+                        <span>Y</span>
                         <input
                           type="number"
                           className="edit-room-details-input"
@@ -2664,9 +2945,113 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
                             }
                           }}
                         />
-                      </dd>
+                      </label>
                     </div>
-                  </dl>
+                  </fieldset>
+
+                  {selectedDetailPlacement.layerId === 'teleports'
+                    || selectedDetailPlacement.layerId === 'npcs' ? (
+                    <section
+                      className="edit-room-details-colliders edit-room-details-interaction-config"
+                      aria-label={`Configuración de interacción del ${selectedDetailPlacement.layerId === 'npcs' ? 'NPC' : 'portal'}`}
+                    >
+                      <header>
+                        <strong>
+                          Interacción del {selectedDetailPlacement.layerId === 'npcs' ? 'NPC' : 'portal'}
+                        </strong>
+                        <output>px</output>
+                      </header>
+                      <div className="edit-room-details-collider-list">
+                        {([
+                          {
+                            areaKey: 'warningArea' as const,
+                            label: 'Área de alerta',
+                            area: selectedDetailWarningArea,
+                          },
+                          {
+                            areaKey: 'interactionArea' as const,
+                            label: 'Área de interacción',
+                            area: selectedDetailInteractionArea,
+                          },
+                          {
+                            areaKey: 'interactionIconContainer' as const,
+                            label: 'Posición y tamaño del icono',
+                            area: selectedDetailIconContainer,
+                          },
+                        ]).map(({ areaKey, label, area }) => area ? (
+                          <article
+                            key={areaKey}
+                            className="edit-room-details-collider edit-room-details-interaction-area"
+                          >
+                            <header>
+                              <strong>{label}</strong>
+                              {selectedDetailPlacement[areaKey] !== undefined ? (
+                                <button
+                                  type="button"
+                                  aria-label={`Restaurar ${label.toLocaleLowerCase()}`}
+                                  title={`Restaurar ${label.toLocaleLowerCase()}`}
+                                  onClick={() => resetSelectedInteractionArea(areaKey)}
+                                >
+                                  ↺
+                                </button>
+                              ) : null}
+                            </header>
+                            <div className="edit-room-property-stack">
+                              {['Tamaño', 'Posición'].map((groupName, groupIndex) => (
+                                <fieldset key={groupName} className="edit-room-property-group">
+                                  <legend>{groupName} <span>(px)</span></legend>
+                                  <div className="edit-room-details-collider-fields edit-room-property-axes">
+                              {([
+                                ['width', 'Ancho', area.width],
+                                ['height', 'Alto', area.height],
+                                [
+                                  'offsetX',
+                                  'Offset X',
+                                  selectedDetailPlacement.flippedX
+                                    ? -area.offsetX
+                                    : area.offsetX,
+                                ],
+                                ['offsetY', 'Offset Y', area.offsetY],
+                              ] as const).slice(groupIndex * 2, groupIndex * 2 + 2).map(([field, fieldLabel, displayedValue]) => (
+                                <label key={field} className="edit-room-property-axis">
+                                  <span>{field === 'width' || field === 'offsetX' ? 'X' : 'Y'}</span>
+                                  <input
+                                    type="number"
+                                    min={field === 'width' || field === 'height' ? 1 : -4096}
+                                    max={field === 'width' || field === 'height' ? 8192 : 4096}
+                                    defaultValue={displayedValue}
+                                    aria-label={`${fieldLabel} de ${label.toLocaleLowerCase()}`}
+                                    onBlur={(event) => {
+                                      event.currentTarget.value = String(
+                                        commitSelectedInteractionAreaValue(
+                                          areaKey,
+                                          field,
+                                          event.currentTarget.value,
+                                        ),
+                                      )
+                                    }}
+                                    onKeyDown={(event) => {
+                                      if (event.key === 'Enter') {
+                                        event.preventDefault()
+                                        event.currentTarget.blur()
+                                      } else if (event.key === 'Escape') {
+                                        event.preventDefault()
+                                        event.currentTarget.value = String(displayedValue)
+                                        event.currentTarget.blur()
+                                      }
+                                    }}
+                                  />
+                                </label>
+                              ))}
+                                  </div>
+                                </fieldset>
+                              ))}
+                            </div>
+                          </article>
+                        ) : null)}
+                      </div>
+                    </section>
+                  ) : null}
 
                   <section className="edit-room-details-colliders" aria-label="Dimensiones de los colliders">
                     <header>
@@ -2712,7 +3097,11 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
                                 ×
                               </button>
                             </header>
-                            <div className="edit-room-details-collider-fields">
+                            <div className="edit-room-property-stack">
+                              {['Tamaño', 'Posición'].map((groupName, groupIndex) => (
+                                <fieldset key={groupName} className="edit-room-property-group">
+                                  <legend>{groupName} <span>(px)</span></legend>
+                                  <div className="edit-room-details-collider-fields edit-room-property-axes">
                               {([
                                 ['width', 'Ancho', collider.width],
                                 ['height', 'Alto', collider.height],
@@ -2724,9 +3113,9 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
                                     : collider.offsetX,
                                 ],
                                 ['offsetY', 'Offset Y', collider.offsetY],
-                              ] as const).map(([field, label, displayedValue]) => (
-                                <label key={field}>
-                                  <span>{label}</span>
+                              ] as const).slice(groupIndex * 2, groupIndex * 2 + 2).map(([field, label, displayedValue]) => (
+                                <label key={field} className="edit-room-property-axis">
+                                  <span>{field === 'width' || field === 'offsetX' ? 'X' : 'Y'}</span>
                                   <input
                                     type="number"
                                     min={field === 'width' || field === 'height' ? 1 : -4096}
@@ -2754,6 +3143,9 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
                                     }}
                                   />
                                 </label>
+                              ))}
+                                  </div>
+                                </fieldset>
                               ))}
                             </div>
                           </article>
@@ -2798,9 +3190,12 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
                         />
                       </dd>
                     </div>
-                    <div className="edit-room-details-field">
-                      <dt>Posición X</dt>
-                      <dd>
+                  </dl>
+                  <fieldset className="edit-room-property-group">
+                    <legend>Posición <span>(unidades)</span></legend>
+                    <div className="edit-room-property-axes">
+                      <label className="edit-room-property-axis">
+                        <span>X</span>
                         <input
                           type="number"
                           className="edit-room-details-input"
@@ -2824,11 +3219,9 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
                             }
                           }}
                         />
-                      </dd>
-                    </div>
-                    <div className="edit-room-details-field">
-                      <dt>Posición Y</dt>
-                      <dd>
+                      </label>
+                      <label className="edit-room-property-axis">
+                        <span>Y</span>
                         <input
                           type="number"
                           className="edit-room-details-input"
@@ -2852,9 +3245,9 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
                             }
                           }}
                         />
-                      </dd>
+                      </label>
                     </div>
-                  </dl>
+                  </fieldset>
 
                   <p className="edit-room-spawn-rule">
                     Separa las rutas con ;. Una coincidencia exacta tiene prioridad sobre /all.
@@ -2878,14 +3271,14 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
               <span>Assets</span>
               <output>{assetCategories.reduce(
                 (total, category) => total + category.assets.length,
-                2 + coinEditorAssets.length,
+                3 + coinEditorAssets.length,
               )}</output>
             </header>
             <div className="edit-room-panel-body edit-room-assets-body">
             <details className="edit-room-asset-collection" open>
               <summary>
                 <span>Componentes</span>
-                <output>{2 + coinEditorAssets.length}</output>
+                <output>{3 + coinEditorAssets.length}</output>
               </summary>
               <div className="edit-room-asset-grid">
                 <button
@@ -2933,6 +3326,40 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
                   <span className="edit-room-asset-preview edit-room-teleport-preview" aria-hidden="true" />
                   <span className="edit-room-asset-name">Teleport</span>
                   <span className="edit-room-asset-size">1×1 celda · múltiples por sala</span>
+                </button>
+                <button
+                  type="button"
+                  className={`edit-room-asset-tile edit-room-npc-asset${selectedAssetId === NPC_MAGE_EDITOR_ASSET_ID ? ' is-selected' : ''}`}
+                  aria-label="Agregar NPC Mago"
+                  aria-pressed={selectedAssetId === NPC_MAGE_EDITOR_ASSET_ID && isPaintToolActive}
+                  title="NPC Mago · personaje interactivo"
+                  onClick={() => {
+                    setSelectedAssetId(NPC_MAGE_EDITOR_ASSET_ID)
+                    setActiveLayerId('npcs')
+                    setExpandedLayerIds((currentLayerIds) => new Set(currentLayerIds).add('npcs'))
+                    setIsPasteToolActive(false)
+                    setIsPaintToolActive(true)
+                    setIsEraseToolActive(false)
+                    setIsSelectToolActive(false)
+                    setIsSpawnToolActive(false)
+                    setIsTestSpawnToolActive(false)
+                    clearEditorSelection()
+                  }}
+                >
+                  <span className="edit-room-asset-preview edit-room-npc-preview" aria-hidden="true">
+                    <img
+                      src={mageNpcSheetSrc}
+                      alt=""
+                      draggable={false}
+                      style={{
+                        width: '512px',
+                        height: '1280px',
+                        transform: 'scale(0.5)',
+                      }}
+                    />
+                  </span>
+                  <span className="edit-room-asset-name">NPC Mago</span>
+                  <span className="edit-room-asset-size">1×1 celda · 128×128 px</span>
                 </button>
                 {coinEditorAssets.map((coinAsset) => {
                   const coinDefinition = getCoinSpriteDefinition(coinAsset.id)
@@ -3057,30 +3484,13 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
                   height: `${scaledMapHeightPx}px`,
                 }}
               >
-                <div
-                  ref={columnGuidesRef}
-                  className="edit-room-column-guides"
-                  style={{
-                    gridTemplateColumns: `repeat(${mapGridWidth}, ${128 * mapZoom}px)`,
-                  }}
-                  aria-hidden="true"
-                >
-                  {Array.from({ length: mapGridWidth }, (_, columnIndex) => (
-                    <span key={columnIndex}>{columnIndex + 1}</span>
-                  ))}
-                </div>
-                <div
-                  ref={rowGuidesRef}
-                  className="edit-room-row-guides"
-                  style={{
-                    gridTemplateRows: `repeat(${mapGridHeight}, ${128 * mapZoom}px)`,
-                  }}
-                  aria-hidden="true"
-                >
-                  {Array.from({ length: mapGridHeight }, (_, rowIndex) => (
-                    <span key={rowIndex}>{rowIndex + 1}</span>
-                  ))}
-                </div>
+                <EditorGridGuides
+                  columns={mapGridWidth}
+                  rows={mapGridHeight}
+                  zoom={mapZoom}
+                  columnRef={columnGuidesRef}
+                  rowRef={rowGuidesRef}
+                />
                 <div
                   className={`edit-room-map-canvas${isPaintToolActive ? ' is-painting' : ''}${isEraseToolActive ? ' is-erasing' : ''}${isSelectToolActive ? ' is-selecting' : ''}${isSpawnToolActive ? ' is-placing-spawn' : ''}${isTestSpawnToolActive ? ' is-testing-spawn' : ''}${isPasteToolActive ? ' is-pasting' : ''}`}
                   data-active-layer={activeLayer.id}
@@ -3248,6 +3658,18 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
                           flippedX={isAssetFlippedX}
                           animation={selectedCoinDefinition}
                         />
+                      ) : !draggedMapArea && selectedAsset.id === NPC_MAGE_EDITOR_ASSET_ID ? (
+                        <span
+                          className="edit-room-paint-preview-npc"
+                          style={{ transform: isAssetFlippedX ? 'scaleX(-1)' : undefined }}
+                        >
+                          <img
+                            src={selectedAsset.url}
+                            alt=""
+                            draggable={false}
+                            className="edit-room-paint-preview-npc-sheet"
+                          />
+                        </span>
                       ) : !draggedMapArea && selectedAsset.id !== TELEPORT_EDITOR_ASSET_ID ? (
                           <img
                             className={`edit-room-paint-preview-sprite${selectedAssetUsesBottomAnchor ? ' is-bottom-anchored' : ''}`}

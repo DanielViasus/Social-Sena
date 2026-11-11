@@ -1,6 +1,8 @@
 import {
   DEFAULT_AUDIO_SETTINGS,
   DEFAULT_USER_ROLE,
+  MAX_INVENTORY_ITEM_QUANTITY,
+  derivePlayerProgress,
   normalizeAudioSettings,
   type PlayerInventory,
   type SkinColorSelections,
@@ -115,7 +117,9 @@ function normalizeInventory(value: unknown): PlayerInventory {
       }
 
       const rawQuantity = 'quantity' in itemValue ? itemValue.quantity : undefined
-      const quantity = typeof rawQuantity === 'number' && Number.isFinite(rawQuantity) ? Math.max(0, Math.floor(rawQuantity)) : 0
+      const quantity = typeof rawQuantity === 'number' && Number.isFinite(rawQuantity)
+        ? Math.min(MAX_INVENTORY_ITEM_QUANTITY, Math.max(0, Math.floor(rawQuantity)))
+        : 0
       const rawMetadata = 'metadata' in itemValue ? itemValue.metadata : undefined
       const metadata =
         rawMetadata && typeof rawMetadata === 'object'
@@ -205,10 +209,12 @@ export function readStoredAuthSession(): AuthSession | null {
 
   try {
     const parsedSession = JSON.parse(storedValue) as AuthSession
+    const progress = derivePlayerProgress(parsedSession.experience)
     return {
       ...parsedSession,
       clientSessionId: getOrCreateClientSessionId(parsedSession.profile.userId),
-      experience: typeof parsedSession.experience === 'number' ? parsedSession.experience : 0,
+      level: progress.level,
+      experience: progress.experience,
       inventory: normalizeInventory(parsedSession.inventory),
       profile: {
         ...parsedSession.profile,

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { WORLD_HEIGHT, WORLD_WIDTH } from './constants'
+import { MAX_INVENTORY_ITEM_QUANTITY, WORLD_HEIGHT, WORLD_WIDTH } from './constants'
 import { DEFAULT_AUDIO_SETTINGS, DEFAULT_USER_ROLE, USER_ROLES } from './types'
 
 export const directionSchema = z.enum(['up', 'down', 'left', 'right'])
@@ -13,7 +13,7 @@ export const audioSettingsSchema = z.object({
 export const inventoryMetadataValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()])
 export const inventoryItemMetadataSchema = z.record(z.string().trim().min(1), inventoryMetadataValueSchema)
 export const inventoryItemStateSchema = z.object({
-  quantity: z.number().int().min(0),
+  quantity: z.number().int().min(0).max(MAX_INVENTORY_ITEM_QUANTITY),
   metadata: inventoryItemMetadataSchema.optional(),
 })
 export const playerInventorySchema = z.record(z.string().trim().min(1), inventoryItemStateSchema)
@@ -97,6 +97,13 @@ export const roomEditorColliderSchema = z.object({
   offsetY: z.number().int().min(-4096).max(4096),
 })
 
+const roomEditorAreaSchema = z.object({
+  width: z.number().int().min(1).max(8192),
+  height: z.number().int().min(1).max(8192),
+  offsetX: z.number().int().min(-4096).max(4096),
+  offsetY: z.number().int().min(-4096).max(4096),
+})
+
 export const roomEditorPlacementSchema = z.object({
   layerId: z.string().trim().min(1).max(80),
   assetId: z.string().trim().min(1).max(240),
@@ -107,14 +114,10 @@ export const roomEditorPlacementSchema = z.object({
   flippedX: z.boolean(),
   name: z.string().trim().min(1).max(80).optional(),
   colliders: z.array(roomEditorColliderSchema).max(4).optional(),
+  warningArea: roomEditorAreaSchema.optional(),
+  interactionArea: roomEditorAreaSchema.optional(),
+  interactionIconContainer: roomEditorAreaSchema.optional(),
   teleportTargetPath: z.string().trim().startsWith('/').max(512).optional(),
-})
-
-const roomEditorAreaSchema = z.object({
-  width: z.number().int().min(1).max(8192),
-  height: z.number().int().min(1).max(8192),
-  offsetX: z.number().int().min(-4096).max(4096),
-  offsetY: z.number().int().min(-4096).max(4096),
 })
 
 export const roomEditorAssetSchema = z.object({

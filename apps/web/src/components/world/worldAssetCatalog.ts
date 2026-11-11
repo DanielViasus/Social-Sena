@@ -3,7 +3,6 @@ import { coinSpriteDefinitions } from '../coinAssetCatalog'
 import bkGarden from '../../assets/Places/bk_garden.svg?url&no-inline'
 import bkCenterRoom from '../../assets/Places/bk_centerRoom.svg?url&no-inline'
 import mazmorraDemo from '../../assets/Places/mazmorra_demo.svg?url&no-inline'
-import tavernDesign from '../../assets/Places/TavernDesign.png?url&no-inline'
 import plazaSeparator1 from '../../assets/Decoration/Plaza/Separador_Plaza_1.svg'
 import plazaSeparator2 from '../../assets/Decoration/Plaza/Separador_Plaza_2.svg'
 import plazaSeparator3 from '../../assets/Decoration/Plaza/Separador_Plaza_3.svg'
@@ -55,7 +54,6 @@ const roomEditorCoinSprites = Object.fromEntries(
 )
 
 export const WORLD_BACKGROUND_BY_TEMPLATE_ID: Record<string, string> = {
-  Tavern: tavernDesign,
   Room_1909: bkGarden,
   CenterRoom: bkCenterRoom,
   mazmorra_demo: mazmorraDemo,

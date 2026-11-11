@@ -81,6 +81,11 @@ export interface RoomInteractableBaseTemplate {
   interactionId?: string
 }
 
+export interface RoomCollectibleRewardTemplate {
+  inventoryItemId: string
+  quantity: number
+}
+
 export interface RoomObjectTemplate {
   id: string
   kind: RoomObjectKind
@@ -89,6 +94,7 @@ export interface RoomObjectTemplate {
    * from the active room instance when a player walks over their visual area.
    */
   collectible?: boolean
+  collectibleReward?: RoomCollectibleRewardTemplate
   x: number
   y: number
   width: number
@@ -135,6 +141,7 @@ export interface RoomObjectInteractionVariantTemplate {
 
 export interface RoomNpcTemplate extends RoomInteractableBaseTemplate {
   entityType: 'npc'
+  flippedX?: boolean
   merchant?: RoomMerchantConfig
   interactionMode?: 'manual' | 'touch'
   showInteractionIcon?: boolean

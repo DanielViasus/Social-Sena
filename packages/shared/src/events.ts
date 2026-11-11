@@ -41,6 +41,8 @@ export const serverEvents = {
   roomObjectStateChanged: 'room_object_state_changed',
   roomEnemiesState: 'room_enemies_state',
   roomEnemyCombatState: 'room_enemy_combat_state',
+  playerProgressUpdated: 'player_progress_updated',
+  playerInventoryUpdated: 'player_inventory_updated',
   playerJoined: 'player_joined',
   playerMoved: 'player_moved',
   playerLeft: 'player_left',
