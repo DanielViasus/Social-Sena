@@ -1,11 +1,18 @@
 import type { Presence } from '@social-sena/shared'
-import { memo, type CSSProperties, type Ref } from 'react'
+import { memo, useMemo, type CSSProperties, type Ref } from 'react'
 import {
   resolveAvatarPreset,
   resolveAvatarPrimaryColor,
 } from '../../game/avatar/avatarSprites'
 import { LayeredAvatar } from './LayeredAvatar'
-import { avatarAnimations, chapFrontEquipment, chapBackEquipment, type AvatarView } from '../../game/avatar/layeredAvatar'
+import { EditorLayeredAvatar } from './EditorLayeredAvatar'
+import { AvatarErrorBoundary } from './AvatarErrorBoundary'
+import {
+  resolveRuntimeAnimation,
+  useAvatarAnimationRuntimeVersion,
+} from '../../game/avatar/avatarAnimationRuntime'
+import type { AssignmentDirection } from '../../game/avatar/animationAssignmentStorage'
+import { avatarAnimations, chapFrontEquipment, chapBackEquipment, chapFrontAnimationEquipment, chapBackAnimationEquipment, type AvatarView } from '../../game/avatar/layeredAvatar'
 import { createAvatarBubblePalette } from '../../game/avatar/avatarUiColors'
 
 interface WorldPlayerProps {
@@ -68,6 +75,18 @@ function WorldPlayerComponent({
   debugEnabled,
   motionElementRef,
 }: WorldPlayerProps) {
+  const runtimeVersion = useAvatarAnimationRuntimeVersion()
+  const stateId = moving ? 'walk' : 'idle'
+  // La pose (frente/espalda x izquierda/derecha) se reconstruye desde view y flipX.
+  const poseDirection: AssignmentDirection = view === 'b'
+    ? (flipX ? 'nw' : 'ne')
+    : (flipX ? 'sw' : 'se')
+  // runtimeVersion invalida el resultado cuando cambian los datos publicados o la variacion de prueba.
+  const editorAnimation = useMemo(
+    () => resolveRuntimeAnimation(stateId, poseDirection),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stateId, poseDirection, runtimeVersion],
+  )
   const animationName = moving ? (view === 'b' ? 'walkBack' : 'walkFront') : 'idle'
   const isSpeechActive = Boolean(speechText) || isTyping
   const labelText = isTyping ? typingIndicatorText : speechText || player.displayName
@@ -129,7 +148,24 @@ function WorldPlayerComponent({
       }}
     >
       <div className={`react-world-avatar-glow ${isSelf ? 'is-self' : ''}`} />
-      <LayeredAvatar view={view} flipX={flipX} equipment={view === 'b' ? chapBackEquipment : chapFrontEquipment} animationName={animationName} animation={avatarAnimations[animationName]} displayName={player.displayName} />
+      {editorAnimation ? (
+        <AvatarErrorBoundary
+          resetKey={`${runtimeVersion}:${stateId}:${poseDirection}`}
+          fallback={<LayeredAvatar view={view} flipX={flipX} equipment={view === 'b' ? chapBackEquipment : chapFrontEquipment} animationName={animationName} animation={avatarAnimations[animationName]} displayName={player.displayName} />}
+        >
+          <EditorLayeredAvatar
+            document={editorAnimation.document}
+            equipment={view === 'b' ? chapBackAnimationEquipment : chapFrontAnimationEquipment}
+            displayName={player.displayName}
+            view={view}
+            flipX={editorAnimation.flipX}
+            flipY={editorAnimation.flipY}
+            stateId={stateId}
+          />
+        </AvatarErrorBoundary>
+      ) : (
+        <LayeredAvatar view={view} flipX={flipX} equipment={view === 'b' ? chapBackEquipment : chapFrontEquipment} animationName={animationName} animation={avatarAnimations[animationName]} displayName={player.displayName} />
+      )}
       <div className="react-world-avatar-label-group">
         <div
           className={`react-world-avatar-label-group-shell is-${identityDisplayMode}`}

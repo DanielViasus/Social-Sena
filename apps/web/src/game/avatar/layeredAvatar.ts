@@ -3,6 +3,13 @@ export const AVATAR_PARTS = [
 ] as const
 
 export type AvatarPart = typeof AVATAR_PARTS[number]
+
+// Animations may also use shadow (`..._sombra.svg`) and accessory (`..._accesorios.svg`) layers. They are not a body part, so
+// the legacy avatar animations and equipment keep working with AVATAR_PARTS only.
+export const ACCESSORY_PART = 'accesorios' as const
+export const SHADOW_PART = 'sombra' as const
+export const ANIMATION_PARTS = [...AVATAR_PARTS, SHADOW_PART, ACCESSORY_PART] as const
+export type AnimationPart = typeof ANIMATION_PARTS[number]
 export type AvatarView = 'f' | 'b'
 
 export interface SkinLayerAsset {
@@ -10,7 +17,7 @@ export interface SkinLayerAsset {
   coinCost: number
   view: AvatarView
   skin: string
-  part: AvatarPart
+  part: AnimationPart
   url: string
 }
 
@@ -18,13 +25,13 @@ export interface SkinLayerAsset {
 export function parseSkinLayerAsset(path: string, url: string): SkinLayerAsset | null {
   const filename = path.split('/').pop() ?? ''
   const match = /^sk_(\d+)_(\d+)_(f|b)_([^_]+)_([^_.]+)\.svg$/.exec(filename)
-  if (!match || !AVATAR_PARTS.includes(match[5] as AvatarPart)) return null
+  if (!match || !(ANIMATION_PARTS as readonly string[]).includes(match[5])) return null
   return {
     tier: Number(match[1]),
     coinCost: Number(match[2]),
     view: match[3] as AvatarView,
     skin: match[4],
-    part: match[5] as AvatarPart,
+    part: match[5] as AnimationPart,
     url,
   }
 }
@@ -238,6 +245,36 @@ export function getSkinEquipment(skin: string, view: AvatarView): AvatarEquipmen
     part, skinLayerAssets.find((asset) => asset.skin === skin && asset.view === view && asset.part === part),
   ])) as AvatarEquipment
 }
+
+export type AnimationEquipment = Record<AnimationPart, SkinLayerAsset | undefined>
+
+export function getSkinAnimationEquipment(skin: string, view: AvatarView): AnimationEquipment {
+  return Object.fromEntries(ANIMATION_PARTS.map((part) => [
+    part, skinLayerAssets.find((asset) => asset.skin === skin && asset.view === view && asset.part === part),
+  ])) as AnimationEquipment
+}
+
+// Equipment for a customized character: each part can come from a different skin collection
+// (e.g. { cabeza: 'crock' } keeps the body of the default skin and swaps only the head).
+// A part the chosen skin does not have for this view falls back to the default skin, so a
+// partial collection never leaves a hole in the character.
+export function buildAnimationEquipment(
+  partSkins: Partial<Record<AnimationPart, string>>,
+  defaultSkin: string,
+  view: AvatarView,
+): AnimationEquipment {
+  const find = (skin: string, part: AnimationPart) => skinLayerAssets.find((asset) => (
+    asset.skin === skin && asset.view === view && asset.part === part
+  ))
+  return Object.fromEntries(ANIMATION_PARTS.map((part) => {
+    const chosen = partSkins[part]
+    return [part, (chosen ? find(chosen, part) : undefined) ?? find(defaultSkin, part)]
+  })) as AnimationEquipment
+}
+
+export const chapFrontAnimationEquipment = getSkinAnimationEquipment('chap', 'f')
+
+export const chapBackAnimationEquipment = getSkinAnimationEquipment('chap', 'b')
 
 export const chapFrontEquipment = getSkinEquipment('chap', 'f')
 

@@ -11,7 +11,14 @@ import { saveAuthSession, type AuthSession } from '../auth/localSession'
 import { listenForSessionReplacement } from '../auth/sessionReplacement'
 import { navigateInApp } from '../hooks/usePathname'
 import { deleteAnimation, listAnimations, type AnimationSummary } from '../game/avatar/animationEditorStorage'
+import { DEFAULT_VARIATION_ID, countAssigned, loadAssignments } from '../game/avatar/animationAssignmentStorage'
 import { canAccessRoomEditor } from '../rooms/roomEditorAccess'
+
+const EDITOR_TABS = [
+  { id: 'levels', label: 'Niveles' },
+  { id: 'animations', label: 'Assets y animaciones' },
+  { id: 'assignments', label: 'Asignar animaciones' },
+] as const
 
 interface RoomEditorMenuPageProps {
   session: AuthSession
@@ -30,7 +37,8 @@ export default function RoomEditorMenuPage({
   const socketRef = useRef<Socket | null>(null)
   const [resolvedProfile, setResolvedProfile] = useState<UserProfile>(session.profile)
   const canUseRoomEditor = canAccessRoomEditor(resolvedProfile.role)
-  const [activeTab, setActiveTab] = useState<'levels' | 'animations'>('levels')
+  const [activeTab, setActiveTab] = useState<'levels' | 'animations' | 'assignments'>('levels')
+  const [assignments] = useState(loadAssignments)
   const [animations, setAnimations] = useState<AnimationSummary[]>([])
   const [animationsStatus, setAnimationsStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [deletingAnimationId, setDeletingAnimationId] = useState<string | null>(null)
@@ -202,10 +210,7 @@ export default function RoomEditorMenuPage({
         <h1 id="room-editor-menu-title">Editor de escenas</h1>
 
         <div className="room-editor-menu-tabs" role="tablist" aria-label="Contenido guardado">
-          {([
-            { id: 'levels', label: 'Niveles' },
-            { id: 'animations', label: 'Assets y animaciones' },
-          ] as const).map((tab) => (
+          {EDITOR_TABS.map((tab) => (
             <button
               key={tab.id}
               type="button"
@@ -218,7 +223,11 @@ export default function RoomEditorMenuPage({
               onKeyDown={(event) => {
                 if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
                 event.preventDefault()
-                const nextTab = event.key === 'Home' ? 'levels' : event.key === 'End' ? 'animations' : activeTab === 'levels' ? 'animations' : 'levels'
+                const index = EDITOR_TABS.findIndex((item) => item.id === activeTab)
+                const nextIndex = event.key === 'Home' ? 0
+                  : event.key === 'End' ? EDITOR_TABS.length - 1
+                  : (index + (event.key === 'ArrowRight' ? 1 : -1) + EDITOR_TABS.length) % EDITOR_TABS.length
+                const nextTab = EDITOR_TABS[nextIndex].id
                 setActiveTab(nextTab)
                 window.document.getElementById(`editor-tab-${nextTab}`)?.focus()
               }}
@@ -261,7 +270,7 @@ export default function RoomEditorMenuPage({
           {mapActionMessage ? <p className="room-editor-menu-map-message">{mapActionMessage}</p> : null}
         </section>
 
-        ) : (
+        ) : activeTab === 'animations' ? (
           <section id="editor-panel-animations" role="tabpanel" className="room-editor-menu-maps" aria-labelledby="editor-tab-animations">
             <header><strong>Animaciones guardadas</strong><output>{animations.length}</output></header>
             <div className="room-editor-menu-map-list">
@@ -286,6 +295,20 @@ export default function RoomEditorMenuPage({
             </div>
             {animationActionMessage && <p className="room-editor-menu-map-message" role="status">{animationActionMessage}</p>}
           </section>
+        ) : (
+          <section id="editor-panel-assignments" role="tabpanel" className="room-editor-menu-maps" aria-labelledby="editor-tab-assignments">
+            <header><strong>Variaciones de animación</strong><output>{assignments.variations.length}</output></header>
+            <div className="room-editor-menu-map-list">
+              {assignments.variations.length === 0 ? <p>Todavía no hay variaciones. Crea una para asignar animaciones a cada estado.</p>
+                : assignments.variations.map((variation) => (
+                  <article key={variation.id} className="room-editor-menu-map-row">
+                    <button type="button" className="room-editor-menu-map-open" title={`Abrir ${variation.name}`} onClick={() => navigateInApp(`/editor/assignments?variation=${encodeURIComponent(variation.id)}`)}>
+                      <span><strong>{variation.name}</strong><small>{variation.id === DEFAULT_VARIATION_ID ? 'Referencia' : 'Variación'} · {countAssigned(variation)} {countAssigned(variation) === 1 ? 'asignación' : 'asignaciones'}</small></span>
+                    </button>
+                  </article>
+                ))}
+            </div>
+          </section>
         )}
 
         <div className="room-editor-menu-actions">
@@ -297,6 +320,15 @@ export default function RoomEditorMenuPage({
             title="Abrir el editor de animaciones"
           >
             Crear animación
+          </button>
+          ) : activeTab === 'assignments' ? (
+          <button
+            type="button"
+            className="room-editor-menu-animate"
+            onClick={() => navigateInApp('/editor/assignments?new=1')}
+            title="Crear una variación y asignar animaciones a sus estados"
+          >
+            Crear variación
           </button>
           ) : (
             <>

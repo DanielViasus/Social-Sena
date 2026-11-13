@@ -1,3 +1,5 @@
+import type { AnimationPart } from './layeredAvatar'
+
 export interface EditorImageLayer {
   id: string
   name: string
@@ -10,6 +12,8 @@ export interface EditorImageLayer {
   rotationY: number
   pivotX: number
   pivotY: number
+  // Avatar part this layer stands for, so a skin can swap its image. Optional: older records lack it.
+  part?: AnimationPart
 }
 
 export interface EditorFrame {

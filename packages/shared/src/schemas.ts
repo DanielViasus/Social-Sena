@@ -214,6 +214,70 @@ export const loadRoomEditorMapSchema = z.object({
   code: z.string().trim().toUpperCase().regex(/^[A-Z0-9]{12,24}$/),
 })
 
+export const avatarAnimationIdSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+})
+
+export const publishAvatarAnimationSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  name: z.string().trim().min(1).max(80),
+  // Animation skeleton: placement data only, no images (see animationSkeleton.ts in the web app).
+  document: z.object({
+    frames: z
+      .array(
+        z.object({
+          id: z.string().max(80),
+          durationMs: z.number().min(1).max(60000),
+          layers: z
+            .array(
+              z.object({
+                id: z.string().max(80),
+                visible: z.boolean(),
+                x: z.number(),
+                y: z.number(),
+                rotation: z.number(),
+                rotationX: z.number(),
+                rotationY: z.number(),
+                pivotX: z.number(),
+                pivotY: z.number(),
+                part: z.enum([
+                  'piernaIzquierda', 'piernaDerecha', 'manoIzquierda', 'cuerpo', 'manoDerecha', 'cabeza', 'sombra', 'accesorios',
+                ]),
+              }),
+            )
+            .max(40),
+        }),
+      )
+      .min(1)
+      .max(240),
+    sceneSize: z.object({ width: z.number().positive().max(64), height: z.number().positive().max(64) }),
+  }),
+})
+
+const avatarSlotSettingsSchema = z.object({
+  flipX: z.boolean().optional(),
+  flipY: z.boolean().optional(),
+})
+
+export const publishAvatarAnimationConfigSchema = z.object({
+  config: z.object({
+    version: z.literal(2),
+    customStates: z
+      .array(z.object({ id: z.string().min(1).max(80), name: z.string().min(1).max(60) }).passthrough())
+      .max(60),
+    variations: z
+      .array(
+        z.object({
+          id: z.string().min(1).max(80),
+          name: z.string().min(1).max(60),
+          assignments: z.record(z.string().max(120), z.string().max(80)),
+          settings: z.record(z.string().max(120), avatarSlotSettingsSchema),
+        }),
+      )
+      .max(60),
+  }),
+})
+
 export const updateAudioSettingsSchema = z.object({
   audioSettings: audioSettingsSchema,
 })

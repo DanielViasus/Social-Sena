@@ -1,12 +1,12 @@
 import { skinReferenceImages, skinReferenceGroups, type SkinReferenceImage } from '../game/avatar/skinReferenceCatalog'
 import EditorGridGuides from './EditorGridGuides'
 import NumericAxisScrubber from './NumericAxisScrubber'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type MouseEvent, type SetStateAction } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent, type SetStateAction } from 'react'
 import { PIVOT_GRID_SIZE, placeImagePivot, snapPivotCoordinate } from '../game/avatar/pivotPlacement'
 import { getAnimationElapsedMs, getAnimationFrameIndex, subscribeAnimationClock } from '../game/avatar/animationClock'
 import { useUndoableState } from '../hooks/useUndoableState'
-import { avatarAnimations, chapFrontEquipment } from '../game/avatar/layeredAvatar'
-import shadowUrl from '../assets/characters/Chap/Sombra_0.svg'
+import { ANIMATION_PARTS, avatarAnimations, chapFrontEquipment, type AnimationPart } from '../game/avatar/layeredAvatar'
+import shadowUrl from '../assets/characters/Chap/sk_0_0_f_chap_sombra.svg'
 import zoomInIconSrc from '../assets/room-editor/sprites/icon_zoom_add.svg'
 import zoomOutIconSrc from '../assets/room-editor/sprites/icon_zoom_less.svg'
 import { embedAnimationImages, saveAnimation, loadAnimation, listAnimations, type AnimationSummary, type EditorImageLayer, type EditorFrame } from '../game/avatar/animationEditorStorage'
@@ -26,7 +26,7 @@ function createInitialFrame(): EditorFrame {
       .sort((a, b) => b[1].order - a[1].order)
       .flatMap(([part, pose]) => {
         const url = part === 'sombra' ? shadowUrl : chapFrontEquipment[part as keyof typeof chapFrontEquipment]?.url
-        return url ? [{ id: part, name: part, url, visible: true, x: pose.x, y: pose.y, rotation: pose.rotation, rotationX: 0, rotationY: 0, pivotX: 0, pivotY: 0 }] : []
+        return url ? [{ id: part, name: part, url, visible: true, x: pose.x, y: pose.y, rotation: pose.rotation, rotationX: 0, rotationY: 0, pivotX: 0, pivotY: 0, part: part as AnimationPart }] : []
       }),
   }
 }
@@ -37,10 +37,11 @@ function normalizeDetailValue(property: LayerDetailProperty, value: number) {
   return property === 'pivotX' || property === 'pivotY' ? snapPivotCoordinate(value) : value
 }
 
-function LayerDetails({ layer, frameIndex, onChange, onResetPosition, onPickPivot, pickingPivot, onScrubPreview, onScrubCancel }: {
+function LayerDetails({ layer, frameIndex, onChange, onChangePart, onResetPosition, onPickPivot, pickingPivot, onScrubPreview, onScrubCancel }: {
   layer: EditorImageLayer
   frameIndex: number
   onChange: (property: LayerDetailProperty, value: number) => void
+  onChangePart: (part: AnimationPart | undefined) => void
   onResetPosition: () => void
   onPickPivot: () => void
   pickingPivot: boolean
@@ -66,6 +67,19 @@ function LayerDetails({ layer, frameIndex, onChange, onResetPosition, onPickPivo
           <dd title={layer.name}>{layer.name}</dd>
         </div>
       </dl>
+      <fieldset className="edit-room-property-group">
+        <legend>Parte del avatar</legend>
+        <select
+          className="animation-editor-saved-select"
+          aria-label="Parte del avatar que representa esta imagen"
+          title="Al cambiar de skin, esta capa tomará la imagen de la parte equipada"
+          value={layer.part ?? ''}
+          onChange={(event) => onChangePart(ANIMATION_PARTS.find((part) => part === event.target.value))}
+        >
+          <option value="">Sin asignar</option>
+          {ANIMATION_PARTS.map((part) => <option key={part} value={part}>{part}</option>)}
+        </select>
+      </fieldset>
       {groups.map((group) => (
         <fieldset key={group.name} className="edit-room-property-group">
           <legend>{group.name} <span>({group.unit})</span></legend>
@@ -196,6 +210,44 @@ function AnimationSaveDialog({ initialName, saving, error, saveAs, onSave, onClo
   )
 }
 
+export function AnimationLeaveDialog({ saving, error, message = '¿Quieres guardar la animación antes de salir?', onSave, onDiscard, onCancel }: {
+  saving: boolean
+  message?: string
+  error: string
+  onSave: () => void
+  onDiscard: () => void
+  onCancel: () => void
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null)
+
+  useEffect(() => {
+    const dialog = dialogRef.current
+    dialog?.showModal()
+    return () => dialog?.close()
+  }, [])
+
+  return (
+    <dialog
+      ref={dialogRef}
+      className="edit-room-publication-dialog animation-editor-save-dialog"
+      aria-labelledby="animation-leave-title"
+      aria-modal="true"
+      onCancel={(event) => { event.preventDefault(); if (!saving) onCancel() }}
+    >
+      <section>
+        <h2 id="animation-leave-title">Hay cambios sin guardar</h2>
+        <p>{message}</p>
+        {error && <output role="alert">{error}</output>}
+        <div className="edit-room-publication-actions">
+          <button type="button" disabled={saving} onClick={onCancel}>Cancelar</button>
+          <button type="button" disabled={saving} onClick={onDiscard}>Salir sin guardar</button>
+          <button type="button" disabled={saving} onClick={onSave}>{saving ? 'Guardando…' : 'Guardar y salir'}</button>
+        </div>
+      </section>
+    </dialog>
+  )
+}
+
 export default function AnimationEditorPage() {
   const [requestedAnimationId] = useState(() => new URLSearchParams(window.location.search).get('animation'))
   const [initialLoadPending, setInitialLoadPending] = useState(Boolean(requestedAnimationId))
@@ -208,7 +260,11 @@ export default function AnimationEditorPage() {
   const setFrames = useCallback((update: SetStateAction<EditorFrame[]>) => {
     setDocument((previous) => ({ ...previous, frames: typeof update === 'function' ? update(previous.frames) : update }))
   }, [setDocument])
-  const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false)
+  const [saveDialogVisible, setIsSaveDialogOpen] = useState(false)
+  const [isLeaveDialogOpen, setIsLeaveDialogOpen] = useState(false)
+  const leaveAfterSave = useRef(false)
+  // Either modal blocks the editor keyboard shortcuts.
+  const isSaveDialogOpen = saveDialogVisible || isLeaveDialogOpen
   const [isSaveAs, setIsSaveAs] = useState(false)
   const [saveDialogError, setSaveDialogError] = useState('')
   const [animationName, setAnimationName] = useState('Nueva animación')
@@ -217,7 +273,8 @@ export default function AnimationEditorPage() {
   const [storageOperation, setStorageOperation] = useState<'save' | 'load' | null>(null)
   const [storageMessage, setStorageMessage] = useState('')
   const [savedFingerprint, setSavedFingerprint] = useState<string | null>(null)
-  const fingerprint = JSON.stringify({ name: animationName.trim(), document })
+  // Serializing embedded images is costly; recompute only when the document or name changes.
+  const fingerprint = useMemo(() => JSON.stringify({ name: animationName.trim(), document }), [animationName, document])
   const hasUnsavedChanges = projectType && fingerprint !== savedFingerprint
 
   useEffect(() => {
@@ -327,6 +384,10 @@ export default function AnimationEditorPage() {
       ])
       setStorageMessage('Animación guardada en este navegador.')
       setIsSaveDialogOpen(false)
+      if (leaveAfterSave.current) {
+        leaveAfterSave.current = false
+        navigateInApp('/editor')
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo guardar la animación.'
       setStorageMessage(message)
@@ -335,6 +396,41 @@ export default function AnimationEditorPage() {
       setStorageOperation(null)
     }
   }
+
+  const requestLeave = () => {
+    if (!hasUnsavedChanges) {
+      navigateInApp('/editor')
+      return
+    }
+    setPlaybackOffsetMs(null)
+    setPivotPlacement(null)
+    setSaveDialogError('')
+    setIsLeaveDialogOpen(true)
+  }
+
+  const saveAndLeave = () => {
+    leaveAfterSave.current = true
+    setSaveDialogError('')
+    if (savedAnimationId) {
+      void handleSave(animationName)
+      return
+    }
+    setIsLeaveDialogOpen(false)
+    setIsSaveAs(false)
+    setIsSaveDialogOpen(true)
+  }
+
+  const cancelSaveDialog = () => {
+    leaveAfterSave.current = false
+    setIsSaveDialogOpen(false)
+  }
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => { event.preventDefault() }
+    window.addEventListener('beforeunload', warnBeforeUnload)
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload)
+  }, [hasUnsavedChanges])
 
   const handleOpen = async (id: string) => {
     if (!id || storageOperation) return
@@ -547,7 +643,8 @@ export default function AnimationEditorPage() {
     setPlaybackOffsetMs(null)
     setPivotPlacement(null)
     const id = crypto.randomUUID()
-    const sourceFrame = frames.find((item) => item.id === selectedFrameId) ?? frames[frames.length - 1]
+    // While playing, duplicate the frame currently on screen, not the last selected one.
+    const sourceFrame = (isPlaying ? baseFrame : frames.find((item) => item.id === selectedFrameId)) ?? frames[frames.length - 1]
     const newFrame: EditorFrame = {
       id,
       durationMs: sourceFrame.durationMs,
@@ -653,14 +750,23 @@ export default function AnimationEditorPage() {
   return (
     <main className="edit-room-page animation-editor-page" aria-label="Editor de animaciones">
       {!projectType && !initialLoadPending && <AnimationTypeDialog onSelectSkin={() => setProjectType('skin')} />}
-      {isSaveDialogOpen && (
+      {isLeaveDialogOpen && (
+        <AnimationLeaveDialog
+          saving={storageOperation === 'save'}
+          error={saveDialogError}
+          onSave={saveAndLeave}
+          onDiscard={() => { leaveAfterSave.current = false; navigateInApp('/editor') }}
+          onCancel={() => { leaveAfterSave.current = false; setIsLeaveDialogOpen(false) }}
+        />
+      )}
+      {saveDialogVisible && (
         <AnimationSaveDialog
           initialName={isSaveAs ? `${animationName.slice(0, 75)} copy` : animationName}
           saveAs={isSaveAs}
           saving={storageOperation === 'save'}
           error={saveDialogError}
           onSave={(name) => { void handleSave(name, isSaveAs) }}
-          onClose={() => setIsSaveDialogOpen(false)}
+          onClose={cancelSaveDialog}
         />
       )}
       <header className="edit-room-toolbar">
@@ -734,7 +840,7 @@ export default function AnimationEditorPage() {
             <button type="button" className="edit-room-exit-button" disabled={!canRedo} onClick={redo} title="Rehacer (Ctrl/Cmd + Shift + Z)">Rehacer</button>
           </div>
         )}
-        <button type="button" className="edit-room-exit-button" onClick={() => navigateInApp('/editor')}>
+        <button type="button" className="edit-room-exit-button" onClick={requestLeave}>
           Volver
         </button>
       </header>
@@ -1043,6 +1149,9 @@ export default function AnimationEditorPage() {
                 onPickPivot={() => setPivotPlacement(pickingPivot ? null : `${frame.id}:${selectedLayer.id}`)}
                 onResetPosition={() => updateLayers(frame.id, (layers) => layers.map((layer) => (
                   layer.id === selectedLayer.id ? { ...layer, x: 0, y: 0 } : layer
+                )))}
+                onChangePart={(part) => updateLayers(frame.id, (layers) => layers.map((layer) => (
+                  layer.id === selectedLayer.id ? { ...layer, part } : layer
                 )))}
                 onChange={(property, value) => updateLayers(frame.id, (layers) => layers.map((layer) => (
                   layer.id === selectedLayer.id ? { ...layer, [property]: normalizeDetailValue(property, value) } : layer

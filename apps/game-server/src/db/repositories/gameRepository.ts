@@ -472,6 +472,130 @@ async function queryOutgoingPartyInvites(
 }
 
 class GameRepository {
+  // `version` cambia en cada publicacion o restauracion; los clientes lo usan para validar su cache.
+  async getAvatarAnimationConfig(): Promise<{ config: unknown; version: string } | null> {
+    const pool = getDbPool()
+    if (!pool) return null
+    const result = await pool.query<{ config: unknown; version: string }>(
+      "select config, (extract(epoch from updated_at) * 1000)::bigint::text as version from avatar_animation_config where id = 'main'",
+    )
+    const row = result.rows[0]
+    return row ? { config: row.config, version: row.version } : null
+  }
+
+  // Guarda una copia de lo publicado (configuracion + animaciones usadas) y conserva solo las ultimas `keep`.
+  async saveAvatarAnimationSnapshot(config: { variations?: Array<{ assignments?: Record<string, string> }> }, createdBy: string, keep = 20): Promise<void> {
+    const pool = getDbPool()
+    if (!pool) return
+    const ids = [...new Set((config.variations ?? []).flatMap((variation) => Object.values(variation.assignments ?? {})))]
+    const docs = ids.length
+      ? await pool.query<{ id: string; name: string; document: unknown }>(
+          'select id, name, document from avatar_animation_documents where id = any($1::text[])',
+          [ids],
+        )
+      : { rows: [] as Array<{ id: string; name: string; document: unknown }> }
+    await pool.query(
+      'insert into avatar_animation_history (config, documents, created_by) values ($1::jsonb, $2::jsonb, $3)',
+      [JSON.stringify(config), JSON.stringify(docs.rows), createdBy],
+    )
+    await pool.query(
+      'delete from avatar_animation_history where id not in (select id from avatar_animation_history order by id desc limit $1)',
+      [keep],
+    )
+  }
+
+  async listAvatarAnimationHistory(): Promise<Array<{ id: string; createdBy: string; createdAt: string; variations: number; animations: number }>> {
+    const pool = getDbPool()
+    if (!pool) return []
+    const result = await pool.query<{ id: string; created_by: string; created_at: Date; variations: number; animations: number }>(
+      `select id::text, created_by, created_at,
+              jsonb_array_length(config->'variations') as variations,
+              jsonb_array_length(documents) as animations
+         from avatar_animation_history order by id desc limit 20`,
+    )
+    return result.rows.map((row) => ({
+      id: row.id,
+      createdBy: row.created_by,
+      createdAt: row.created_at.toISOString(),
+      variations: Number(row.variations),
+      animations: Number(row.animations),
+    }))
+  }
+
+  // Devuelve false si la version ya no existe.
+  async restoreAvatarAnimationSnapshot(id: string): Promise<boolean> {
+    const pool = getDbPool()
+    if (!pool) return false
+    const result = await pool.query<{ config: unknown; documents: Array<{ id: string; name: string; document: unknown }> }>(
+      'select config, documents from avatar_animation_history where id = $1::bigint',
+      [id],
+    )
+    const row = result.rows[0]
+    if (!row) return false
+    const client = await pool.connect()
+    try {
+      await client.query('begin')
+      for (const doc of row.documents) {
+        await client.query(
+          `insert into avatar_animation_documents (id, name, document, updated_at)
+           values ($1, $2, $3::jsonb, now())
+           on conflict (id) do update set name = excluded.name, document = excluded.document, updated_at = now()`,
+          [doc.id, doc.name, JSON.stringify(doc.document)],
+        )
+      }
+      await client.query(
+        `insert into avatar_animation_config (id, config, updated_at)
+         values ('main', $1::jsonb, now())
+         on conflict (id) do update set config = excluded.config, updated_at = now()`,
+        [JSON.stringify(row.config)],
+      )
+      await client.query('commit')
+    } catch (error) {
+      await client.query('rollback')
+      throw error
+    } finally {
+      client.release()
+    }
+    return true
+  }
+
+  async saveAvatarAnimationConfig(config: unknown): Promise<boolean> {
+    const pool = getDbPool()
+    if (!pool) return false
+    await pool.query(
+      `insert into avatar_animation_config (id, config, updated_at)
+       values ('main', $1::jsonb, now())
+       on conflict (id) do update set config = excluded.config, updated_at = now()`,
+      [JSON.stringify(config)],
+    )
+    return true
+  }
+
+  async getAvatarAnimation(
+    id: string,
+  ): Promise<{ id: string; name: string; document: unknown } | null> {
+    const pool = getDbPool()
+    if (!pool) return null
+    const result = await pool.query<{ id: string; name: string; document: unknown }>(
+      'select id, name, document from avatar_animation_documents where id = $1',
+      [id],
+    )
+    return result.rows[0] ?? null
+  }
+
+  async saveAvatarAnimation(id: string, name: string, document: unknown): Promise<boolean> {
+    const pool = getDbPool()
+    if (!pool) return false
+    await pool.query(
+      `insert into avatar_animation_documents (id, name, document, updated_at)
+       values ($1, $2, $3::jsonb, now())
+       on conflict (id) do update
+         set name = excluded.name, document = excluded.document, updated_at = now()`,
+      [id, name, JSON.stringify(document)],
+    )
+    return true
+  }
+
   async deleteRoomEditorMap(ownerUserId: string, code: string): Promise<boolean> {
     const pool = getDbPool()
     if (!pool) return false

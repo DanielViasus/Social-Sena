@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
 import { Server, type Socket } from 'socket.io'
-import { initializeDatabase } from './db/client'
+import { initializeDatabase, isAvatarAnimationStorageReady, isAvatarAnimationsDisabledByEnv } from './db/client'
 import { gameRepository } from './db/repositories/gameRepository'
 import {
   DEFAULT_ROOM_CAPACITY,
@@ -22,6 +22,9 @@ import {
   inviteToPartySchema,
   joinRoomSchema,
   loadRoomEditorMapSchema,
+  avatarAnimationIdSchema,
+  publishAvatarAnimationSchema,
+  publishAvatarAnimationConfigSchema,
   leavePartySchema,
   movementInputSchema,
   navigateToSchema,
@@ -1246,6 +1249,25 @@ function pruneSessionPresenceAcrossRooms(sessionId: string) {
   })
 }
 
+// Quita presencias de un usuario que ya no tienen una sesion viva (por ejemplo, de un socket que se
+// desconecto mientras se estaba uniendo a la sala). Sin esto quedan como un "fantasma" inmovil.
+function removeStalePresencesForUser(userId: string, liveSocketId: string) {
+  rooms.forEach((room) => {
+    const stalePresences = room.players.filter(
+      (presence) => presence.userId === userId && presence.sessionId !== liveSocketId && !sessions.has(presence.sessionId),
+    )
+    if (stalePresences.length === 0) {
+      return
+    }
+
+    room.players = room.players.filter((presence) => !stalePresences.includes(presence))
+    stalePresences.forEach((presence) => {
+      console.warn(`[presence] Se elimino una presencia obsoleta del usuario ${userId} (sesion ${presence.sessionId}).`)
+      io.to(room.roomId).emit(serverEvents.playerLeft, { sessionId: presence.sessionId, userId })
+    })
+  })
+}
+
 function buildPresence(
   profile: UserProfile,
   progress: PlayerProgress,
@@ -1507,6 +1529,17 @@ async function joinSessionToRoom(
   presence.partyLeaderSkinId = partyMarker.partyLeaderSkinId
   presence.partyLeaderSkinColors = partyMarker.partyLeaderSkinColors
   ensureNavigablePlayerPosition(room, presence)
+
+  // Durante los await anteriores el socket pudo desconectarse, o este mismo socket pudo iniciar otra
+  // union a la sala. Sin estas comprobaciones quedan presencias duplicadas o de sockets ya cerrados.
+  if (!socket.connected || sessions.get(socket.id) !== session) {
+    socket.leave(room.roomId)
+    session.roomId = null
+    return null
+  }
+  removeStalePresencesForUser(session.profile.userId, socket.id)
+  room.players = room.players.filter((existing) => existing.sessionId !== socket.id)
+
   room.players.push(presence)
   collectOverlappingRoomRewards(room, presence)
   void gameRepository.savePlayerState(session.profile.userId, {
@@ -2574,13 +2607,34 @@ function findPath(room: RoomState, start: Position, destination: Position): Path
 }
 
 
+// Jugadores para los que ya se agoto la busqueda de una celda libre en toda la sala; evita repetirla
+// en cada tick de la simulacion.
+const unrecoverablePlayerPresences = new WeakSet<Presence>()
+
 function ensureNavigablePlayerPosition(room: RoomState, player: Presence) {
   if (!isBlockedByRoomObjects(room, player.position)) {
     return true
   }
 
   const blocked = buildBlockedCellSet(room)
-  const safeCell = findNearestWalkableCell(room, player.position, blocked, PATH_SEARCH_MAX_RADIUS * 2)
+  let safeCell = findNearestWalkableCell(room, player.position, blocked, PATH_SEARCH_MAX_RADIUS * 2)
+
+  if (!safeCell && !unrecoverablePlayerPresences.has(player)) {
+    // El jugador quedo dentro de una zona bloqueada demasiado grande (por ejemplo una posicion guardada
+    // antes de editar el mapa). Antes se quedaba inmovil para siempre; ahora se busca desde el punto de
+    // aparicion de la sala y, si hace falta, en toda la sala.
+    const { columns, rows } = getGridDimensions(room)
+    const fullRadius = Math.max(columns, rows)
+    safeCell = findNearestWalkableCell(room, room.template.world.spawn, blocked, fullRadius)
+      ?? findNearestWalkableCell(room, player.position, blocked, fullRadius)
+    if (safeCell) {
+      console.warn(`[presence] Posicion bloqueada en la sala ${room.roomId}; se movio a un punto libre (usuario ${player.userId}).`)
+    } else {
+      unrecoverablePlayerPresences.add(player)
+      console.warn(`[presence] No hay ninguna celda libre en la sala ${room.roomId} (usuario ${player.userId}).`)
+    }
+  }
+
   if (!safeCell) {
     return false
   }
@@ -2980,6 +3034,167 @@ io.on('connection', (socket) => {
       ok: true,
       profile: session.profile,
     })
+  })
+
+  socket.on(clientEvents.getAvatarAnimationConfig, async (_rawPayload, callback) => {
+    if (!sessions.get(socket.id)) {
+      callback?.({ ok: false, message: 'Sesion no valida.' })
+      return
+    }
+    // Sin animaciones publicadas disponibles el cliente usa sus animaciones de respaldo.
+    if (isAvatarAnimationsDisabledByEnv()) {
+      callback?.({ ok: true, config: null, disabled: true })
+      return
+    }
+    if (!isAvatarAnimationStorageReady()) {
+      callback?.({ ok: true, config: null, unavailable: true })
+      return
+    }
+    try {
+      const stored = await gameRepository.getAvatarAnimationConfig()
+      console.info(`[avatar-animations] Configuración solicitada: ${stored ? 'publicada' : 'sin publicar'}.`)
+      callback?.({ ok: true, config: stored?.config ?? null, version: stored?.version ?? null })
+    } catch (error) {
+      console.error('[avatar-animations] No fue posible leer la configuracion.', error)
+      callback?.({ ok: false, message: 'No fue posible cargar las animaciones.' })
+    }
+  })
+
+  socket.on(clientEvents.getAvatarAnimation, async (rawPayload, callback) => {
+    const parsed = avatarAnimationIdSchema.safeParse(rawPayload)
+    if (!sessions.get(socket.id) || !parsed.success) {
+      callback?.({ ok: false, message: 'Solicitud no valida.' })
+      return
+    }
+    if (isAvatarAnimationsDisabledByEnv() || !isAvatarAnimationStorageReady()) {
+      callback?.({ ok: false, message: 'Las animaciones publicadas no estan disponibles.' })
+      return
+    }
+    try {
+      const animation = await gameRepository.getAvatarAnimation(parsed.data.id)
+      callback?.(animation ? { ok: true, animation } : { ok: false, message: 'Animacion no encontrada.' })
+    } catch (error) {
+      console.error('[avatar-animations] No fue posible leer la animacion.', error)
+      callback?.({ ok: false, message: 'No fue posible cargar la animacion.' })
+    }
+  })
+
+  socket.on(clientEvents.publishAvatarAnimation, async (rawPayload, callback) => {
+    const session = sessions.get(socket.id)
+    if (isAvatarAnimationsDisabledByEnv()) {
+      callback?.({ ok: false, message: 'Las animaciones publicadas estan desactivadas en el servidor.' })
+      return
+    }
+    if (!isAvatarAnimationStorageReady()) {
+      callback?.({ ok: false, message: 'El almacenamiento de animaciones no esta disponible en el servidor.' })
+      return
+    }
+    const parsed = publishAvatarAnimationSchema.safeParse(rawPayload)
+    if (!session || !parsed.success) {
+      if (!parsed.success) console.warn('[avatar-animations] Datos rechazados por el esquema:', JSON.stringify(parsed.error.issues.slice(0, 5)))
+      callback?.({ ok: false, message: 'Los datos de la animacion no son validos.' })
+      return
+    }
+    if (!hasMinimumUserRole(session.profile.role, 'admin')) {
+      console.warn(`[avatar-animations] Publicación rechazada: rol ${session.profile.role}.`)
+      callback?.({ ok: false, message: 'Solo un administrador puede publicar animaciones.' })
+      return
+    }
+    try {
+      const saved = await gameRepository.saveAvatarAnimation(
+        parsed.data.id,
+        parsed.data.name,
+        parsed.data.document,
+      )
+      console.info(`[avatar-animations] Animación ${parsed.data.id} guardada: ${saved}.`)
+      callback?.({ ok: saved, ...(saved ? {} : { message: 'No hay base de datos disponible.' }) })
+    } catch (error) {
+      console.error('[avatar-animations] No fue posible guardar la animacion.', error)
+      callback?.({ ok: false, message: 'No fue posible publicar la animacion.' })
+    }
+  })
+
+  socket.on(clientEvents.publishAvatarAnimationConfig, async (rawPayload, callback) => {
+    const session = sessions.get(socket.id)
+    if (isAvatarAnimationsDisabledByEnv()) {
+      callback?.({ ok: false, message: 'Las animaciones publicadas estan desactivadas en el servidor.' })
+      return
+    }
+    if (!isAvatarAnimationStorageReady()) {
+      callback?.({ ok: false, message: 'El almacenamiento de animaciones no esta disponible en el servidor.' })
+      return
+    }
+    const parsed = publishAvatarAnimationConfigSchema.safeParse(rawPayload)
+    if (!session || !parsed.success) {
+      if (!parsed.success) console.warn('[avatar-animations] Datos rechazados por el esquema:', JSON.stringify(parsed.error.issues.slice(0, 5)))
+      callback?.({ ok: false, message: 'La asignacion no es valida.' })
+      return
+    }
+    if (!hasMinimumUserRole(session.profile.role, 'admin')) {
+      callback?.({ ok: false, message: 'Solo un administrador puede publicar asignaciones.' })
+      return
+    }
+    try {
+      const saved = await gameRepository.saveAvatarAnimationConfig(parsed.data.config)
+      console.info(`[avatar-animations] Asignaciones publicadas por ${session.profile.role}: ${saved}.`)
+      if (saved) {
+        // El historial es un extra: si falla, la publicacion igual queda aplicada.
+        try {
+          await gameRepository.saveAvatarAnimationSnapshot(parsed.data.config, session.profile.role)
+        } catch (historyError) {
+          console.error('[avatar-animations] No fue posible guardar el historial.', historyError)
+        }
+        io.emit(serverEvents.avatarAnimationsUpdated)
+      }
+      callback?.({ ok: saved, ...(saved ? {} : { message: 'No hay base de datos disponible.' }) })
+    } catch (error) {
+      console.error('[avatar-animations] No fue posible guardar la asignacion.', error)
+      callback?.({ ok: false, message: 'No fue posible publicar la asignacion.' })
+    }
+  })
+
+  socket.on(clientEvents.listAvatarAnimationHistory, async (_rawPayload, callback) => {
+    const session = sessions.get(socket.id)
+    if (!session || !hasMinimumUserRole(session.profile.role, 'admin')) {
+      callback?.({ ok: false, message: 'Solo un administrador puede ver el historial.' })
+      return
+    }
+    if (isAvatarAnimationsDisabledByEnv() || !isAvatarAnimationStorageReady()) {
+      callback?.({ ok: false, message: 'Las animaciones publicadas no estan disponibles.' })
+      return
+    }
+    try {
+      callback?.({ ok: true, versions: await gameRepository.listAvatarAnimationHistory() })
+    } catch (error) {
+      console.error('[avatar-animations] No fue posible leer el historial.', error)
+      callback?.({ ok: false, message: 'No fue posible cargar el historial.' })
+    }
+  })
+
+  socket.on(clientEvents.restoreAvatarAnimationVersion, async (rawPayload, callback) => {
+    const session = sessions.get(socket.id)
+    const id = typeof (rawPayload as { id?: unknown })?.id === 'string' ? (rawPayload as { id: string }).id : ''
+    if (!session || !hasMinimumUserRole(session.profile.role, 'admin')) {
+      callback?.({ ok: false, message: 'Solo un administrador puede restaurar versiones.' })
+      return
+    }
+    if (!/^\d{1,18}$/.test(id)) {
+      callback?.({ ok: false, message: 'Version no valida.' })
+      return
+    }
+    if (isAvatarAnimationsDisabledByEnv() || !isAvatarAnimationStorageReady()) {
+      callback?.({ ok: false, message: 'Las animaciones publicadas no estan disponibles.' })
+      return
+    }
+    try {
+      const restored = await gameRepository.restoreAvatarAnimationSnapshot(id)
+      console.info(`[avatar-animations] Version ${id} restaurada por ${session.profile.role}: ${restored}.`)
+      if (restored) io.emit(serverEvents.avatarAnimationsUpdated)
+      callback?.({ ok: restored, ...(restored ? {} : { message: 'La version ya no existe.' }) })
+    } catch (error) {
+      console.error('[avatar-animations] No fue posible restaurar la version.', error)
+      callback?.({ ok: false, message: 'No fue posible restaurar la version.' })
+    }
   })
 
   socket.on(clientEvents.saveRoomEditorMap, async (rawPayload, callback) => {
@@ -4122,6 +4337,8 @@ io.on('connection', (socket) => {
     await removeSessionPresenceFromCurrentRoom(socket, session)
 
     sessions.delete(socket.id)
+    // Por si una union a sala en curso alcanzo a agregar la presencia de este socket.
+    pruneSessionPresenceAcrossRooms(socket.id)
 
     const userStillHasActiveSession = Array.from(sessions.values()).some(
       (currentSession) => currentSession.profile.userId === session.profile.userId,

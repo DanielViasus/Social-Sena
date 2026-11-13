@@ -1,4 +1,5 @@
 import AnimationEditorPage from './components/AnimationEditorPage'
+import AnimationAssignmentsPage from './components/AnimationAssignmentsPage'
 import { useCallback, useState } from 'react'
 import { isAuth0Configured, resolvePostLoginRoute } from './auth/auth0Config'
 import {
@@ -16,6 +17,7 @@ import EditRoomPage from './components/EditRoomPage'
 import RoomEditorMenuPage from './components/RoomEditorMenuPage'
 import {
   isAccessRolePath,
+  isAnimationAssignmentsPath,
   isAnimationEditorPath,
   hasEditRoomContext,
   isEditRoomPath,
@@ -76,6 +78,10 @@ function LocalApp() {
 
   if (isAnimationEditorPath(pathname)) {
     return <AnimationEditorPage />
+  }
+
+  if (isAnimationAssignmentsPath(pathname)) {
+    return <AnimationAssignmentsPage session={session} />
   }
 
   if (isEditRoomPath(pathname)) {

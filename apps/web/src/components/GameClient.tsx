@@ -69,6 +69,8 @@ import SkinEditorOverlay from './skins/SkinEditorOverlay'
 import { availableRoomRoutes, resolveRoomTemplateFromPath } from '../rooms/registry'
 import { createUiSoundController, type UiSoundName } from '../audio/chiptuneSounds'
 import { createAmbientMusicController } from '../audio/chiptuneMusic'
+import { attachAvatarAnimationSocket } from '../game/avatar/avatarAnimationRuntime'
+import { AvatarAnimationTestSelector } from './AvatarAnimationTestSelector'
 import {
   preloadImageAsset,
   preloadRoomTemplateAssets,
@@ -77,6 +79,9 @@ import {
 const SERVER_URL = import.meta.env.VITE_GAME_SERVER_URL ?? 'http://localhost:3001'
 const PLAYER_NAMES_VISIBILITY_STORAGE_KEY = 'social-sena-player-names-visible'
 const SCENE_LOADING_EXTRA_HOLD_MS = 1000
+// El editor de skins (tecla M) queda desactivado: la personalizacion pasara por el inventario (tecla I).
+// Ponlo en true para reactivarlo. No afecta la seleccion inicial de skin.
+const SKIN_EDITOR_ENABLED = false
 const SCENE_LOADING_FAILSAFE_MS = 5500
 const ENEMY_ESCAPE_INTERACTION_COOLDOWN_MS = 4000
 const PHONE_WORLD_SCALE = 0.75
@@ -1049,7 +1054,7 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
         return
       }
 
-      if (event.key.toLowerCase() === 'm' && !activeDialogue && !initialSkinSetupOpen) {
+      if (SKIN_EDITOR_ENABLED && event.key.toLowerCase() === 'm' && !activeDialogue && !initialSkinSetupOpen) {
         event.preventDefault()
         setSkinEditorOpen((currentValue) => !currentValue)
         return
@@ -1099,6 +1104,7 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
     })
 
     socketRef.current = nextSocket
+    const detachAvatarAnimations = attachAvatarAnimationSocket(nextSocket)
     const stopListeningForSessionReplacement = listenForSessionReplacement(nextSocket, onSessionReplaced)
 
     nextSocket.on('connect', () => {
@@ -1538,6 +1544,7 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
       clearSceneLoadingHideTimeout()
       clearSceneLoadingFailsafeTimeout()
       socketRef.current = null
+      detachAvatarAnimations()
       nextSocket.disconnect()
     }
   }, [
@@ -3057,7 +3064,7 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
   })
 
   const toggleSkinEditor = useEffectEvent(() => {
-    if (activeDialogue || activeTouchPrompt || initialSkinSetupOpen) {
+    if (!SKIN_EDITOR_ENABLED || activeDialogue || activeTouchPrompt || initialSkinSetupOpen) {
       return
     }
 
@@ -4092,9 +4099,11 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
                       >
                         {debugEnabled ? 'Ocultar coliders' : 'Mostrar coliders'}
                       </button>
-                      <button type="button" className="secondary-action-button" onClick={openSkinEditorFromMenu}>
-                        Personalizar skin
-                      </button>
+                      {SKIN_EDITOR_ENABLED ? (
+                        <button type="button" className="secondary-action-button" onClick={openSkinEditorFromMenu}>
+                          Personalizar skin
+                        </button>
+                      ) : null}
                       <button type="button" className="secondary-action-button" onClick={onLogout}>
                         Cerrar sesion
                       </button>
@@ -4362,10 +4371,12 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
                   <span className="shortcut-key">I</span>
                   <span className="shortcut-label">inventario</span>
                 </button>
-                <button type="button" className="shortcut-chip" onClick={toggleSkinEditor}>
-                  <span className="shortcut-key">M</span>
-                  <span className="shortcut-label">skins</span>
-                </button>
+                {SKIN_EDITOR_ENABLED ? (
+                  <button type="button" className="shortcut-chip" onClick={toggleSkinEditor}>
+                    <span className="shortcut-key">M</span>
+                    <span className="shortcut-label">skins</span>
+                  </button>
+                ) : null}
                 <button type="button" className="shortcut-chip" onClick={toggleOptionsMenu}>
                   <span className="shortcut-key">ESC</span>
                   <span className="shortcut-label">{optionsOpen ? 'cerrar menu' : 'abrir menu'}</span>
@@ -4400,11 +4411,19 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
               <span className={`debug-role-value is-${session.profile.role}`}>
                 Rol: {session.profile.role}
               </span>
+              {session.profile.role === 'admin' || session.profile.role === 'developer' ? (
+                <AvatarAnimationTestSelector />
+              ) : null}
             </section>
           ) : null}
 
           {inventoryOpen ? (
-            <InventoryOverlay onClose={closeInventory} />
+            <InventoryOverlay
+              inventory={session.inventory}
+              coinItemId={PLAYER_COIN_INVENTORY_ITEM_ID}
+              displayName={session.profile.displayName}
+              onClose={closeInventory}
+            />
           ) : null}
 
           {skinEditorOpen ? (

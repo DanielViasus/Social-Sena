@@ -1,0 +1,4150 @@
+import { createHash, randomUUID } from 'node:crypto'
+import { createServer } from 'node:http'
+import { Server, type Socket } from 'socket.io'
+import { initializeDatabase } from './db/client'
+import { gameRepository } from './db/repositories/gameRepository'
+import {
+  DEFAULT_ROOM_CAPACITY,
+  PARTY_LEADER_FOLLOW_TTL_MS,
+  PLAYER_REACH_THRESHOLD,
+  PLAYER_SPEED,
+  addFriendSchema,
+  clientEvents,
+  completeOnboardingSchema,
+  connectToGameSchema,
+  createRoomTemplateFromEditorMap,
+  getRoomTemplateById,
+  hasMinimumUserRole,
+  interactRoomObjectSchema,
+  interactWithRoomObject,
+  registerRoomTemplate,
+  resolveRoomEntrySpawn,
+  inviteToPartySchema,
+  joinRoomSchema,
+  loadRoomEditorMapSchema,
+  leavePartySchema,
+  movementInputSchema,
+  navigateToSchema,
+  requestEnemyCombatSchema,
+  roomEditorDocumentSchema,
+  saveRoomEditorMapSchema,
+  startEnemyCombatSchema,
+  promotePartyLeaderSchema,
+  respondEnemyCombatSupportSchema,
+  removeFriendSchema,
+  respondPartyLeaderFollowSchema,
+  respondPartyInviteSchema,
+  respondFriendRequestSchema,
+  fleeEnemyCombatSchema,
+  updateAudioSettingsSchema,
+  updateAccessRoleSchema,
+  updateSkinSchema,
+  unregisterRoomTemplate,
+  type ActivityNoticePayload,
+  type EnemyCombatEncounterStatePayload,
+  type EnemyCombatPhase,
+  type EnemyCombatParticipantSummary,
+  type EnemyCombatSupportInvitePayload,
+  type PartyInviteSummary,
+  type PartyLeaderFollowPromptPayload,
+  type PartyOutgoingInviteSummary,
+  type PartyStatePayload,
+  type PartySummary,
+  type RoomEnemiesStatePayload,
+  type SavedRoomEditorMap,
+  type RoomEnemyCombatStatePayload,
+  type RoomEnemyState,
+  type RoomTransitionRequestedPayload,
+  type SessionReplacedPayload,
+  setTypingStateSchema,
+  stopNavigationSchema,
+  sendChatMessageSchema,
+  serverEvents,
+  type ChatMessage,
+  type ConnectionAcceptedPayload,
+  type Direction,
+  type FriendRequestSummary,
+  type FriendSummary,
+  type PlayerFacing,
+  type PlayerInventory,
+  type PlayerInventoryUpdatedPayload,
+  type PlayerProgress,
+  type PlayerProgressSource,
+  type PlayerProgressUpdatedPayload,
+  type Position,
+  type Presence,
+  type RoomState,
+  type RoomTemplate,
+  type SkinColorSelections,
+  type UserProfile,
+} from '@social-sena/shared'
+
+interface SessionState {
+  clientSessionId: string
+  sessionId: string
+  profile: UserProfile
+  progress: PlayerProgress
+  inventory: PlayerInventory
+  roomId: string | null
+  movementInput: {
+    up: boolean
+    down: boolean
+    left: boolean
+    right: boolean
+  }
+  keyboardControlling: boolean
+}
+
+interface ActiveClientSessionState {
+  attemptSequence: number
+  clientSessionId: string
+}
+
+interface RectBounds {
+  left: number
+  right: number
+  top: number
+  bottom: number
+}
+
+interface PartyPresenceMarker {
+  partyId: string | null
+  partyLeaderUserId: string | null
+  partyLeaderDisplayName: string | null
+  partyLeaderSkinId: string | null
+  partyLeaderSkinColors: SkinColorSelections | null
+}
+
+interface PendingPartyLeaderFollowRequest {
+  requestId: string
+  partyId: string
+  leaderUserId: string
+  leaderDisplayName: string
+  targetUserId: string
+  roomId: string
+  roomName: string
+  templateId: string
+  spawnPosition: Position
+  expiresAt: number
+  timeoutId: ReturnType<typeof setTimeout>
+}
+
+interface ServerEnemyRuntimeState {
+  x: number
+  y: number
+  patrolTargetX: number
+  patrolTargetY: number
+  patrolStep: number
+  mode: RoomEnemyState['mode']
+  targetUserId: string | null
+  idleUntilMs: number
+}
+
+interface ActiveEnemyCombatEncounter {
+  encounterId: string
+  roomId: string
+  templateId: string
+  enemyId: string
+  enemyLabel: string
+  enemyLevel: number
+  phase: EnemyCombatPhase
+  combatLeaderUserId: string
+  combatLeaderDisplayName: string
+  requestedByUserId: string
+  requestedByDisplayName: string
+  requestedByPosition: Position
+  participantUserIds: string[]
+  declinedUserIds: Set<string>
+}
+
+const port = Number(process.env.PORT ?? 3001)
+const serviceRevision = (
+  process.env.RENDER_GIT_COMMIT
+  ?? process.env.GIT_COMMIT_SHA
+  ?? 'local'
+).slice(0, 12)
+const serviceCapabilities = ['player-facing-v1'] as const
+const allowedOriginPatterns = (process.env.CORS_ALLOWED_ORIGINS ?? 'http://localhost:5173')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean)
+
+const PLAYER_COLLIDER_WIDTH = 68
+const PLAYER_COLLIDER_HEIGHT = 24
+const ENEMY_SIZE = 128
+const ENEMY_HALF_SIZE = ENEMY_SIZE / 2
+const PATH_GRID_SIZE = 32
+const PATH_SEARCH_MAX_RADIUS = 6
+const PATH_START_SEARCH_MAX_RADIUS = 4
+const PATH_TARGET_SEARCH_MAX_RADIUS = 10
+const PATH_COLLIDER_MARGIN = 2
+
+interface RoomNavigationGeometry {
+  bounds: RectBounds[]
+  blockedCells: Set<string> | null
+}
+
+const roomNavigationGeometryCache = new WeakMap<RoomTemplate, RoomNavigationGeometry>()
+const roomCollectibleObjectsCache = new WeakMap<RoomTemplate, RoomTemplate['objects']>()
+
+function matchesOriginPattern(origin: string, pattern: string) {
+  if (pattern === '*') {
+    return true
+  }
+
+  if (!pattern.includes('*')) {
+    return origin === pattern
+  }
+
+  const escapedPattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\*/g, '.*')
+  return new RegExp(`^${escapedPattern}$`).test(origin)
+}
+
+function isOriginAllowed(origin?: string) {
+  if (!origin) {
+    return true
+  }
+
+  return allowedOriginPatterns.some((pattern) => matchesOriginPattern(origin, pattern))
+}
+
+const httpServer = createServer((request, response) => {
+  const requestOrigin = request.headers.origin
+  if (requestOrigin && isOriginAllowed(requestOrigin)) {
+    response.setHeader('access-control-allow-origin', requestOrigin)
+    response.setHeader('vary', 'Origin')
+  }
+
+  const requestUrl = new URL(request.url ?? '/', 'http://localhost')
+  if (requestUrl.pathname === '/api/editor-rooms/resolve') {
+    const routePath = requestUrl.searchParams.get('path')
+    if (!routePath?.startsWith('/')) {
+      response.writeHead(400, { 'content-type': 'application/json; charset=utf-8' })
+      response.end(JSON.stringify({ ok: false, message: 'Ruta invalida.' }))
+      return
+    }
+    void gameRepository.getRoomEditorMapByRoute(routePath).then((map) => {
+      const parsedDocument = roomEditorDocumentSchema.safeParse(map?.document)
+      if (!map || !parsedDocument.success) {
+        response.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
+        response.end(JSON.stringify({ ok: false }))
+        return
+      }
+      const normalizedMap = { ...map, document: parsedDocument.data }
+      registerRoomTemplate(createRoomTemplateFromEditorMap(normalizedMap))
+      response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+      response.end(JSON.stringify({ ok: true, map: normalizedMap }))
+    }).catch((error: unknown) => {
+      console.error('[room-editor] No fue posible resolver la ruta publicada.', error)
+      response.writeHead(500, { 'content-type': 'application/json; charset=utf-8' })
+      response.end(JSON.stringify({ ok: false }))
+    })
+    return
+  }
+
+  if (requestUrl.pathname === '/health') {
+    response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+    response.end(JSON.stringify({
+      status: 'ok',
+      service: 'social-sena-game-server',
+      revision: serviceRevision,
+      capabilities: serviceCapabilities,
+    }))
+    return
+  }
+
+  response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+  response.end(
+    JSON.stringify({
+      service: 'social-sena-game-server',
+      status: 'running',
+      revision: serviceRevision,
+      capabilities: serviceCapabilities,
+      sockets: io.engine.clientsCount,
+    }),
+  )
+})
+
+const io = new Server(httpServer, {
+  cors: {
+    origin(origin, callback) {
+      callback(null, isOriginAllowed(origin))
+    },
+  },
+})
+
+const sessions = new Map<string, SessionState>()
+const activeClientSessionByUserId = new Map<string, ActiveClientSessionState>()
+const revokedClientSessionIdsByUserId = new Map<string, Set<string>>()
+let nextConnectionAttemptSequence = 0
+const accessRoleChangeEnabled =
+  process.env.NODE_ENV !== 'production' || process.env.ENABLE_ACCESS_ROLE_PAGE === 'true'
+const rooms = new Map<string, RoomState>()
+const roomEnemyRuntimes = new Map<string, Record<string, ServerEnemyRuntimeState>>()
+const activeEnemyCombatEncounters = new Map<string, ActiveEnemyCombatEncounter>()
+const activeEnemyCombatEncounterIdsByRoomEnemy = new Map<string, string>()
+const activeEnemyCombatEncounterIdsByUser = new Map<string, string>()
+const pendingPartyLeaderFollowRequests = new Map<string, PendingPartyLeaderFollowRequest>()
+const pendingPartyLeaderFollowRequestIdsByUser = new Map<string, string>()
+let lastSimulationTick = Date.now()
+const ROOM_INSTANCE_SEPARATOR = '::'
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max)
+}
+
+function createSeededRandom(seedText: string) {
+  let seed = 0
+
+  for (let index = 0; index < seedText.length; index += 1) {
+    seed = (seed * 31 + seedText.charCodeAt(index)) >>> 0
+  }
+
+  return () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0
+    return seed / 0x100000000
+  }
+}
+
+function getRoomInstanceNumber(roomId: string, templateId: string) {
+  if (roomId === templateId) {
+    return 1
+  }
+
+  const prefix = `${templateId}${ROOM_INSTANCE_SEPARATOR}`
+  if (!roomId.startsWith(prefix)) {
+    return Number.MAX_SAFE_INTEGER
+  }
+
+  const instanceNumber = Number(roomId.slice(prefix.length))
+  return Number.isInteger(instanceNumber) && instanceNumber > 0 ? instanceNumber : Number.MAX_SAFE_INTEGER
+}
+
+function buildRoomInstanceId(templateId: string, instanceNumber: number) {
+  return `${templateId}${ROOM_INSTANCE_SEPARATOR}${instanceNumber}`
+}
+
+function getRoomsForTemplate(templateId: string) {
+  return Array.from(rooms.values())
+    .filter((room) => room.templateId === templateId)
+    .sort(
+      (leftRoom, rightRoom) =>
+        getRoomInstanceNumber(leftRoom.roomId, templateId) -
+        getRoomInstanceNumber(rightRoom.roomId, templateId),
+    )
+}
+
+function getAvailableSlotsForRoom(room: RoomState) {
+  return room.maxUsers - room.players.length
+}
+
+function createRoomInstance(templateId: string): RoomState | null {
+  const nextInstanceNumber =
+    getRoomsForTemplate(templateId).reduce(
+      (highestInstanceNumber, room) =>
+        Math.max(highestInstanceNumber, getRoomInstanceNumber(room.roomId, templateId)),
+      0,
+    ) + 1
+
+  return getOrCreateRoom(buildRoomInstanceId(templateId, nextInstanceNumber), templateId)
+}
+
+function findOrCreateRoomForDirectJoin(templateId: string): RoomState | null {
+  const bestExistingRoom =
+    getRoomsForTemplate(templateId)
+      .filter((room) => getAvailableSlotsForRoom(room) >= 1)
+      .sort(
+        (leftRoom, rightRoom) =>
+          rightRoom.players.length - leftRoom.players.length ||
+          getRoomInstanceNumber(leftRoom.roomId, templateId) -
+            getRoomInstanceNumber(rightRoom.roomId, templateId),
+      )[0] ?? null
+
+  return bestExistingRoom ?? createRoomInstance(templateId)
+}
+
+function findOrCreateRoomForPartyPlacement(
+  templateId: string,
+  requiredPartySize: number,
+  excludedRoomIds: string[] = [],
+): RoomState | null {
+  if (requiredPartySize > DEFAULT_ROOM_CAPACITY) {
+    return null
+  }
+
+  const normalizedExcludedRoomIds = new Set(excludedRoomIds)
+  const candidateRooms = getRoomsForTemplate(templateId).filter(
+    (room) =>
+      !normalizedExcludedRoomIds.has(room.roomId) && getAvailableSlotsForRoom(room) >= requiredPartySize,
+  )
+
+  const emptyRoom = candidateRooms.find((room) => room.players.length === 0)
+  if (emptyRoom) {
+    return emptyRoom
+  }
+
+  const bestExistingRoom =
+    candidateRooms.sort(
+      (leftRoom, rightRoom) =>
+        leftRoom.players.length - rightRoom.players.length ||
+        getRoomInstanceNumber(leftRoom.roomId, templateId) -
+          getRoomInstanceNumber(rightRoom.roomId, templateId),
+    )[0] ?? null
+
+  return bestExistingRoom ?? createRoomInstance(templateId)
+}
+
+function hasMovementInput(input: SessionState['movementInput']) {
+  return input.up || input.down || input.left || input.right
+}
+
+function getMovementInputVector(input: SessionState['movementInput']) {
+  return {
+    horizontal: (input.right ? 1 : 0) - (input.left ? 1 : 0),
+    vertical: (input.down ? 1 : 0) - (input.up ? 1 : 0),
+  }
+}
+
+function sessionsHasUser(userId: string) {
+  return Array.from(sessions.values()).some((session) => session.profile.userId === userId)
+}
+
+async function buildFriendSummariesForUser(userId: string): Promise<FriendSummary[]> {
+  const persistedFriends = await gameRepository.getFriends(userId)
+  const onlineUserIds = new Set(Array.from(sessions.values()).map((session) => session.profile.userId))
+
+  return persistedFriends.map((friend) => ({
+    ...friend,
+    isOnline: onlineUserIds.has(friend.userId),
+  }))
+}
+
+async function buildIncomingFriendRequestsForUser(userId: string): Promise<FriendRequestSummary[]> {
+  return gameRepository.getIncomingFriendRequests(userId)
+}
+
+async function buildOutgoingFriendRequestUserIdsForUser(userId: string): Promise<string[]> {
+  return gameRepository.getOutgoingFriendRequestUserIds(userId)
+}
+
+async function emitSocialStateToSocket(socketId: string) {
+  const session = sessions.get(socketId)
+  if (!session) {
+    return
+  }
+
+  const [friends, incomingFriendRequests, outgoingFriendRequestUserIds] = await Promise.all([
+    buildFriendSummariesForUser(session.profile.userId),
+    buildIncomingFriendRequestsForUser(session.profile.userId),
+    buildOutgoingFriendRequestUserIdsForUser(session.profile.userId),
+  ])
+  io.to(socketId).emit(serverEvents.socialState, { friends, incomingFriendRequests, outgoingFriendRequestUserIds })
+}
+
+async function refreshSocialStateForAllSessions() {
+  await Promise.all(Array.from(sessions.keys()).map((socketId) => emitSocialStateToSocket(socketId)))
+}
+
+async function buildPartyForUser(userId: string): Promise<PartySummary | null> {
+  const persistedParty = await gameRepository.getParty(userId)
+  if (!persistedParty) {
+    return null
+  }
+
+  const onlineUserIds = new Set(Array.from(sessions.values()).map((session) => session.profile.userId))
+
+  return {
+    ...persistedParty,
+    members: persistedParty.members.map((member) => ({
+      ...member,
+      isOnline: onlineUserIds.has(member.userId),
+    })),
+  }
+}
+
+async function buildPartyPresenceMarkerForUser(userId: string): Promise<PartyPresenceMarker> {
+  const party = await buildPartyForUser(userId)
+  if (!party) {
+    return {
+      partyId: null,
+      partyLeaderUserId: null,
+      partyLeaderDisplayName: null,
+      partyLeaderSkinId: null,
+      partyLeaderSkinColors: null,
+    }
+  }
+
+  const leaderMember = party.members.find((member) => member.userId === party.leaderUserId) ?? null
+  return {
+    partyId: party.partyId,
+    partyLeaderUserId: party.leaderUserId,
+    partyLeaderDisplayName: leaderMember?.displayName ?? null,
+    partyLeaderSkinId: leaderMember?.skinId ?? null,
+    partyLeaderSkinColors: leaderMember?.skinColors ?? null,
+  }
+}
+
+async function refreshRoomPresenceForUserIds(userIds: string[]) {
+  const normalizedUserIds = [...new Set(userIds.filter((userId) => userId.trim().length > 0))]
+  if (normalizedUserIds.length === 0) {
+    return
+  }
+
+  const partyMarkers = new Map<string, PartyPresenceMarker>()
+  await Promise.all(
+    normalizedUserIds.map(async (userId) => {
+      partyMarkers.set(userId, await buildPartyPresenceMarkerForUser(userId))
+    }),
+  )
+
+  const affectedRoomIds = new Set<string>()
+  rooms.forEach((room) => {
+    let roomChanged = false
+    room.players.forEach((player) => {
+      const marker = partyMarkers.get(player.userId)
+      if (!marker) {
+        return
+      }
+
+      const nextLeaderSkinColors = marker.partyLeaderSkinColors ? { ...marker.partyLeaderSkinColors } : null
+      const didChange =
+        player.partyId !== marker.partyId ||
+        player.partyLeaderUserId !== marker.partyLeaderUserId ||
+        player.partyLeaderDisplayName !== marker.partyLeaderDisplayName ||
+        player.partyLeaderSkinId !== marker.partyLeaderSkinId ||
+        JSON.stringify(player.partyLeaderSkinColors ?? null) !== JSON.stringify(nextLeaderSkinColors)
+
+      if (!didChange) {
+        return
+      }
+
+      player.partyId = marker.partyId
+      player.partyLeaderUserId = marker.partyLeaderUserId
+      player.partyLeaderDisplayName = marker.partyLeaderDisplayName
+      player.partyLeaderSkinId = marker.partyLeaderSkinId
+      player.partyLeaderSkinColors = nextLeaderSkinColors
+      roomChanged = true
+    })
+
+    if (roomChanged) {
+      affectedRoomIds.add(room.roomId)
+    }
+  })
+
+  await Promise.all(
+    Array.from(affectedRoomIds).map(async (roomId) => {
+      const room = rooms.get(roomId)
+      if (room) {
+        io.to(roomId).emit(serverEvents.roomState, room)
+      }
+    }),
+  )
+}
+
+async function buildIncomingPartyInvitesForUser(userId: string): Promise<PartyInviteSummary[]> {
+  return gameRepository.getIncomingPartyInvites(userId)
+}
+
+async function buildOutgoingPartyInvitesForUser(userId: string): Promise<PartyOutgoingInviteSummary[]> {
+  return gameRepository.getOutgoingPartyInvites(userId)
+}
+
+async function emitPartyStateToSocket(socketId: string) {
+  const session = sessions.get(socketId)
+  if (!session) {
+    return
+  }
+
+  const [party, incomingPartyInvites, outgoingPartyInvites] = await Promise.all([
+    buildPartyForUser(session.profile.userId),
+    buildIncomingPartyInvitesForUser(session.profile.userId),
+    buildOutgoingPartyInvitesForUser(session.profile.userId),
+  ])
+
+  const payload: PartyStatePayload = {
+    party,
+    incomingPartyInvites,
+    outgoingPartyInvites,
+  }
+
+  io.to(socketId).emit(serverEvents.partyState, payload)
+}
+
+async function refreshPartyStateForAllSessions() {
+  await Promise.all(Array.from(sessions.keys()).map((socketId) => emitPartyStateToSocket(socketId)))
+}
+
+async function refreshPartyStateForUserIds(userIds: string[]) {
+  const normalizedUserIds = [...new Set(userIds.filter((userId) => userId.trim().length > 0))]
+  if (normalizedUserIds.length === 0) {
+    return
+  }
+
+  const targetSocketIds = Array.from(sessions.entries())
+    .filter(([, session]) => normalizedUserIds.includes(session.profile.userId))
+    .map(([socketId]) => socketId)
+
+  await Promise.all(targetSocketIds.map((socketId) => emitPartyStateToSocket(socketId)))
+}
+
+function getSocketIdsForUser(userId: string) {
+  return Array.from(sessions.entries())
+    .filter(([, session]) => session.profile.userId === userId)
+    .map(([socketId]) => socketId)
+}
+
+function getPresenceForUser(userId: string): Presence | null {
+  for (const [socketId, session] of sessions.entries()) {
+    if (session.profile.userId !== userId || !session.roomId) {
+      continue
+    }
+
+    const room = rooms.get(session.roomId)
+    const player = room?.players.find((presence) => presence.sessionId === socketId) ?? null
+    if (player) {
+      return player
+    }
+  }
+
+  return null
+}
+
+/**
+ * Punto único y autoritativo para conceder experiencia desde combate, misiones
+ * o recompensas. No se expone como evento del cliente para impedir auto-premios.
+ */
+export async function awardExperienceToUser(
+  userId: string,
+  amount: number,
+  source: PlayerProgressSource,
+): Promise<PlayerProgress | null> {
+  const award = await gameRepository.addPlayerExperience(userId, amount)
+  if (!award) {
+    return null
+  }
+
+  const { previousProgress, progress, experienceGained } = award
+  const payload: PlayerProgressUpdatedPayload = {
+    userId,
+    progress,
+    experienceGained,
+    previousLevel: previousProgress.level,
+    leveledUp: progress.level > previousProgress.level,
+    source,
+  }
+
+  const targetSocketIds: string[] = []
+  sessions.forEach((session, socketId) => {
+    if (
+      session.profile.userId !== userId
+      || session.progress.experience > progress.experience
+    ) {
+      return
+    }
+
+    session.progress = progress
+    targetSocketIds.push(socketId)
+  })
+
+  targetSocketIds.forEach((socketId) => {
+    io.to(socketId).emit(serverEvents.playerProgressUpdated, payload)
+  })
+
+  if (payload.leveledUp) {
+    rooms.forEach((room) => {
+      room.players.forEach((player) => {
+        if (player.userId !== userId) {
+          return
+        }
+
+        player.level = progress.level
+        io.to(room.roomId).emit(serverEvents.playerMoved, player)
+      })
+    })
+
+    await Promise.all([
+      refreshSocialStateForAllSessions(),
+      refreshPartyStateForAllSessions(),
+    ])
+  }
+
+  return progress
+}
+
+function emitActivityNoticeToUserIds(userIds: string[], title: string, message: string) {
+  const payload: ActivityNoticePayload = {
+    noticeId: randomUUID(),
+    title,
+    message,
+  }
+
+  const targetSocketIds = Array.from(
+    new Set(userIds.flatMap((userId) => getSocketIdsForUser(userId))),
+  )
+
+  targetSocketIds.forEach((socketId) => {
+    io.to(socketId).emit(serverEvents.activityNotice, payload)
+  })
+}
+
+function clearPendingPartyLeaderFollowRequest(requestId: string) {
+  const pendingRequest = pendingPartyLeaderFollowRequests.get(requestId)
+  if (!pendingRequest) {
+    return
+  }
+
+  clearTimeout(pendingRequest.timeoutId)
+  pendingPartyLeaderFollowRequests.delete(requestId)
+
+  if (pendingPartyLeaderFollowRequestIdsByUser.get(pendingRequest.targetUserId) === requestId) {
+    pendingPartyLeaderFollowRequestIdsByUser.delete(pendingRequest.targetUserId)
+  }
+}
+
+function clearPendingPartyLeaderFollowRequestForUser(userId: string) {
+  const requestId = pendingPartyLeaderFollowRequestIdsByUser.get(userId)
+  if (requestId) {
+    clearPendingPartyLeaderFollowRequest(requestId)
+  }
+}
+
+function buildPartyLeaderFollowPromptPayload(
+  pendingRequest: PendingPartyLeaderFollowRequest,
+): PartyLeaderFollowPromptPayload {
+  return {
+    requestId: pendingRequest.requestId,
+    partyId: pendingRequest.partyId,
+    leaderUserId: pendingRequest.leaderUserId,
+    leaderDisplayName: pendingRequest.leaderDisplayName,
+    roomId: pendingRequest.roomId,
+    roomName: pendingRequest.roomName,
+    templateId: pendingRequest.templateId,
+    spawnPosition: { ...pendingRequest.spawnPosition },
+    expiresAt: new Date(pendingRequest.expiresAt).toISOString(),
+  }
+}
+
+function emitRoomTransitionToUser(userId: string, payload: RoomTransitionRequestedPayload) {
+  getSocketIdsForUser(userId).forEach((socketId) => {
+    io.to(socketId).emit(serverEvents.roomTransitionRequested, payload)
+  })
+}
+
+function buildEnemyCombatRoomEnemyKey(roomId: string, enemyId: string) {
+  return `${roomId}::${enemyId}`
+}
+
+function getActiveEnemyCombatEncounterForUser(userId: string) {
+  const encounterId = activeEnemyCombatEncounterIdsByUser.get(userId)
+  return encounterId ? activeEnemyCombatEncounters.get(encounterId) ?? null : null
+}
+
+function isCombatLeaderParticipating(encounter: ActiveEnemyCombatEncounter) {
+  return encounter.participantUserIds.includes(encounter.combatLeaderUserId)
+}
+
+function canUserControlEnemyCombatEncounter(encounter: ActiveEnemyCombatEncounter, userId: string) {
+  return isCombatLeaderParticipating(encounter)
+    ? encounter.combatLeaderUserId === userId
+    : encounter.participantUserIds.includes(userId)
+}
+
+function buildEnemyCombatParticipantSummary(userId: string): EnemyCombatParticipantSummary | null {
+  const presence = getPresenceForUser(userId)
+  const session = Array.from(sessions.values()).find((currentSession) => currentSession.profile.userId === userId) ?? null
+
+  if (!presence && !session) {
+    return null
+  }
+
+  return {
+    userId,
+    displayName: presence?.displayName ?? session?.profile.displayName ?? 'Jugador',
+    skinId: presence?.skinId ?? session?.profile.skinId ?? 'default',
+    skinColors: presence?.skinColors ?? session?.profile.skinColors ?? {},
+    level: presence?.level ?? session?.progress.level ?? 1,
+  }
+}
+
+function buildEnemyCombatEncounterStatePayload(
+  encounter: ActiveEnemyCombatEncounter,
+): EnemyCombatEncounterStatePayload {
+  return {
+    encounterId: encounter.encounterId,
+    roomId: encounter.roomId,
+    templateId: encounter.templateId,
+    enemyId: encounter.enemyId,
+    enemyLabel: encounter.enemyLabel,
+    enemyLevel: encounter.enemyLevel,
+    phase: encounter.phase,
+    combatLeaderUserId: encounter.combatLeaderUserId,
+    combatLeaderDisplayName: encounter.combatLeaderDisplayName,
+    requestedByUserId: encounter.requestedByUserId,
+    requestedByDisplayName: encounter.requestedByDisplayName,
+    requestedByPosition: clonePosition(encounter.requestedByPosition),
+    participants: encounter.participantUserIds
+      .map((participantUserId) => buildEnemyCombatParticipantSummary(participantUserId))
+      .filter((participant): participant is EnemyCombatParticipantSummary => participant !== null),
+  }
+}
+
+function buildRoomEnemyCombatStatePayload(roomId: string): RoomEnemyCombatStatePayload {
+  const encounters = Array.from(activeEnemyCombatEncounters.values())
+    .filter((encounter) => encounter.roomId === roomId)
+    .map((encounter) => buildEnemyCombatEncounterStatePayload(encounter))
+
+  return {
+    roomId,
+    encounters,
+  }
+}
+
+function emitRoomEnemyCombatState(roomId: string) {
+  io.to(roomId).emit(serverEvents.roomEnemyCombatState, buildRoomEnemyCombatStatePayload(roomId))
+}
+
+function emitRoomEnemyCombatStateToSocket(socketId: string, roomId: string) {
+  io.to(socketId).emit(serverEvents.roomEnemyCombatState, buildRoomEnemyCombatStatePayload(roomId))
+}
+
+function buildEnemyCombatSupportInvitePayload(
+  encounter: ActiveEnemyCombatEncounter,
+): EnemyCombatSupportInvitePayload {
+  return {
+    encounterId: encounter.encounterId,
+    roomId: encounter.roomId,
+    templateId: encounter.templateId,
+    enemyId: encounter.enemyId,
+    enemyLabel: encounter.enemyLabel,
+    enemyLevel: encounter.enemyLevel,
+    combatLeaderUserId: encounter.combatLeaderUserId,
+    combatLeaderDisplayName: encounter.combatLeaderDisplayName,
+    requestedByUserId: encounter.requestedByUserId,
+    requestedByDisplayName: encounter.requestedByDisplayName,
+    requestedByPosition: clonePosition(encounter.requestedByPosition),
+  }
+}
+
+async function resolveEnemyCombatLeaderForUser(userId: string, roomId: string) {
+  const party = await buildPartyForUser(userId)
+  const fallbackParticipant = buildEnemyCombatParticipantSummary(userId)
+
+  if (party) {
+    const leaderPresence = getPresenceForUser(party.leaderUserId)
+    if (leaderPresence && leaderPresence.roomId === roomId) {
+      const leaderMember = party.members.find((member) => member.userId === party.leaderUserId) ?? null
+
+      return {
+        userId: party.leaderUserId,
+        displayName:
+          leaderMember?.displayName ??
+          leaderPresence.displayName ??
+          fallbackParticipant?.displayName ??
+          'Lider del grupo',
+      }
+    }
+  }
+
+  return {
+    userId,
+    displayName: fallbackParticipant?.displayName ?? 'Jugador',
+  }
+}
+
+function emitEnemyCombatSupportInviteToUser(userId: string, encounter: ActiveEnemyCombatEncounter) {
+  if (encounter.phase !== 'lobby') {
+    return
+  }
+
+  const payload = buildEnemyCombatSupportInvitePayload(encounter)
+  getSocketIdsForUser(userId).forEach((socketId) => {
+    io.to(socketId).emit(serverEvents.enemyCombatSupportInviteReceived, payload)
+  })
+}
+
+function getEnemyCombatSpawnPosition(encounter: ActiveEnemyCombatEncounter) {
+  const requesterPresence = getPresenceForUser(encounter.requestedByUserId)
+  if (requesterPresence && requesterPresence.roomId === encounter.roomId) {
+    return clonePosition(requesterPresence.position)
+  }
+
+  return clonePosition(encounter.requestedByPosition)
+}
+
+function closeEnemyCombatEncounter(encounterId: string) {
+  const encounter = activeEnemyCombatEncounters.get(encounterId)
+  if (!encounter) {
+    return
+  }
+
+  activeEnemyCombatEncounters.delete(encounterId)
+  activeEnemyCombatEncounterIdsByRoomEnemy.delete(buildEnemyCombatRoomEnemyKey(encounter.roomId, encounter.enemyId))
+  encounter.participantUserIds.forEach((participantUserId) => {
+    if (activeEnemyCombatEncounterIdsByUser.get(participantUserId) === encounterId) {
+      activeEnemyCombatEncounterIdsByUser.delete(participantUserId)
+    }
+  })
+
+  if (rooms.has(encounter.roomId)) {
+    emitRoomEnemyCombatState(encounter.roomId)
+  }
+}
+
+function closeEnemyCombatEncountersForRoom(roomId: string) {
+  Array.from(activeEnemyCombatEncounters.values())
+    .filter((encounter) => encounter.roomId === roomId)
+    .forEach((encounter) => {
+      closeEnemyCombatEncounter(encounter.encounterId)
+    })
+}
+
+function removeUserFromEnemyCombatEncounter(userId: string, encounterId?: string) {
+  const resolvedEncounterId = encounterId ?? activeEnemyCombatEncounterIdsByUser.get(userId)
+  if (!resolvedEncounterId) {
+    return
+  }
+
+  const encounter = activeEnemyCombatEncounters.get(resolvedEncounterId)
+  activeEnemyCombatEncounterIdsByUser.delete(userId)
+
+  if (!encounter) {
+    return
+  }
+
+  if (encounter.combatLeaderUserId === userId) {
+    const remainingParticipantUserIds = encounter.participantUserIds.filter((participantUserId) => participantUserId !== userId)
+
+    closeEnemyCombatEncounter(encounter.encounterId)
+
+    if (remainingParticipantUserIds.length > 0) {
+      emitActivityNoticeToUserIds(
+        remainingParticipantUserIds,
+        'Combate cancelado',
+        'El lider del combate se retiro. Todos salieron del enfrentamiento.',
+      )
+    }
+
+    return
+  }
+
+  const nextParticipantUserIds = encounter.participantUserIds.filter((participantUserId) => participantUserId !== userId)
+
+  if (nextParticipantUserIds.length === 0) {
+    closeEnemyCombatEncounter(encounter.encounterId)
+    return
+  }
+
+  encounter.participantUserIds = nextParticipantUserIds
+  emitRoomEnemyCombatState(encounter.roomId)
+}
+
+function resolveEnemyCombatFleeChance(enemyLevel: number) {
+  return Math.max(0.1, Math.min(1, 1 - enemyLevel * 0.1))
+}
+
+function teleportUserToEnemyCombatEncounter(userId: string, encounter: ActiveEnemyCombatEncounter) {
+  const socketId = getSocketIdsForUser(userId)[0]
+  const session = socketId ? sessions.get(socketId) : null
+  const spawnPosition = getEnemyCombatSpawnPosition(encounter)
+
+  if (!socketId || !session) {
+    return
+  }
+
+  if (session.roomId === encounter.roomId) {
+    const room = rooms.get(encounter.roomId)
+    const player = room?.players.find((presence) => presence.sessionId === socketId) ?? null
+
+    if (room && player) {
+      session.movementInput = {
+        up: false,
+        down: false,
+        left: false,
+        right: false,
+      }
+      session.keyboardControlling = false
+      player.position = clampPositionToRoom(room, spawnPosition)
+      stopPlayer(player)
+      void gameRepository.savePlayerState(userId, {
+        roomId: room.roomId,
+        position: clonePosition(player.position),
+      })
+      io.to(room.roomId).emit(serverEvents.playerMoved, player)
+      return
+    }
+  }
+
+  emitRoomTransitionToUser(userId, {
+    roomId: encounter.roomId,
+    templateId: encounter.templateId,
+    spawnPosition,
+    transition: 'teleport',
+  })
+}
+
+async function handlePartyLeaderFollowTimeout(requestId: string) {
+  const pendingRequest = pendingPartyLeaderFollowRequests.get(requestId)
+  if (!pendingRequest) {
+    return
+  }
+
+  clearPendingPartyLeaderFollowRequest(requestId)
+
+  const currentParty = await buildPartyForUser(pendingRequest.targetUserId)
+  if (!currentParty || currentParty.partyId !== pendingRequest.partyId) {
+    return
+  }
+
+  emitRoomTransitionToUser(pendingRequest.targetUserId, {
+    roomId: pendingRequest.roomId,
+    templateId: pendingRequest.templateId,
+    spawnPosition: { ...pendingRequest.spawnPosition },
+    transition: 'follow-leader',
+  })
+}
+
+function requestPartyLeaderFollowForUser({
+  partyId,
+  leaderUserId,
+  leaderDisplayName,
+  targetUserId,
+  roomId,
+  roomName,
+  templateId,
+  spawnPosition,
+}: {
+  partyId: string
+  leaderUserId: string
+  leaderDisplayName: string
+  targetUserId: string
+  roomId: string
+  roomName: string
+  templateId: string
+  spawnPosition: Position
+}) {
+  clearPendingPartyLeaderFollowRequestForUser(targetUserId)
+
+  const requestId = randomUUID()
+  const expiresAt = Date.now() + PARTY_LEADER_FOLLOW_TTL_MS
+  const timeoutId = setTimeout(() => {
+    void handlePartyLeaderFollowTimeout(requestId)
+  }, PARTY_LEADER_FOLLOW_TTL_MS)
+
+  const pendingRequest: PendingPartyLeaderFollowRequest = {
+    requestId,
+    partyId,
+    leaderUserId,
+    leaderDisplayName,
+    targetUserId,
+    roomId,
+    roomName,
+    templateId,
+    spawnPosition: { ...spawnPosition },
+    expiresAt,
+    timeoutId,
+  }
+
+  pendingPartyLeaderFollowRequests.set(requestId, pendingRequest)
+  pendingPartyLeaderFollowRequestIdsByUser.set(targetUserId, requestId)
+
+  const payload = buildPartyLeaderFollowPromptPayload(pendingRequest)
+  getSocketIdsForUser(targetUserId).forEach((socketId) => {
+    io.to(socketId).emit(serverEvents.partyLeaderFollowRequested, payload)
+  })
+}
+
+async function requestPartyLeaderFollowForPartyMembers(leaderUserId: string) {
+  const party = await buildPartyForUser(leaderUserId)
+  if (!party) {
+    return
+  }
+
+  const leaderPresence = getPresenceForUser(leaderUserId)
+  if (!leaderPresence) {
+    return
+  }
+
+  const leaderRoom = rooms.get(leaderPresence.roomId)
+  if (!leaderRoom) {
+    return
+  }
+
+  const leaderDisplayName =
+    party.members.find((member) => member.userId === party.leaderUserId)?.displayName ?? 'El lider del grupo'
+
+  party.members
+    .filter((member) => member.userId !== leaderUserId && member.isOnline)
+    .forEach((member) => {
+      const memberPresence = getPresenceForUser(member.userId)
+      if (!memberPresence || memberPresence.roomId === leaderRoom.roomId) {
+        clearPendingPartyLeaderFollowRequestForUser(member.userId)
+        return
+      }
+
+      requestPartyLeaderFollowForUser({
+        partyId: party.partyId,
+        leaderUserId,
+        leaderDisplayName,
+        targetUserId: member.userId,
+        roomId: leaderRoom.roomId,
+        roomName: leaderRoom.name,
+        templateId: leaderRoom.templateId,
+        spawnPosition: { ...leaderPresence.position },
+      })
+    })
+}
+
+async function ensurePartyCanGatherInSharedRoom(leaderUserId: string) {
+  const party = await buildPartyForUser(leaderUserId)
+  if (!party || party.leaderUserId !== leaderUserId) {
+    return
+  }
+
+  const leaderPresence = getPresenceForUser(leaderUserId)
+  if (!leaderPresence) {
+    return
+  }
+
+  const leaderRoom = rooms.get(leaderPresence.roomId)
+  if (!leaderRoom) {
+    return
+  }
+
+  const onlinePartyPresences = party.members
+    .filter((member) => member.isOnline)
+    .flatMap((member) => {
+      const presence = getPresenceForUser(member.userId)
+      return presence ? [{ userId: member.userId, presence }] : []
+    })
+
+  if (onlinePartyPresences.length <= 1) {
+    return
+  }
+
+  const membersOutsideLeaderRoom = onlinePartyPresences.filter(
+    ({ presence }) => presence.roomId !== leaderRoom.roomId,
+  )
+
+  if (membersOutsideLeaderRoom.length === 0) {
+    return
+  }
+
+  if (getAvailableSlotsForRoom(leaderRoom) >= membersOutsideLeaderRoom.length) {
+    await requestPartyLeaderFollowForPartyMembers(leaderUserId)
+    return
+  }
+
+  const targetRoom = findOrCreateRoomForPartyPlacement(leaderRoom.templateId, onlinePartyPresences.length, [
+    leaderRoom.roomId,
+  ])
+
+  if (!targetRoom) {
+    emitActivityNoticeToUserIds(
+      [leaderUserId],
+      'Grupo actualizado',
+      'No hay una sala con cupo suficiente para mover a todo el grupo.',
+    )
+    return
+  }
+
+  emitRoomTransitionToUser(leaderUserId, {
+    roomId: targetRoom.roomId,
+    templateId: targetRoom.templateId,
+    spawnPosition: { ...leaderPresence.position },
+    transition: 'teleport',
+  })
+}
+
+function getOrCreateRoom(roomId: string, templateId: string): RoomState | null {
+  const existingRoom = rooms.get(roomId)
+  if (existingRoom) {
+    if (existingRoom.templateId !== templateId) {
+      return null
+    }
+
+    const latestTemplate = getRoomTemplateById(templateId)
+    if (!latestTemplate) {
+      return null
+    }
+
+    // La plantilla de una instancia activa puede contener estados interactivos
+    // (por ejemplo, puertas abiertas). No se reemplaza al unirse otro jugador.
+    existingRoom.name = existingRoom.template.name
+    syncRoomEnemiesForTemplate(existingRoom)
+    return existingRoom
+  }
+
+  const template = getRoomTemplateById(templateId)
+  if (!template) {
+    return null
+  }
+
+  const room: RoomState = {
+    roomId,
+    templateId: template.id,
+    name: template.name,
+    maxUsers: DEFAULT_ROOM_CAPACITY,
+    template,
+    players: [],
+    enemies: [],
+  }
+
+  syncRoomEnemiesForTemplate(room)
+  rooms.set(roomId, room)
+  return room
+}
+
+function refreshActiveRoomsForTemplate(template: RoomState['template']) {
+  rooms.forEach((room) => {
+    if (room.templateId !== template.id) {
+      return
+    }
+
+    room.template = template
+    room.name = template.name
+    syncRoomEnemiesForTemplate(room)
+
+    room.players.forEach((player) => {
+      player.position = clampPositionToRoom(room, player.position)
+      ensureNavigablePlayerPosition(room, player)
+      stopPlayer(player)
+    })
+
+    io.to(room.roomId).emit(serverEvents.roomState, room)
+  })
+}
+
+function pruneSessionPresenceAcrossRooms(sessionId: string) {
+  const affectedRoomIds: string[] = []
+
+  rooms.forEach((room, roomId) => {
+    const removedUserIds = room.players
+      .filter((player) => player.sessionId === sessionId)
+      .map((player) => player.userId)
+    const nextPlayers = room.players.filter((player) => player.sessionId !== sessionId)
+    if (nextPlayers.length === room.players.length) {
+      return
+    }
+
+    room.players = nextPlayers
+    removedUserIds.forEach((userId) => removeUserFromEnemyCombatEncounter(userId))
+    if (room.players.length === 0) {
+      closeEnemyCombatEncountersForRoom(roomId)
+      roomEnemyRuntimes.delete(roomId)
+      rooms.delete(roomId)
+      return
+    }
+
+    affectedRoomIds.push(roomId)
+  })
+
+  affectedRoomIds.forEach((roomId) => {
+    const room = rooms.get(roomId)
+    if (room) {
+      io.to(roomId).emit(serverEvents.roomState, room)
+    }
+  })
+}
+
+function buildPresence(
+  profile: UserProfile,
+  progress: PlayerProgress,
+  sessionId: string,
+  room: RoomState,
+  spawnPosition: Position = room.template.world.spawn,
+): Presence {
+  return {
+    userId: profile.userId,
+    displayName: profile.displayName,
+    sessionId,
+    roomId: room.roomId,
+    level: progress.level,
+    position: { ...spawnPosition },
+    direction: 'down',
+    facing: 'front-right',
+    moving: false,
+    skinId: profile.skinId,
+    skinColors: { ...(profile.skinColors ?? {}) },
+    partyId: null,
+    partyLeaderUserId: null,
+    partyLeaderDisplayName: null,
+    partyLeaderSkinId: null,
+    partyLeaderSkinColors: null,
+    animation: 'idle-down',
+    destination: null,
+    route: null,
+  }
+}
+
+function clonePosition(position: Position): Position {
+  return { x: position.x, y: position.y }
+}
+
+function moveTowardsPoint(from: Position, to: Position, maxDistance: number): Position {
+  const deltaX = to.x - from.x
+  const deltaY = to.y - from.y
+  const distance = Math.hypot(deltaX, deltaY)
+
+  if (distance <= 0.0001 || maxDistance <= 0) {
+    return clonePosition(from)
+  }
+
+  if (distance <= maxDistance) {
+    return clonePosition(to)
+  }
+
+  const ratio = maxDistance / distance
+  return {
+    x: from.x + deltaX * ratio,
+    y: from.y + deltaY * ratio,
+  }
+}
+
+function getEnemyPatrolAreaBounds(enemyTemplate: NonNullable<RoomState['template']['enemies']>[number]): RectBounds {
+  return {
+    left: enemyTemplate.posicion_relativa_X - enemyTemplate.ancho_de_patrullaje_ / 2,
+    right: enemyTemplate.posicion_relativa_X + enemyTemplate.ancho_de_patrullaje_ / 2,
+    top: enemyTemplate.posicion_relativa_Y - enemyTemplate.alto_de_patrullaje_ / 2,
+    bottom: enemyTemplate.posicion_relativa_Y + enemyTemplate.alto_de_patrullaje_ / 2,
+  }
+}
+
+function getEnemyMovementBounds(
+  room: RoomState,
+  enemyTemplate: NonNullable<RoomState['template']['enemies']>[number],
+): RectBounds & { centerX: number; centerY: number } {
+  const worldMinX = ENEMY_HALF_SIZE
+  const worldMaxX = room.template.world.width - ENEMY_HALF_SIZE
+  const worldMinY = ENEMY_HALF_SIZE
+  const worldMaxY = room.template.world.height - ENEMY_HALF_SIZE
+  const patrolAreaBounds = getEnemyPatrolAreaBounds(enemyTemplate)
+  const areaHalfWidth = Math.max(0, enemyTemplate.ancho_de_patrullaje_ / 2 - ENEMY_HALF_SIZE)
+  const areaHalfHeight = Math.max(0, enemyTemplate.alto_de_patrullaje_ / 2 - ENEMY_HALF_SIZE)
+  const centerX = clamp(
+    enemyTemplate.posicion_relativa_X,
+    patrolAreaBounds.left + ENEMY_HALF_SIZE,
+    patrolAreaBounds.right - ENEMY_HALF_SIZE,
+  )
+  const centerY = clamp(
+    enemyTemplate.posicion_relativa_Y,
+    patrolAreaBounds.top + ENEMY_HALF_SIZE,
+    patrolAreaBounds.bottom - ENEMY_HALF_SIZE,
+  )
+  const left = clamp(centerX - areaHalfWidth, worldMinX, worldMaxX)
+  const right = clamp(centerX + areaHalfWidth, worldMinX, worldMaxX)
+  const top = clamp(centerY - areaHalfHeight, worldMinY, worldMaxY)
+  const bottom = clamp(centerY + areaHalfHeight, worldMinY, worldMaxY)
+
+  return {
+    left,
+    right,
+    top,
+    bottom,
+    centerX: clamp(centerX, left, right),
+    centerY: clamp(centerY, top, bottom),
+  }
+}
+
+function getEnemyPatrolPoint(
+  room: RoomState,
+  enemyTemplate: NonNullable<RoomState['template']['enemies']>[number],
+  patrolStep: number,
+): Position {
+  const movementBounds = getEnemyMovementBounds(room, enemyTemplate)
+  const random = createSeededRandom(
+    `${room.roomId}:${enemyTemplate.id}:${enemyTemplate.posicion_relativa_X}:${enemyTemplate.posicion_relativa_Y}:${enemyTemplate.ancho_de_patrullaje_}:${enemyTemplate.alto_de_patrullaje_}:${patrolStep}`,
+  )
+
+  return {
+    x: movementBounds.left + (movementBounds.right - movementBounds.left) * random(),
+    y: movementBounds.top + (movementBounds.bottom - movementBounds.top) * random(),
+  }
+}
+
+function getEnemyPatrolIdleDurationMs(
+  room: RoomState,
+  enemyTemplate: NonNullable<RoomState['template']['enemies']>[number],
+  patrolStep: number,
+) {
+  const random = createSeededRandom(
+    `${room.roomId}:${enemyTemplate.id}:${enemyTemplate.posicion_relativa_X}:${enemyTemplate.posicion_relativa_Y}:idle:${patrolStep}`,
+  )
+
+  return 850 + Math.round(random() * 850)
+}
+
+function buildInitialEnemyState(
+  room: RoomState,
+  enemyTemplate: NonNullable<RoomState['template']['enemies']>[number],
+): RoomEnemyState {
+  const movementBounds = getEnemyMovementBounds(room, enemyTemplate)
+  return {
+    enemyId: enemyTemplate.id,
+    x: movementBounds.centerX,
+    y: movementBounds.centerY,
+    mode: 'patrol',
+    targetUserId: null,
+  }
+}
+
+function buildInitialEnemyRuntimeState(
+  room: RoomState,
+  enemyTemplate: NonNullable<RoomState['template']['enemies']>[number],
+  enemyState: RoomEnemyState,
+): ServerEnemyRuntimeState {
+  const initialPatrolStep = 1
+  const initialPatrolTarget = getEnemyPatrolPoint(room, enemyTemplate, initialPatrolStep)
+
+  return {
+    x: enemyState.x,
+    y: enemyState.y,
+    patrolTargetX: initialPatrolTarget.x,
+    patrolTargetY: initialPatrolTarget.y,
+    patrolStep: initialPatrolStep,
+    mode: enemyState.mode,
+    targetUserId: enemyState.targetUserId,
+    idleUntilMs: Date.now() + getEnemyPatrolIdleDurationMs(room, enemyTemplate, initialPatrolStep),
+  }
+}
+
+function syncRoomEnemiesForTemplate(room: RoomState) {
+  const enemyTemplates = room.template.enemies ?? []
+
+  if (enemyTemplates.length === 0) {
+    room.enemies = []
+    roomEnemyRuntimes.delete(room.roomId)
+    return
+  }
+
+  const currentEnemyStateById = new Map(room.enemies.map((enemyState) => [enemyState.enemyId, enemyState] as const))
+  const currentRuntimeById = roomEnemyRuntimes.get(room.roomId) ?? {}
+  const nextEnemies: RoomEnemyState[] = []
+  const nextRuntimeById: Record<string, ServerEnemyRuntimeState> = {}
+
+  enemyTemplates.forEach((enemyTemplate) => {
+    const enemyState = currentEnemyStateById.get(enemyTemplate.id) ?? buildInitialEnemyState(room, enemyTemplate)
+    nextEnemies.push(enemyState)
+    nextRuntimeById[enemyTemplate.id] =
+      currentRuntimeById[enemyTemplate.id] ?? buildInitialEnemyRuntimeState(room, enemyTemplate, enemyState)
+  })
+
+  room.enemies = nextEnemies
+  roomEnemyRuntimes.set(room.roomId, nextRuntimeById)
+}
+
+function clampPositionToRoom(room: RoomState, position: Position): Position {
+  return {
+    x: Math.min(Math.max(position.x, PLAYER_COLLIDER_WIDTH / 2), room.template.world.width - PLAYER_COLLIDER_WIDTH / 2),
+    y: Math.min(Math.max(position.y, PLAYER_COLLIDER_HEIGHT), room.template.world.height - 20),
+  }
+}
+
+async function removeSessionPresenceFromCurrentRoom(socket: Socket, session: SessionState) {
+  if (!session.roomId) {
+    removeUserFromEnemyCombatEncounter(session.profile.userId)
+    return null
+  }
+
+  const room = rooms.get(session.roomId)
+  if (!room) {
+    session.roomId = null
+    return null
+  }
+
+  const departingPlayer = room.players.find((presence) => presence.sessionId === socket.id) ?? null
+  if (departingPlayer) {
+    await gameRepository.savePlayerState(session.profile.userId, {
+      roomId: room.roomId,
+      position: clonePosition(departingPlayer.position),
+    })
+  }
+
+  room.players = room.players.filter((presence) => presence.sessionId !== socket.id)
+  removeUserFromEnemyCombatEncounter(session.profile.userId)
+  socket.leave(room.roomId)
+  io.to(room.roomId).emit(serverEvents.typingStateChanged, {
+    roomId: room.roomId,
+    userId: session.profile.userId,
+    isTyping: false,
+  })
+  io.to(room.roomId).emit(serverEvents.playerLeft, {
+    sessionId: socket.id,
+    userId: session.profile.userId,
+  })
+
+  if (room.players.length === 0) {
+    closeEnemyCombatEncountersForRoom(room.roomId)
+    roomEnemyRuntimes.delete(room.roomId)
+    rooms.delete(room.roomId)
+  }
+
+  session.roomId = null
+  return departingPlayer
+}
+
+async function joinSessionToRoom(
+  socket: Socket,
+  session: SessionState,
+  room: RoomState,
+  entryPosition?: Position,
+) {
+  pruneSessionPresenceAcrossRooms(socket.id)
+  socket.join(room.roomId)
+  session.roomId = room.roomId
+
+  const persistedState = await gameRepository.getPlayerState(session.profile.userId)
+  const preferredSpawnPosition = entryPosition
+    ? clampPositionToRoom(room, entryPosition)
+    : persistedState?.roomId === room.roomId && persistedState.position
+      ? clampPositionToRoom(room, persistedState.position)
+      : room.template.world.spawn
+
+  const presence = buildPresence(session.profile, session.progress, socket.id, room, preferredSpawnPosition)
+  const partyMarker = await buildPartyPresenceMarkerForUser(session.profile.userId)
+  presence.partyId = partyMarker.partyId
+  presence.partyLeaderUserId = partyMarker.partyLeaderUserId
+  presence.partyLeaderDisplayName = partyMarker.partyLeaderDisplayName
+  presence.partyLeaderSkinId = partyMarker.partyLeaderSkinId
+  presence.partyLeaderSkinColors = partyMarker.partyLeaderSkinColors
+  ensureNavigablePlayerPosition(room, presence)
+  room.players.push(presence)
+  collectOverlappingRoomRewards(room, presence)
+  void gameRepository.savePlayerState(session.profile.userId, {
+    roomId: room.roomId,
+    position: clonePosition(presence.position),
+  })
+
+  socket.emit(serverEvents.roomJoined, {
+    roomId: room.roomId,
+    player: presence,
+  })
+  socket.emit(serverEvents.roomState, room)
+  emitRoomEnemyCombatStateToSocket(socket.id, room.roomId)
+  socket.to(room.roomId).emit(serverEvents.playerJoined, presence)
+
+  return presence
+}
+
+function revokeClientSession(userId: string, clientSessionId: string) {
+  const revokedSessionIds = revokedClientSessionIdsByUserId.get(userId) ?? new Set<string>()
+  revokedSessionIds.add(clientSessionId)
+  revokedClientSessionIdsByUserId.set(userId, revokedSessionIds)
+}
+
+function claimClientSession(userId: string, clientSessionId: string, attemptSequence: number) {
+  if (revokedClientSessionIdsByUserId.get(userId)?.has(clientSessionId)) {
+    return false
+  }
+
+  const activeSession = activeClientSessionByUserId.get(userId)
+  if (!activeSession) {
+    activeClientSessionByUserId.set(userId, { attemptSequence, clientSessionId })
+    return true
+  }
+
+  if (activeSession.clientSessionId === clientSessionId) {
+    if (attemptSequence > activeSession.attemptSequence) {
+      activeSession.attemptSequence = attemptSequence
+    }
+    return true
+  }
+
+  if (attemptSequence < activeSession.attemptSequence) {
+    revokeClientSession(userId, clientSessionId)
+    return false
+  }
+
+  revokeClientSession(userId, activeSession.clientSessionId)
+  activeClientSessionByUserId.set(userId, { attemptSequence, clientSessionId })
+  return true
+}
+
+const SESSION_REPLACED_PAYLOAD: SessionReplacedPayload = {
+  code: 'SESSION_REPLACED',
+  message: 'Tu cuenta se abrió en otro dispositivo. Vuelve a autenticarte para continuar.',
+}
+
+async function notifySessionReplaced(socket: Socket) {
+  await new Promise<void>((resolve) => {
+    let settled = false
+    const finish = () => {
+      if (settled) {
+        return
+      }
+      settled = true
+      clearTimeout(timeoutId)
+      resolve()
+    }
+    const timeoutId = setTimeout(finish, 2500)
+
+    socket.emit(serverEvents.sessionReplaced, SESSION_REPLACED_PAYLOAD, finish)
+  })
+}
+
+async function disconnectConflictingSessionsForUser(
+  userId: string,
+  currentSocketId: string,
+  currentClientSessionId: string,
+) {
+  const conflictingEntries = Array.from(sessions.entries()).filter(
+    ([socketId, session]) => socketId !== currentSocketId && session.profile.userId === userId,
+  )
+
+  for (const [socketId, session] of conflictingEntries) {
+    clearPendingPartyLeaderFollowRequestForUser(session.profile.userId)
+    const conflictingSocket = io.sockets.sockets.get(socketId)
+    if (conflictingSocket) {
+      await removeSessionPresenceFromCurrentRoom(conflictingSocket, session)
+      if (session.clientSessionId !== currentClientSessionId) {
+        await notifySessionReplaced(conflictingSocket)
+      }
+      sessions.delete(socketId)
+      conflictingSocket.disconnect(true)
+    } else {
+      sessions.delete(socketId)
+    }
+
+    pruneSessionPresenceAcrossRooms(socketId)
+  }
+}
+
+function getPlayerColliderBounds(position: Position): RectBounds {
+  return {
+    left: position.x - PLAYER_COLLIDER_WIDTH / 2,
+    right: position.x + PLAYER_COLLIDER_WIDTH / 2,
+    top: position.y - PLAYER_COLLIDER_HEIGHT,
+    bottom: position.y,
+  }
+}
+
+function getObjectColliderBoundsList(roomObject: RoomState['template']['objects'][number]): RectBounds[] {
+  const colliders = roomObject.colliders?.length
+    ? roomObject.colliders.slice(0, 4)
+    : roomObject.collider
+      ? [roomObject.collider]
+      : []
+
+  return colliders
+    .filter((collider) => collider.width > 0 && collider.height > 0)
+    .map((collider) => ({
+      left: roomObject.x + collider.offsetX - collider.width / 2,
+      right: roomObject.x + collider.offsetX + collider.width / 2,
+      top: roomObject.y + collider.offsetY - collider.height / 2,
+      bottom: roomObject.y + collider.offsetY + collider.height / 2,
+    }))
+}
+
+function getObjectNavigationBoundsList(roomObject: RoomState['template']['objects'][number]): RectBounds[] {
+  return getObjectColliderBoundsList(roomObject).map((bounds) => ({
+    left: bounds.left - PATH_COLLIDER_MARGIN,
+    right: bounds.right + PATH_COLLIDER_MARGIN,
+    top: bounds.top - PATH_COLLIDER_MARGIN,
+    bottom: bounds.bottom + PATH_COLLIDER_MARGIN,
+  }))
+}
+
+function getObjectInteractionBounds(roomObject: RoomState['template']['objects'][number]): RectBounds | null {
+  const area = roomObject.interactionArea
+  if (!area) {
+    return null
+  }
+
+  return {
+    left: roomObject.x + area.offsetX - area.width / 2,
+    right: roomObject.x + area.offsetX + area.width / 2,
+    top: roomObject.y + area.offsetY - area.height / 2,
+    bottom: roomObject.y + area.offsetY + area.height / 2,
+  }
+}
+
+function getNpcColliderBoundsList(roomNpc: NonNullable<RoomState['template']['npcs']>[number]): RectBounds[] {
+  if (!roomNpc.collider || roomNpc.collider.width <= 0 || roomNpc.collider.height <= 0) {
+    return []
+  }
+
+  return [
+    {
+      left: roomNpc.x + roomNpc.collider.offsetX - roomNpc.collider.width / 2,
+      right: roomNpc.x + roomNpc.collider.offsetX + roomNpc.collider.width / 2,
+      top: roomNpc.y + roomNpc.collider.offsetY - roomNpc.collider.height / 2,
+      bottom: roomNpc.y + roomNpc.collider.offsetY + roomNpc.collider.height / 2,
+    },
+  ]
+}
+
+function getNpcNavigationBoundsList(roomNpc: NonNullable<RoomState['template']['npcs']>[number]): RectBounds[] {
+  return getNpcColliderBoundsList(roomNpc).map((bounds) => ({
+    left: bounds.left - PATH_COLLIDER_MARGIN,
+    right: bounds.right + PATH_COLLIDER_MARGIN,
+    top: bounds.top - PATH_COLLIDER_MARGIN,
+    bottom: bounds.bottom + PATH_COLLIDER_MARGIN,
+  }))
+}
+
+function overlapsRect(a: RectBounds, b: RectBounds) {
+  return !(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom)
+}
+
+function getObjectVisualBounds(roomObject: RoomState['template']['objects'][number]): RectBounds {
+  return {
+    left: roomObject.x - roomObject.width / 2,
+    right: roomObject.x + roomObject.width / 2,
+    top: roomObject.y - roomObject.height / 2,
+    bottom: roomObject.y + roomObject.height / 2,
+  }
+}
+
+function getRoomCollectibleObjects(template: RoomTemplate) {
+  const cachedObjects = roomCollectibleObjectsCache.get(template)
+  if (cachedObjects) {
+    return cachedObjects
+  }
+
+  const collectibleObjects = template.objects.filter((roomObject) => roomObject.collectible === true)
+  roomCollectibleObjectsCache.set(template, collectibleObjects)
+  return collectibleObjects
+}
+
+function restoreRoomCollectibles(
+  room: RoomState,
+  roomObjects: RoomTemplate['objects'],
+) {
+  if (rooms.get(room.roomId) !== room) {
+    return
+  }
+
+  const currentObjectIds = new Set(room.template.objects.map((roomObject) => roomObject.id))
+  const restoredObjects = roomObjects.filter((roomObject) => !currentObjectIds.has(roomObject.id))
+  if (restoredObjects.length === 0) {
+    return
+  }
+
+  room.template = {
+    ...room.template,
+    objects: [...room.template.objects, ...restoredObjects],
+  }
+
+  restoredObjects.forEach((roomObject) => {
+    io.to(room.roomId).emit(serverEvents.roomObjectStateChanged, {
+      roomId: room.roomId,
+      objectId: roomObject.id,
+      object: roomObject,
+      reason: 'restored',
+    })
+  })
+}
+
+async function persistCollectedRoomRewards(
+  room: RoomState,
+  player: Presence,
+  collectedObjects: RoomTemplate['objects'],
+) {
+  const additions = collectedObjects.reduce<Record<string, number>>((currentValue, roomObject) => {
+    const reward = roomObject.collectibleReward
+    if (!reward || !reward.inventoryItemId.trim() || reward.quantity <= 0) {
+      return currentValue
+    }
+
+    currentValue[reward.inventoryItemId] = (
+      currentValue[reward.inventoryItemId] ?? 0
+    ) + reward.quantity
+    return currentValue
+  }, {})
+  const result = await gameRepository.addPlayerInventoryItems(player.userId, additions)
+
+  if (!result) {
+    restoreRoomCollectibles(room, collectedObjects)
+    return
+  }
+
+  const payload: PlayerInventoryUpdatedPayload = {
+    userId: player.userId,
+    inventory: result.inventory,
+    changes: result.changes,
+    source: 'pickup',
+  }
+
+  sessions.forEach((session, socketId) => {
+    if (session.profile.userId !== player.userId) {
+      return
+    }
+
+    session.inventory = result.inventory
+    io.to(socketId).emit(serverEvents.playerInventoryUpdated, payload)
+  })
+
+  if (rooms.get(room.roomId) !== room) {
+    return
+  }
+
+  collectedObjects.forEach((roomObject) => {
+    io.to(room.roomId).emit(serverEvents.roomObjectStateChanged, {
+      roomId: room.roomId,
+      objectId: roomObject.id,
+      object: null,
+      collectedObject: roomObject,
+      reason: 'collected',
+      actorUserId: player.userId,
+    })
+  })
+}
+
+function collectOverlappingRoomRewards(room: RoomState, player: Presence) {
+  const playerBounds = getPlayerColliderBounds(player.position)
+  const collectedObjects = getRoomCollectibleObjects(room.template)
+    .filter((roomObject) => (
+      roomObject.width > 0
+      && roomObject.height > 0
+      && overlapsRect(playerBounds, getObjectVisualBounds(roomObject))
+    ))
+
+  if (collectedObjects.length === 0) {
+    return
+  }
+
+  const collectedObjectIds = new Set(
+    collectedObjects.map((roomObject) => roomObject.id),
+  )
+
+  room.template = {
+    ...room.template,
+    objects: room.template.objects.filter((roomObject) => !collectedObjectIds.has(roomObject.id)),
+  }
+
+  const persistedRewardObjects = collectedObjects.filter(
+    (roomObject) => roomObject.collectibleReward !== undefined,
+  )
+  const transientCollectibleObjects = collectedObjects.filter(
+    (roomObject) => roomObject.collectibleReward === undefined,
+  )
+
+  transientCollectibleObjects.forEach((roomObject) => {
+    io.to(room.roomId).emit(serverEvents.roomObjectStateChanged, {
+      roomId: room.roomId,
+      objectId: roomObject.id,
+      object: null,
+      collectedObject: roomObject,
+      reason: 'collected',
+      actorUserId: player.userId,
+    })
+  })
+
+  if (persistedRewardObjects.length > 0) {
+    void persistCollectedRoomRewards(room, player, persistedRewardObjects)
+  }
+}
+
+function getClosestEnemyChaseTarget(
+  room: RoomState,
+  enemyTemplate: NonNullable<RoomState['template']['enemies']>[number],
+  enemyRuntime: ServerEnemyRuntimeState,
+): Position & { userId: string } | null {
+  const patrolAreaBounds = getEnemyPatrolAreaBounds(enemyTemplate)
+  const movementBounds = getEnemyMovementBounds(room, enemyTemplate)
+  const candidates = room.players
+    .map((player) => ({
+      userId: player.userId,
+      position: player.position,
+      bounds: getPlayerColliderBounds(player.position),
+    }))
+    .filter((candidate) => overlapsRect(candidate.bounds, patrolAreaBounds))
+
+  if (candidates.length === 0) {
+    return null
+  }
+
+  return candidates
+    .sort((leftCandidate, rightCandidate) => {
+      const leftDistance = Math.hypot(leftCandidate.position.x - enemyRuntime.x, leftCandidate.position.y - enemyRuntime.y)
+      const rightDistance = Math.hypot(
+        rightCandidate.position.x - enemyRuntime.x,
+        rightCandidate.position.y - enemyRuntime.y,
+      )
+      return leftDistance - rightDistance
+    })
+    .map((candidate) => ({
+      userId: candidate.userId,
+      x: clamp(candidate.position.x, movementBounds.left, movementBounds.right),
+      y: clamp(candidate.position.y, movementBounds.top, movementBounds.bottom),
+    }))[0]
+}
+
+function didEnemyStateChange(previousState: RoomEnemyState, nextState: RoomEnemyState) {
+  return (
+    previousState.x !== nextState.x ||
+    previousState.y !== nextState.y ||
+    previousState.mode !== nextState.mode ||
+    previousState.targetUserId !== nextState.targetUserId
+  )
+}
+
+function simulateEnemies(room: RoomState, deltaSeconds: number): RoomEnemiesStatePayload | null {
+  const enemyTemplates = room.template.enemies ?? []
+  if (enemyTemplates.length === 0) {
+    return null
+  }
+
+  syncRoomEnemiesForTemplate(room)
+  const runtimeById = roomEnemyRuntimes.get(room.roomId)
+  if (!runtimeById) {
+    return null
+  }
+
+  let hasChanges = false
+  const nextEnemies = room.enemies.map((enemyState) => ({ ...enemyState }))
+  const nowMs = Date.now()
+
+  enemyTemplates.forEach((enemyTemplate, index) => {
+    const currentState = nextEnemies[index]
+    const enemyRuntime =
+      runtimeById[enemyTemplate.id] ?? buildInitialEnemyRuntimeState(room, enemyTemplate, currentState)
+    const baseMovementSpeedPxPerSecond = Math.max(0, enemyTemplate.velocidad_de_patrullaje_ ?? 72)
+    const patrolSpeedPxPerSecond = baseMovementSpeedPxPerSecond * 0.8
+    const chaseSpeedPxPerSecond = baseMovementSpeedPxPerSecond * 1.2
+    const movementBounds = getEnemyMovementBounds(room, enemyTemplate)
+    const chaseTarget = getClosestEnemyChaseTarget(room, enemyTemplate, enemyRuntime)
+
+    if (chaseTarget) {
+      const nextPosition = moveTowardsPoint(enemyRuntime, chaseTarget, chaseSpeedPxPerSecond * deltaSeconds)
+      const nextState: RoomEnemyState = {
+        enemyId: enemyTemplate.id,
+        x: clamp(nextPosition.x, movementBounds.left, movementBounds.right),
+        y: clamp(nextPosition.y, movementBounds.top, movementBounds.bottom),
+        mode: 'chase',
+        targetUserId: chaseTarget.userId,
+      }
+
+      runtimeById[enemyTemplate.id] = {
+        ...enemyRuntime,
+        x: nextState.x,
+        y: nextState.y,
+        patrolTargetX: chaseTarget.x,
+        patrolTargetY: chaseTarget.y,
+        mode: nextState.mode,
+        targetUserId: nextState.targetUserId,
+        idleUntilMs: 0,
+      }
+
+      if (didEnemyStateChange(currentState, nextState)) {
+        hasChanges = true
+      }
+
+      nextEnemies[index] = nextState
+      return
+    }
+
+    if (enemyRuntime.idleUntilMs > nowMs) {
+      runtimeById[enemyTemplate.id] = {
+        ...enemyRuntime,
+        x: currentState.x,
+        y: currentState.y,
+        mode: 'patrol',
+        targetUserId: null,
+      }
+
+      return
+    }
+
+    const distanceToPatrolTarget = Math.hypot(enemyRuntime.patrolTargetX - enemyRuntime.x, enemyRuntime.patrolTargetY - enemyRuntime.y)
+    const reachedPatrolTarget = distanceToPatrolTarget <= Math.max(12, patrolSpeedPxPerSecond * deltaSeconds)
+
+    if (reachedPatrolTarget) {
+      const nextPatrolStep = enemyRuntime.patrolStep + 1
+      const nextPatrolTarget = getEnemyPatrolPoint(room, enemyTemplate, nextPatrolStep)
+
+      runtimeById[enemyTemplate.id] = {
+        x: currentState.x,
+        y: currentState.y,
+        patrolTargetX: nextPatrolTarget.x,
+        patrolTargetY: nextPatrolTarget.y,
+        patrolStep: nextPatrolStep,
+        mode: 'patrol',
+        targetUserId: null,
+        idleUntilMs: nowMs + getEnemyPatrolIdleDurationMs(room, enemyTemplate, nextPatrolStep),
+      }
+
+      return
+    }
+
+    const patrolTarget = {
+      x: enemyRuntime.patrolTargetX,
+      y: enemyRuntime.patrolTargetY,
+    }
+    const nextPosition = moveTowardsPoint(enemyRuntime, patrolTarget, patrolSpeedPxPerSecond * deltaSeconds)
+    const nextState: RoomEnemyState = {
+      enemyId: enemyTemplate.id,
+      x: clamp(nextPosition.x, movementBounds.left, movementBounds.right),
+      y: clamp(nextPosition.y, movementBounds.top, movementBounds.bottom),
+      mode: 'patrol',
+      targetUserId: null,
+    }
+
+    runtimeById[enemyTemplate.id] = {
+      x: nextState.x,
+      y: nextState.y,
+      patrolTargetX: patrolTarget.x,
+      patrolTargetY: patrolTarget.y,
+      patrolStep: enemyRuntime.patrolStep,
+      mode: nextState.mode,
+      targetUserId: nextState.targetUserId,
+      idleUntilMs: 0,
+    }
+
+    if (didEnemyStateChange(currentState, nextState)) {
+      hasChanges = true
+    }
+
+    nextEnemies[index] = nextState
+  })
+
+  if (!hasChanges) {
+    return null
+  }
+
+  room.enemies = nextEnemies
+  return {
+    roomId: room.roomId,
+    enemies: nextEnemies,
+  }
+}
+
+function isBlockedByRoomObjects(room: RoomState, position: Position) {
+  const playerBounds = getPlayerColliderBounds(position)
+  return getRoomNavigationGeometry(room).bounds.some((bounds) => overlapsRect(playerBounds, bounds))
+}
+
+function getRoomNavigationGeometry(room: RoomState): RoomNavigationGeometry {
+  const cached = roomNavigationGeometryCache.get(room.template)
+  if (cached) {
+    return cached
+  }
+
+  const geometry: RoomNavigationGeometry = {
+    bounds: [
+      ...room.template.objects.flatMap(getObjectNavigationBoundsList),
+      ...(room.template.npcs ?? []).flatMap(getNpcNavigationBoundsList),
+    ],
+    blockedCells: null,
+  }
+  roomNavigationGeometryCache.set(room.template, geometry)
+  return geometry
+}
+
+function expandBoundsForPlayer(bounds: RectBounds): RectBounds {
+  return {
+    left: bounds.left - PLAYER_COLLIDER_WIDTH / 2,
+    right: bounds.right + PLAYER_COLLIDER_WIDTH / 2,
+    top: bounds.top,
+    bottom: bounds.bottom + PLAYER_COLLIDER_HEIGHT,
+  }
+}
+
+function segmentIntersectsExpandedBounds(from: Position, to: Position, bounds: RectBounds) {
+  const expanded = expandBoundsForPlayer(bounds)
+
+  if (
+    from.x >= expanded.left &&
+    from.x <= expanded.right &&
+    from.y >= expanded.top &&
+    from.y <= expanded.bottom
+  ) {
+    return true
+  }
+
+  if (
+    to.x >= expanded.left &&
+    to.x <= expanded.right &&
+    to.y >= expanded.top &&
+    to.y <= expanded.bottom
+  ) {
+    return true
+  }
+
+  const deltaX = to.x - from.x
+  const deltaY = to.y - from.y
+  let entry = 0
+  let exit = 1
+
+  const updateInterval = (p: number, q: number) => {
+    if (Math.abs(p) < 0.000001) {
+      return q >= 0
+    }
+
+    const ratio = q / p
+
+    if (p < 0) {
+      if (ratio > exit) {
+        return false
+      }
+      if (ratio > entry) {
+        entry = ratio
+      }
+      return true
+    }
+
+    if (ratio < entry) {
+      return false
+    }
+    if (ratio < exit) {
+      exit = ratio
+    }
+    return true
+  }
+
+  if (!updateInterval(-deltaX, from.x - expanded.left)) {
+    return false
+  }
+  if (!updateInterval(deltaX, expanded.right - from.x)) {
+    return false
+  }
+  if (!updateInterval(-deltaY, from.y - expanded.top)) {
+    return false
+  }
+  if (!updateInterval(deltaY, expanded.bottom - from.y)) {
+    return false
+  }
+
+  return entry <= exit && exit >= 0 && entry <= 1
+}
+
+function isRouteSegmentBlocked(room: RoomState, from: Position, to: Position) {
+  return getRoomNavigationGeometry(room).bounds.some((bounds) =>
+    segmentIntersectsExpandedBounds(from, to, bounds),
+  )
+}
+
+
+function isSamePosition(a: Position, b: Position) {
+  return Math.abs(a.x - b.x) < 0.001 && Math.abs(a.y - b.y) < 0.001
+}
+
+function isPointNavigable(room: RoomState, position: Position) {
+  const clamped = clampPositionToRoom(room, position)
+  return isSamePosition(clamped, position) && !isBlockedByRoomObjects(room, position)
+}
+
+interface GridCell {
+  column: number
+  row: number
+}
+
+interface PathResult {
+  resolvedTarget: Position
+  waypoints: Position[]
+}
+
+function createCellKey(cell: GridCell) {
+  return `${cell.column}:${cell.row}`
+}
+
+function getCellCenter(room: RoomState, cell: GridCell): Position {
+  return clampPositionToRoom(room, {
+    x: cell.column * PATH_GRID_SIZE + PATH_GRID_SIZE / 2,
+    y: cell.row * PATH_GRID_SIZE + PATH_GRID_SIZE / 2,
+  })
+}
+
+function getCellFromPosition(position: Position): GridCell {
+  return {
+    column: Math.max(0, Math.floor(position.x / PATH_GRID_SIZE)),
+    row: Math.max(0, Math.floor(position.y / PATH_GRID_SIZE)),
+  }
+}
+
+function getGridDimensions(room: RoomState) {
+  return {
+    columns: Math.max(1, Math.ceil(room.template.world.width / PATH_GRID_SIZE)),
+    rows: Math.max(1, Math.ceil(room.template.world.height / PATH_GRID_SIZE)),
+  }
+}
+
+function buildBlockedCellSet(room: RoomState) {
+  const geometry = getRoomNavigationGeometry(room)
+  if (geometry.blockedCells) {
+    return geometry.blockedCells
+  }
+
+  const { columns, rows } = getGridDimensions(room)
+  const blocked = new Set<string>()
+
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      const cell = { column, row }
+      const center = getCellCenter(room, cell)
+      if (!isPointNavigable(room, center)) {
+        blocked.add(createCellKey(cell))
+      }
+    }
+  }
+
+  geometry.blockedCells = blocked
+  return blocked
+}
+
+function findNearestWalkableCell(room: RoomState, position: Position, blocked: Set<string>, maxRadius = PATH_SEARCH_MAX_RADIUS) {
+  const { columns, rows } = getGridDimensions(room)
+  const origin = getCellFromPosition(position)
+
+  const isWalkable = (cell: GridCell) => {
+    if (cell.column < 0 || cell.column >= columns || cell.row < 0 || cell.row >= rows) {
+      return false
+    }
+
+    return !blocked.has(createCellKey(cell))
+  }
+
+  if (isWalkable(origin)) {
+    return origin
+  }
+
+  for (let radius = 1; radius <= maxRadius; radius += 1) {
+    let bestCell: GridCell | null = null
+    let bestDistance = Number.POSITIVE_INFINITY
+
+    for (let row = origin.row - radius; row <= origin.row + radius; row += 1) {
+      for (let column = origin.column - radius; column <= origin.column + radius; column += 1) {
+        const isBorder = row === origin.row - radius || row === origin.row + radius || column === origin.column - radius || column === origin.column + radius
+        if (!isBorder) {
+          continue
+        }
+
+        const candidate = { column, row }
+        if (!isWalkable(candidate)) {
+          continue
+        }
+
+        const center = getCellCenter(room, candidate)
+        const distance = Math.hypot(center.x - position.x, center.y - position.y)
+        if (distance < bestDistance) {
+          bestCell = candidate
+          bestDistance = distance
+        }
+      }
+    }
+
+    if (bestCell) {
+      return bestCell
+    }
+  }
+
+  return null
+}
+
+
+function findReachableStartCells(room: RoomState, start: Position, blocked: Set<string>, maxRadius = PATH_START_SEARCH_MAX_RADIUS) {
+  const { columns, rows } = getGridDimensions(room)
+  const origin = getCellFromPosition(start)
+  const candidates: Array<{ cell: GridCell; approachCost: number }> = []
+  const seen = new Set<string>()
+
+  for (let radius = 0; radius <= maxRadius; radius += 1) {
+    for (let row = origin.row - radius; row <= origin.row + radius; row += 1) {
+      for (let column = origin.column - radius; column <= origin.column + radius; column += 1) {
+        const isBorder = radius === 0 || row === origin.row - radius || row === origin.row + radius || column === origin.column - radius || column === origin.column + radius
+        if (!isBorder) {
+          continue
+        }
+
+        if (column < 0 || column >= columns || row < 0 || row >= rows) {
+          continue
+        }
+
+        const cell = { column, row }
+        const key = createCellKey(cell)
+        if (seen.has(key) || blocked.has(key)) {
+          continue
+        }
+
+        const center = getCellCenter(room, cell)
+        if (isRouteSegmentBlocked(room, start, center)) {
+          continue
+        }
+
+        seen.add(key)
+        candidates.push({
+          cell,
+          approachCost: Math.hypot(center.x - start.x, center.y - start.y),
+        })
+      }
+    }
+  }
+
+  return candidates.sort((left, right) => left.approachCost - right.approachCost)
+}
+
+function getNeighborCells(room: RoomState, cell: GridCell, blocked: Set<string>) {
+  const { columns, rows } = getGridDimensions(room)
+  const neighbors: Array<{ cell: GridCell; cost: number }> = []
+
+  for (let rowOffset = -1; rowOffset <= 1; rowOffset += 1) {
+    for (let columnOffset = -1; columnOffset <= 1; columnOffset += 1) {
+      if (rowOffset === 0 && columnOffset === 0) {
+        continue
+      }
+
+      const nextCell = {
+        column: cell.column + columnOffset,
+        row: cell.row + rowOffset,
+      }
+
+      if (nextCell.column < 0 || nextCell.column >= columns || nextCell.row < 0 || nextCell.row >= rows) {
+        continue
+      }
+
+      if (blocked.has(createCellKey(nextCell))) {
+        continue
+      }
+
+      if (rowOffset !== 0 && columnOffset !== 0) {
+        const sideA = { column: cell.column + columnOffset, row: cell.row }
+        const sideB = { column: cell.column, row: cell.row + rowOffset }
+        if (blocked.has(createCellKey(sideA)) || blocked.has(createCellKey(sideB))) {
+          continue
+        }
+      }
+
+      neighbors.push({
+        cell: nextCell,
+        cost: rowOffset !== 0 && columnOffset !== 0 ? Math.SQRT2 : 1,
+      })
+    }
+  }
+
+  return neighbors
+}
+
+function estimateCellDistance(a: GridCell, b: GridCell) {
+  const deltaColumn = Math.abs(a.column - b.column)
+  const deltaRow = Math.abs(a.row - b.row)
+  const diagonal = Math.min(deltaColumn, deltaRow)
+  const straight = Math.max(deltaColumn, deltaRow) - diagonal
+  return diagonal * Math.SQRT2 + straight
+}
+
+function reconstructCellPath(cameFrom: Map<string, string>, endCell: GridCell) {
+  const cells = [endCell]
+  let currentKey = createCellKey(endCell)
+
+  while (cameFrom.has(currentKey)) {
+    const parentKey = cameFrom.get(currentKey)
+    if (!parentKey) {
+      break
+    }
+
+    const [column, row] = parentKey.split(':').map(Number)
+    cells.push({ column, row })
+    currentKey = parentKey
+  }
+
+  return cells.reverse()
+}
+
+interface PathQueueEntry {
+  key: string
+  cell: GridCell
+  score: number
+}
+
+interface CellPathResult {
+  resolvedTarget: Position
+  waypoints: Position[]
+}
+
+function pushPathQueue(queue: PathQueueEntry[], entry: PathQueueEntry) {
+  queue.push(entry)
+  let index = queue.length - 1
+
+  while (index > 0) {
+    const parentIndex = Math.floor((index - 1) / 2)
+    if (queue[parentIndex].score <= queue[index].score) {
+      break
+    }
+
+    ;[queue[parentIndex], queue[index]] = [queue[index], queue[parentIndex]]
+    index = parentIndex
+  }
+}
+
+function popPathQueue(queue: PathQueueEntry[]) {
+  const first = queue[0]
+  const last = queue.pop()
+  if (!first || !last || queue.length === 0) {
+    return first ?? null
+  }
+
+  queue[0] = last
+  let index = 0
+
+  while (true) {
+    const leftIndex = index * 2 + 1
+    const rightIndex = leftIndex + 1
+    let smallestIndex = index
+
+    if (leftIndex < queue.length && queue[leftIndex].score < queue[smallestIndex].score) {
+      smallestIndex = leftIndex
+    }
+    if (rightIndex < queue.length && queue[rightIndex].score < queue[smallestIndex].score) {
+      smallestIndex = rightIndex
+    }
+    if (smallestIndex === index) {
+      break
+    }
+
+    ;[queue[index], queue[smallestIndex]] = [queue[smallestIndex], queue[index]]
+    index = smallestIndex
+  }
+
+  return first
+}
+
+function buildCellWaypoints(
+  room: RoomState,
+  start: Position,
+  cameFrom: Map<string, string>,
+  endCell: GridCell,
+  finalTarget: Position,
+) {
+  const cellPath = reconstructCellPath(cameFrom, endCell)
+  const roughPoints: Position[] = [start]
+
+  for (const cell of cellPath) {
+    const point = getCellCenter(room, cell)
+    const previousPoint = roughPoints[roughPoints.length - 1]
+    if (!isSamePosition(previousPoint, point)) {
+      roughPoints.push(point)
+    }
+  }
+
+  const lastPoint = roughPoints[roughPoints.length - 1]
+  if (!isSamePosition(lastPoint, finalTarget) && !isRouteSegmentBlocked(room, lastPoint, finalTarget)) {
+    roughPoints.push(finalTarget)
+  }
+
+  return roughPoints
+    .slice(1)
+    .filter((point, index, array) => index === 0 || !isSamePosition(point, array[index - 1]))
+}
+
+function findPathBetweenCells(
+  room: RoomState,
+  blocked: Set<string>,
+  start: Position,
+  startCells: Array<{ cell: GridCell; approachCost: number }>,
+  targetCell: GridCell,
+  destination: Position,
+): CellPathResult | null {
+  const targetKey = createCellKey(targetCell)
+  const queue: PathQueueEntry[] = []
+  const cameFrom = new Map<string, string>()
+  const gScore = new Map<string, number>()
+  const fScore = new Map<string, number>()
+  const closed = new Set<string>()
+  let closestCell: GridCell | null = null
+  let closestDistance = Number.POSITIVE_INFINITY
+  let closestPathCost = Number.POSITIVE_INFINITY
+  const initialDistanceToTarget = Math.hypot(start.x - destination.x, start.y - destination.y)
+
+  startCells.forEach(({ cell, approachCost }) => {
+    const key = createCellKey(cell)
+    const normalizedApproachCost = approachCost / PATH_GRID_SIZE
+    const score = normalizedApproachCost + estimateCellDistance(cell, targetCell)
+    if (normalizedApproachCost >= (gScore.get(key) ?? Number.POSITIVE_INFINITY)) {
+      return
+    }
+
+    gScore.set(key, normalizedApproachCost)
+    fScore.set(key, score)
+    pushPathQueue(queue, { key, cell, score })
+  })
+
+  while (queue.length > 0) {
+    const currentEntry = popPathQueue(queue)
+    if (!currentEntry || closed.has(currentEntry.key)) {
+      continue
+    }
+    if (currentEntry.score > (fScore.get(currentEntry.key) ?? Number.POSITIVE_INFINITY) + 0.000001) {
+      continue
+    }
+
+    const currentKey = currentEntry.key
+    const currentCell = currentEntry.cell
+    closed.add(currentKey)
+
+    const currentCenter = getCellCenter(room, currentCell)
+    const distanceToTarget = Math.hypot(
+      currentCenter.x - destination.x,
+      currentCenter.y - destination.y,
+    )
+    const currentG = gScore.get(currentKey) ?? Number.POSITIVE_INFINITY
+    if (
+      distanceToTarget < closestDistance - 0.000001
+      || (Math.abs(distanceToTarget - closestDistance) <= 0.000001 && currentG < closestPathCost)
+    ) {
+      closestCell = currentCell
+      closestDistance = distanceToTarget
+      closestPathCost = currentG
+    }
+
+    if (currentKey === targetKey) {
+      const waypoints = buildCellWaypoints(room, start, cameFrom, targetCell, destination)
+      return {
+        resolvedTarget: destination,
+        waypoints: waypoints.length > 0 ? waypoints : [destination],
+      }
+    }
+
+    for (const neighbor of getNeighborCells(room, currentCell, blocked)) {
+      const neighborKey = createCellKey(neighbor.cell)
+      if (closed.has(neighborKey)) {
+        continue
+      }
+      const tentativeG = currentG + neighbor.cost
+
+      if (tentativeG >= (gScore.get(neighborKey) ?? Number.POSITIVE_INFINITY)) {
+        continue
+      }
+
+      cameFrom.set(neighborKey, currentKey)
+      gScore.set(neighborKey, tentativeG)
+      const nextScore = tentativeG + estimateCellDistance(neighbor.cell, targetCell)
+      fScore.set(neighborKey, nextScore)
+      pushPathQueue(queue, { key: neighborKey, cell: neighbor.cell, score: nextScore })
+    }
+  }
+
+  if (!closestCell || closestDistance >= initialDistanceToTarget - 0.000001) {
+    return null
+  }
+
+  const fallbackTarget = getCellCenter(room, closestCell)
+  const waypoints = buildCellWaypoints(room, start, cameFrom, closestCell, fallbackTarget)
+  if (waypoints.length === 0) {
+    return null
+  }
+
+  return {
+    resolvedTarget: fallbackTarget,
+    waypoints,
+  }
+}
+
+function findPath(room: RoomState, start: Position, destination: Position): PathResult | null {
+  const destinationIsNavigable = isPointNavigable(room, destination)
+
+  // La mayoría de los clics tienen línea directa. Resolverlos antes de crear o
+  // consultar la cuadrícula evita pagar el costo de A* para cada movimiento.
+  if (destinationIsNavigable && !isRouteSegmentBlocked(room, start, destination)) {
+    return {
+      resolvedTarget: destination,
+      waypoints: [destination],
+    }
+  }
+
+  const blocked = buildBlockedCellSet(room)
+  // Si el clic cae dentro de un collider muy grande puede no existir un centro
+  // caminable en el radio local. Aun así usamos esa celda como referencia: A*
+  // recorrerá solo el componente accesible y resolverá el borde más cercano.
+  const targetCell = findNearestWalkableCell(room, destination, blocked, PATH_TARGET_SEARCH_MAX_RADIUS)
+    ?? getCellFromPosition(destination)
+
+  const cellTargetCenter = getCellCenter(room, targetCell)
+  const resolvedTarget = destinationIsNavigable && !isRouteSegmentBlocked(room, cellTargetCenter, destination)
+    ? destination
+    : cellTargetCenter
+
+  if (!isRouteSegmentBlocked(room, start, resolvedTarget)) {
+    return {
+      resolvedTarget,
+      waypoints: [resolvedTarget],
+    }
+  }
+
+  const candidateStartCells = findReachableStartCells(room, start, blocked)
+  if (candidateStartCells.length === 0) {
+    return null
+  }
+
+  const path = findPathBetweenCells(room, blocked, start, candidateStartCells, targetCell, resolvedTarget)
+  return path
+    ? {
+        resolvedTarget: path.resolvedTarget,
+        waypoints: path.waypoints,
+      }
+    : null
+}
+
+
+function ensureNavigablePlayerPosition(room: RoomState, player: Presence) {
+  if (!isBlockedByRoomObjects(room, player.position)) {
+    return true
+  }
+
+  const blocked = buildBlockedCellSet(room)
+  const safeCell = findNearestWalkableCell(room, player.position, blocked, PATH_SEARCH_MAX_RADIUS * 2)
+  if (!safeCell) {
+    return false
+  }
+
+  player.position = getCellCenter(room, safeCell)
+  return true
+}
+
+function setPlayerDestination(player: Presence, destination: Position) {
+  player.facing = resolvePlayerFacing(
+    destination.x - player.position.x,
+    destination.y - player.position.y,
+    player.facing,
+  )
+  player.destination = destination
+  player.direction = resolveDirection(player.position, destination)
+  player.animation = `walk-${player.direction}`
+  player.moving = true
+}
+
+function advancePlayerRoute(player: Presence) {
+  if (!player.route || player.route.waypoints.length === 0) {
+    stopPlayer(player)
+    return false
+  }
+
+  player.route.waypoints.shift()
+
+  if (player.route.waypoints.length === 0) {
+    stopPlayer(player)
+    return false
+  }
+
+  setPlayerDestination(player, player.route.waypoints[0])
+  return true
+}
+
+function resolveDirection(from: Position, to: Position): Direction {
+  const deltaX = to.x - from.x
+  const deltaY = to.y - from.y
+
+  if (Math.abs(deltaX) > Math.abs(deltaY)) {
+    return deltaX >= 0 ? 'right' : 'left'
+  }
+
+  return deltaY >= 0 ? 'down' : 'up'
+}
+
+function resolvePlayerFacing(
+  deltaX: number,
+  deltaY: number,
+  fallback: PlayerFacing = 'front-right',
+): PlayerFacing {
+  if (Math.abs(deltaX) < 0.001 && Math.abs(deltaY) < 0.001) {
+    return fallback
+  }
+
+  const wasFacingLeft = fallback === 'front-left' || fallback === 'back-left'
+  const isLeft = Math.abs(deltaX) < 0.001 ? wasFacingLeft : deltaX < 0
+  const isBack = deltaY < 0 && Math.abs(deltaY) >= Math.abs(deltaX) * 0.65
+
+  if (isBack) {
+    return isLeft ? 'back-left' : 'back-right'
+  }
+
+  return isLeft ? 'front-left' : 'front-right'
+}
+
+function updateRoute(room: RoomState, player: Presence, target: Position) {
+  if (!ensureNavigablePlayerPosition(room, player)) {
+    stopPlayer(player)
+    return false
+  }
+
+  const start = clonePosition(player.position)
+  const desiredTarget = clampPositionToRoom(room, target)
+  const path = findPath(room, start, desiredTarget)
+
+  if (!path || path.waypoints.length === 0) {
+    stopPlayer(player)
+    return false
+  }
+
+  player.route = {
+    start,
+    target: path.resolvedTarget,
+    waypoints: path.waypoints,
+  }
+  setPlayerDestination(player, path.waypoints[0])
+  return true
+}
+
+function stopPlayer(player: Presence) {
+  player.moving = false
+  player.destination = null
+  player.route = null
+  player.animation = `idle-${player.direction}`
+}
+
+function movePlayerWithKeyboard(room: RoomState, player: Presence, session: SessionState, deltaSeconds: number) {
+  if (!ensureNavigablePlayerPosition(room, player)) {
+    stopPlayer(player)
+    return
+  }
+
+  const { horizontal, vertical } = getMovementInputVector(session.movementInput)
+
+  if (horizontal === 0 && vertical === 0) {
+    stopPlayer(player)
+    return
+  }
+
+  stopPlayer(player)
+
+  const magnitude = Math.hypot(horizontal, vertical)
+  const normalizedX = horizontal / magnitude
+  const normalizedY = vertical / magnitude
+  const step = PLAYER_SPEED * deltaSeconds
+
+  const combinedPosition = clampPositionToRoom(room, {
+    x: player.position.x + normalizedX * step,
+    y: player.position.y + normalizedY * step,
+  })
+
+  const xOnlyPosition = clampPositionToRoom(room, {
+    x: player.position.x + normalizedX * step,
+    y: player.position.y,
+  })
+
+  const yOnlyPosition = clampPositionToRoom(room, {
+    x: player.position.x,
+    y: player.position.y + normalizedY * step,
+  })
+
+  let nextPosition = player.position
+
+  if (!isBlockedByRoomObjects(room, combinedPosition) && !isRouteSegmentBlocked(room, player.position, combinedPosition)) {
+    nextPosition = combinedPosition
+  } else if (
+    horizontal !== 0 &&
+    !isBlockedByRoomObjects(room, xOnlyPosition) &&
+    !isRouteSegmentBlocked(room, player.position, xOnlyPosition)
+  ) {
+    nextPosition = xOnlyPosition
+  } else if (
+    vertical !== 0 &&
+    !isBlockedByRoomObjects(room, yOnlyPosition) &&
+    !isRouteSegmentBlocked(room, player.position, yOnlyPosition)
+  ) {
+    nextPosition = yOnlyPosition
+  }
+
+  const didMove = !isSamePosition(nextPosition, player.position)
+  const facingDeltaX = didMove ? nextPosition.x - player.position.x : horizontal
+  const facingDeltaY = didMove ? nextPosition.y - player.position.y : vertical
+  const targetDirection = resolveDirection(player.position, {
+    x: player.position.x + facingDeltaX,
+    y: player.position.y + facingDeltaY,
+  })
+
+  player.direction = targetDirection
+  player.facing = resolvePlayerFacing(facingDeltaX, facingDeltaY, player.facing)
+
+  if (!didMove) {
+    player.moving = false
+    player.animation = `idle-${player.direction}`
+    return
+  }
+
+  player.position = nextPosition
+  player.moving = true
+  player.animation = `walk-${player.direction}`
+}
+
+function simulateMovement(deltaSeconds: number) {
+  rooms.forEach((room) => {
+    room.players.forEach((player) => {
+      const session = sessions.get(player.sessionId)
+
+      if (session?.keyboardControlling) {
+        movePlayerWithKeyboard(room, player, session, deltaSeconds)
+        collectOverlappingRoomRewards(room, player)
+        io.to(room.roomId).emit(serverEvents.playerMoved, player)
+        return
+      }
+
+      if (!player.destination) {
+        collectOverlappingRoomRewards(room, player)
+        return
+      }
+
+      const deltaX = player.destination.x - player.position.x
+      const deltaY = player.destination.y - player.position.y
+      const distance = Math.hypot(deltaX, deltaY)
+
+      if (distance <= PLAYER_REACH_THRESHOLD) {
+        player.position = clonePosition(player.destination)
+        collectOverlappingRoomRewards(room, player)
+
+        if (!advancePlayerRoute(player)) {
+          io.to(room.roomId).emit(serverEvents.playerMoved, player)
+          return
+        }
+
+        io.to(room.roomId).emit(serverEvents.playerMoved, player)
+        return
+      }
+
+      const step = PLAYER_SPEED * deltaSeconds
+      const factor = Math.min(step / distance, 1)
+      const nextPosition = clampPositionToRoom(room, {
+        x: player.position.x + deltaX * factor,
+        y: player.position.y + deltaY * factor,
+      })
+
+      if (isBlockedByRoomObjects(room, nextPosition) || isRouteSegmentBlocked(room, player.position, nextPosition)) {
+        stopPlayer(player)
+        collectOverlappingRoomRewards(room, player)
+        io.to(room.roomId).emit(serverEvents.playerMoved, player)
+        return
+      }
+
+      player.position = nextPosition
+      player.moving = true
+      collectOverlappingRoomRewards(room, player)
+      io.to(room.roomId).emit(serverEvents.playerMoved, player)
+    })
+
+    const roomEnemiesStatePayload = simulateEnemies(room, deltaSeconds)
+    if (roomEnemiesStatePayload) {
+      io.to(room.roomId).emit(serverEvents.roomEnemiesState, roomEnemiesStatePayload)
+    }
+  })
+}
+
+setInterval(() => {
+  const now = Date.now()
+  const deltaSeconds = Math.min((now - lastSimulationTick) / 1000, 0.05)
+  lastSimulationTick = now
+  simulateMovement(deltaSeconds)
+}, 1000 / 20)
+
+io.on('connection', (socket) => {
+  socket.on(clientEvents.connectToGame, async (rawPayload) => {
+    nextConnectionAttemptSequence += 1
+    const connectionAttemptSequence = nextConnectionAttemptSequence
+    const parsed = connectToGameSchema.safeParse(rawPayload)
+
+    if (!parsed.success) {
+      socket.emit(serverEvents.serverError, {
+        code: 'INVALID_CONNECT_PAYLOAD',
+        message: 'La conexion inicial no es valida.',
+      })
+      return
+    }
+
+    const resolvedProfileResult = await gameRepository.resolveUserProfile(parsed.data.profile)
+    const resolvedProfile = resolvedProfileResult.profile
+    const clientSessionId = parsed.data.clientSessionId
+
+    if (!socket.connected) {
+      return
+    }
+
+    if (!claimClientSession(resolvedProfile.userId, clientSessionId, connectionAttemptSequence)) {
+      await notifySessionReplaced(socket)
+      socket.disconnect(true)
+      return
+    }
+
+    const session: SessionState = {
+      clientSessionId,
+      sessionId: socket.id,
+      profile: resolvedProfile,
+      progress: resolvedProfileResult.progress,
+      inventory: resolvedProfileResult.inventory,
+      roomId: null,
+      movementInput: {
+        up: false,
+        down: false,
+        left: false,
+        right: false,
+      },
+      keyboardControlling: false,
+    }
+
+    sessions.set(socket.id, session)
+    await disconnectConflictingSessionsForUser(resolvedProfile.userId, socket.id, clientSessionId)
+
+    const activeClientSession = activeClientSessionByUserId.get(resolvedProfile.userId)
+    if (
+      !socket.connected ||
+      sessions.get(socket.id) !== session ||
+      activeClientSession?.clientSessionId !== clientSessionId
+    ) {
+      sessions.delete(socket.id)
+      if (socket.connected) {
+        await notifySessionReplaced(socket)
+        socket.disconnect(true)
+      }
+      return
+    }
+
+    const connectionAcceptedPayload: ConnectionAcceptedPayload = {
+      sessionId: socket.id,
+      profile: resolvedProfile,
+      needsOnboarding: resolvedProfileResult.needsOnboarding,
+      progress: resolvedProfileResult.progress,
+      inventory: resolvedProfileResult.inventory,
+      friends: resolvedProfileResult.friends.map((friend) => ({
+        ...friend,
+        isOnline: sessionsHasUser(friend.userId),
+      })),
+      incomingFriendRequests: resolvedProfileResult.incomingFriendRequests,
+      outgoingFriendRequestUserIds: resolvedProfileResult.outgoingFriendRequestUserIds,
+      party: resolvedProfileResult.party
+        ? {
+            ...resolvedProfileResult.party,
+            members: resolvedProfileResult.party.members.map((member) => ({
+              ...member,
+              isOnline: sessionsHasUser(member.userId),
+            })),
+          }
+        : null,
+      incomingPartyInvites: resolvedProfileResult.incomingPartyInvites,
+      outgoingPartyInvites: resolvedProfileResult.outgoingPartyInvites,
+    }
+
+    socket.emit(serverEvents.connectionAccepted, connectionAcceptedPayload)
+    void refreshSocialStateForAllSessions()
+    void refreshPartyStateForAllSessions()
+  })
+
+  socket.on(clientEvents.completeOnboarding, async (rawPayload, callback) => {
+    const parsed = completeOnboardingSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible completar el registro inicial.',
+      })
+      return
+    }
+
+    session.profile.skinId = parsed.data.skinId
+    session.profile.skinColors = { ...(parsed.data.skinColors ?? {}) }
+    await gameRepository.completeOnboarding(session.profile)
+    session.progress = await gameRepository.getPlayerProgress(session.profile.userId)
+    session.inventory = await gameRepository.getPlayerInventory(session.profile.userId)
+
+    callback?.({
+      ok: true,
+      profile: session.profile,
+      progress: session.progress,
+      inventory: session.inventory,
+    })
+
+    void emitSocialStateToSocket(socket.id)
+  })
+
+  socket.on(clientEvents.updateAccessRole, async (rawPayload, callback) => {
+    const parsed = updateAccessRoleSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!accessRoleChangeEnabled) {
+      callback?.({
+        ok: false,
+        message: 'El cambio rapido de rol esta deshabilitado en este entorno.',
+      })
+      return
+    }
+
+    if (!parsed.success || !session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible actualizar el rol de la sesion.',
+      })
+      return
+    }
+
+    const persistedRole = await gameRepository.updateUserRole(
+      session.profile.userId,
+      parsed.data.role,
+    )
+
+    if (!persistedRole) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible guardar el nuevo rol.',
+      })
+      return
+    }
+
+    session.profile.role = persistedRole
+    callback?.({
+      ok: true,
+      profile: session.profile,
+    })
+  })
+
+  socket.on(clientEvents.saveRoomEditorMap, async (rawPayload, callback) => {
+    const session = sessions.get(socket.id)
+    const parsed = saveRoomEditorMapSchema.safeParse(rawPayload)
+
+    if (!session || !parsed.success) {
+      callback?.({ ok: false, message: 'Los datos del mapa no son validos.' })
+      return
+    }
+
+    if (!hasMinimumUserRole(session.profile.role, 'user')) {
+      callback?.({ ok: false, message: 'Tu rol no tiene permiso para guardar mapas.' })
+      return
+    }
+
+    let publication: {
+      kind: 'system' | 'classroom' | 'room' | 'event' | 'official'
+      routePath: string
+      classCode: string | null
+      code: string
+    } | undefined
+
+    if (!parsed.data.code || parsed.data.publication) {
+      const requestedKind = parsed.data.publication?.kind === 'classroom'
+        ? 'room'
+        : parsed.data.publication?.kind
+      const allowedKindsByRole: Record<string, string[]> = {
+        visitor: [],
+        user: ['room'],
+        mage: ['room'],
+        admin: ['room', 'event'],
+        developer: ['room', 'event', 'official', 'system'],
+      }
+
+      if (!requestedKind || !allowedKindsByRole[session.profile.role].includes(requestedKind)) {
+        callback?.({ ok: false, message: 'Tu rol no puede publicar ese tipo de URL.' })
+        return
+      }
+
+      if (requestedKind === 'system' && parsed.data.publication?.kind === 'system') {
+        const routeSlug = parsed.data.publication.routeSlug
+        if (['editor', 'editroom', 'accessrole'].includes(routeSlug.toLowerCase())) {
+          callback?.({ ok: false, message: 'Esa URL esta reservada por el sistema.' })
+          return
+        }
+        publication = {
+          kind: 'system',
+          routePath: `/${routeSlug}`,
+          classCode: parsed.data.publication.classCode.trim().toUpperCase(),
+          code: randomUUID().replaceAll('-', '').slice(0, 16).toUpperCase(),
+        }
+      } else {
+        const accessCode = parsed.data.publication?.kind === 'classroom'
+          ? parsed.data.publication.classCode.trim().toUpperCase()
+          : parsed.data.publication && 'accessCode' in parsed.data.publication
+            ? parsed.data.publication.accessCode.trim().toUpperCase()
+            : undefined
+        if (!accessCode) {
+          callback?.({ ok: false, message: 'Escribe el codigo base antes de guardar la sala.' })
+          return
+        }
+        const roomHash = createHash('sha256')
+          .update(`${requestedKind}:${accessCode}:${parsed.data.name.trim().toLowerCase()}:${session.profile.userId}`)
+          .digest('hex')
+          .slice(0, 20)
+          .toUpperCase()
+        const routePrefix = requestedKind === 'event'
+          ? 'event'
+          : requestedKind === 'official' ? 'roomOficial' : 'Room'
+        publication = {
+          kind: requestedKind,
+          routePath: `/${routePrefix}=${roomHash}`,
+          classCode: accessCode,
+          code: roomHash,
+        }
+      }
+    }
+
+    try {
+      const result = await gameRepository.saveRoomEditorMap(
+        session.profile.userId,
+        parsed.data.name,
+        parsed.data.document,
+        parsed.data.code,
+        publication,
+      )
+      if (result.forbidden) {
+        callback?.({
+          ok: false,
+          canSaveAsCopy: true,
+          message: 'Este mapa pertenece a otro creador. Puedes guardarlo como una copia.',
+        })
+        return
+      }
+      if (!result.map) {
+        callback?.({ ok: false, message: 'No fue posible guardar el mapa en la base de datos.' })
+        return
+      }
+
+      const updatedTemplate = createRoomTemplateFromEditorMap(result.map)
+      registerRoomTemplate(updatedTemplate)
+      refreshActiveRoomsForTemplate(updatedTemplate)
+      callback?.({ ok: true, map: result.map })
+    } catch (error) {
+      console.error('[room-editor] No fue posible guardar el mapa.', error)
+      const databaseError = error as { code?: string }
+      callback?.({
+        ok: false,
+        message: databaseError.code === '23505'
+          ? 'Esa URL ya pertenece a otra escena. Elige una diferente.'
+          : 'Ocurrio un error al guardar el mapa.',
+      })
+    }
+  })
+
+  socket.on(clientEvents.loadRoomEditorMap, async (rawPayload, callback) => {
+    const session = sessions.get(socket.id)
+    const parsed = loadRoomEditorMapSchema.safeParse(rawPayload)
+    if (!session || !parsed.success) {
+      callback?.({ ok: false, message: 'El codigo del mapa no es valido.' })
+      return
+    }
+
+    try {
+      const map = await gameRepository.getRoomEditorMap(parsed.data.code)
+      const parsedDocument = roomEditorDocumentSchema.safeParse(map?.document)
+      if (!map || !parsedDocument.success) {
+        callback?.({ ok: false, message: 'No se encontro un mapa valido con ese codigo.' })
+        return
+      }
+      callback?.({
+        ok: true,
+        map: { ...map, document: parsedDocument.data } satisfies SavedRoomEditorMap,
+      })
+    } catch (error) {
+      console.error('[room-editor] No fue posible cargar el mapa.', error)
+      callback?.({ ok: false, message: 'Ocurrio un error al cargar el mapa.' })
+    }
+  })
+
+  socket.on(clientEvents.listRoomEditorMaps, async (_rawPayload, callback) => {
+    const session = sessions.get(socket.id)
+    if (!session || !hasMinimumUserRole(session.profile.role, 'user')) {
+      callback?.({ ok: false, message: 'Tu rol no tiene permiso para consultar mapas.' })
+      return
+    }
+
+    try {
+      const maps = await gameRepository.listRoomEditorMapsVisibleToUser(
+        session.profile.userId,
+        session.profile.role === 'developer',
+      )
+      callback?.({ ok: true, maps })
+    } catch (error) {
+      console.error('[room-editor] No fue posible listar los mapas del usuario.', error)
+      callback?.({ ok: false, message: 'No fue posible cargar tus mapas.' })
+    }
+  })
+
+  socket.on(clientEvents.deleteRoomEditorMap, async (rawPayload, callback) => {
+    const session = sessions.get(socket.id)
+    const parsed = loadRoomEditorMapSchema.safeParse(rawPayload)
+    if (!session || !parsed.success || !hasMinimumUserRole(session.profile.role, 'user')) {
+      callback?.({ ok: false, message: 'No fue posible validar la eliminación del mapa.' })
+      return
+    }
+
+    try {
+      const deleted = await gameRepository.deleteRoomEditorMap(
+        session.profile.userId,
+        parsed.data.code,
+      )
+      if (!deleted) {
+        callback?.({ ok: false, message: 'El mapa no existe o pertenece a otro usuario.' })
+        return
+      }
+      unregisterRoomTemplate(`editor-map-${parsed.data.code}`)
+      callback?.({ ok: true })
+    } catch (error) {
+      console.error('[room-editor] No fue posible eliminar el mapa.', error)
+      callback?.({ ok: false, message: 'Ocurrió un error al eliminar el mapa.' })
+    }
+  })
+
+  socket.on(clientEvents.joinRoom, async (rawPayload) => {
+    const session = sessions.get(socket.id)
+    const parsed = joinRoomSchema.safeParse(rawPayload)
+
+    if (!session || !parsed.success) {
+      socket.emit(serverEvents.serverError, {
+        code: 'JOIN_ROOM_FAILED',
+        message: 'No fue posible unir al jugador a la sala.',
+      })
+      return
+    }
+
+    if (!getRoomTemplateById(parsed.data.templateId) && parsed.data.templateId.startsWith('editor-map-')) {
+      const mapCode = parsed.data.templateId.slice('editor-map-'.length)
+      const publishedMap = await gameRepository.getRoomEditorMap(mapCode)
+      const parsedDocument = roomEditorDocumentSchema.safeParse(publishedMap?.document)
+      if (publishedMap?.routePath && parsedDocument.success) {
+        registerRoomTemplate(createRoomTemplateFromEditorMap({
+          ...publishedMap,
+          document: parsedDocument.data,
+        }))
+      }
+    }
+
+    const previousRoomId = session.roomId
+    const transition = parsed.data.transition ?? 'direct'
+    const requestedRoomId = parsed.data.roomId?.trim() || null
+    const party = await buildPartyForUser(session.profile.userId)
+    if (party && party.leaderUserId !== session.profile.userId && transition !== 'follow-leader') {
+      const leaderPresence = getPresenceForUser(party.leaderUserId)
+      const leaderRoomId = leaderPresence?.roomId ?? null
+      const requestedDifferentRoomFromLeader = leaderRoomId !== null && leaderRoomId !== requestedRoomId
+      const isSceneChange = previousRoomId !== null && previousRoomId !== requestedRoomId
+
+      if (requestedDifferentRoomFromLeader || isSceneChange) {
+        socket.emit(serverEvents.serverError, {
+          code: 'PARTY_LEADER_TELEPORT_ONLY',
+          message: 'Solo el lider del grupo se puede teletransportar.',
+        })
+        return
+      }
+    }
+
+    const isAutoRoomAssignment = !requestedRoomId || requestedRoomId === parsed.data.templateId
+    const requiredRoomCapacity =
+      party && party.leaderUserId === session.profile.userId && transition !== 'follow-leader'
+        ? Math.max(1, party.members.filter((member) => member.isOnline).length)
+        : 1
+
+    const room = isAutoRoomAssignment
+      ? requiredRoomCapacity > 1
+        ? findOrCreateRoomForPartyPlacement(parsed.data.templateId, requiredRoomCapacity)
+        : findOrCreateRoomForDirectJoin(parsed.data.templateId)
+      : getOrCreateRoom(requestedRoomId, parsed.data.templateId)
+
+    if (!room) {
+      socket.emit(serverEvents.serverError, {
+        code: requiredRoomCapacity > DEFAULT_ROOM_CAPACITY ? 'ROOM_CAPACITY_EXCEEDED' : 'ROOM_TEMPLATE_INVALID',
+        message:
+          requiredRoomCapacity > DEFAULT_ROOM_CAPACITY
+            ? 'El grupo supera el cupo maximo permitido para una sala.'
+            : 'La plantilla de la sala no existe o no coincide con la ruta solicitada.',
+      })
+      return
+    }
+
+    if (room.players.length >= room.maxUsers) {
+      socket.emit(serverEvents.serverError, {
+        code: 'ROOM_FULL',
+        message: 'La sala esta llena.',
+      })
+      return
+    }
+
+    const previousRoom = previousRoomId ? rooms.get(previousRoomId) : undefined
+    const sourcePath = previousRoom ? `/${previousRoom.template.routeSegment}` : undefined
+    const resolvedSpawnPosition = parsed.data.spawnPosition
+      ?? (transition === 'teleport'
+        ? resolveRoomEntrySpawn(room.template, sourcePath)
+        : undefined)
+
+    await removeSessionPresenceFromCurrentRoom(socket, session)
+    await joinSessionToRoom(socket, session, room, resolvedSpawnPosition)
+
+    if (party?.leaderUserId === session.profile.userId && transition !== 'follow-leader') {
+      await requestPartyLeaderFollowForPartyMembers(session.profile.userId)
+    }
+  })
+
+  socket.on(clientEvents.interactRoomObject, (rawPayload, callback) => {
+    const parsed = interactRoomObjectSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+    if (!parsed.success || !session?.roomId) {
+      callback?.({ ok: false, message: 'No fue posible interactuar con el objeto.' })
+      return
+    }
+
+    const room = rooms.get(session.roomId)
+    const player = room?.players.find((presence) => presence.sessionId === socket.id)
+    const roomObject = room?.template.objects.find((candidate) => candidate.id === parsed.data.objectId)
+    if (!room || !player || !roomObject || parsed.data.roomId !== room.roomId) {
+      callback?.({ ok: false, message: 'El objeto ya no está disponible.' })
+      return
+    }
+
+    const interactionBounds = getObjectInteractionBounds(roomObject)
+    if (!interactionBounds || !overlapsRect(getPlayerColliderBounds(player.position), interactionBounds)) {
+      callback?.({ ok: false, message: 'Acércate un poco más para interactuar.' })
+      return
+    }
+
+    const result = interactWithRoomObject(room.template, roomObject.id)
+    if (!result) {
+      callback?.({ ok: false, message: 'Este objeto no tiene estados interactivos.' })
+      return
+    }
+
+    room.template = result.template
+    room.players.forEach((roomPlayer) => {
+      ensureNavigablePlayerPosition(room, roomPlayer)
+      stopPlayer(roomPlayer)
+      io.to(room.roomId).emit(serverEvents.playerMoved, roomPlayer)
+    })
+    io.to(room.roomId).emit(serverEvents.roomObjectStateChanged, {
+      roomId: room.roomId,
+      objectId: roomObject.id,
+      object: room.template.objects.find((candidate) => candidate.id === roomObject.id) ?? null,
+      reason: 'interaction',
+      actorUserId: player.userId,
+    })
+    callback?.({ ok: true, outcome: result.outcome, state: result.state })
+  })
+
+  socket.on(clientEvents.navigateTo, (rawPayload, callback) => {
+    const parsed = navigateToSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session?.roomId) {
+      callback?.({ ok: false })
+      return
+    }
+
+    const room = rooms.get(session.roomId)
+    const player = room?.players.find((presence) => presence.sessionId === socket.id)
+
+    if (!room || !player || parsed.data.roomId !== room.roomId) {
+      callback?.({ ok: false })
+      return
+    }
+
+    const routeAccepted = updateRoute(room, player, parsed.data.target)
+    if (routeAccepted) {
+      io.to(room.roomId).emit(serverEvents.playerMoved, player)
+    }
+    callback?.({ ok: routeAccepted })
+  })
+
+  socket.on(clientEvents.stopNavigation, (rawPayload) => {
+    const parsed = stopNavigationSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session?.roomId) {
+      return
+    }
+
+    const room = rooms.get(session.roomId)
+    const player = room?.players.find((presence) => presence.sessionId === socket.id)
+
+    if (!room || !player || parsed.data.roomId !== room.roomId) {
+      return
+    }
+
+    stopPlayer(player)
+    io.to(room.roomId).emit(serverEvents.playerMoved, player)
+  })
+
+  socket.on(clientEvents.setMovementInput, (rawPayload) => {
+    const parsed = movementInputSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session?.roomId || parsed.data.roomId !== session.roomId) {
+      return
+    }
+
+    const room = rooms.get(session.roomId)
+    const player = room?.players.find((presence) => presence.sessionId === socket.id)
+
+    if (!room || !player) {
+      return
+    }
+
+    const nextInput = {
+      up: parsed.data.up,
+      down: parsed.data.down,
+      left: parsed.data.left,
+      right: parsed.data.right,
+    }
+
+    const wasKeyboardControlling = session.keyboardControlling
+    session.movementInput = nextInput
+    session.keyboardControlling = hasMovementInput(nextInput)
+
+    if (session.keyboardControlling) {
+      const { horizontal, vertical } = getMovementInputVector(nextInput)
+      if (!wasKeyboardControlling || (horizontal === 0 && vertical === 0)) {
+        stopPlayer(player)
+      }
+      if (horizontal !== 0 || vertical !== 0) {
+        player.direction = resolveDirection(player.position, {
+          x: player.position.x + horizontal,
+          y: player.position.y + vertical,
+        })
+        player.facing = resolvePlayerFacing(horizontal, vertical, player.facing)
+        player.animation = `${player.moving ? 'walk' : 'idle'}-${player.direction}`
+      }
+      io.to(room.roomId).emit(serverEvents.playerMoved, player)
+      return
+    }
+
+    if (wasKeyboardControlling) {
+      stopPlayer(player)
+      io.to(room.roomId).emit(serverEvents.playerMoved, player)
+    }
+  })
+
+  socket.on(clientEvents.updateSkin, async (rawPayload) => {
+    const parsed = updateSkinSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session?.roomId) {
+      return
+    }
+
+    const room = rooms.get(session.roomId)
+    const player = room?.players.find((presence) => presence.sessionId === socket.id)
+
+    if (!room || !player || parsed.data.roomId !== room.roomId) {
+      return
+    }
+
+    session.profile.skinId = parsed.data.skinId
+    session.profile.skinColors = { ...(parsed.data.skinColors ?? {}) }
+    player.skinId = parsed.data.skinId
+    player.skinColors = { ...(parsed.data.skinColors ?? {}) }
+    void gameRepository.savePlayerProfile(session.profile)
+    const party = await buildPartyForUser(session.profile.userId)
+    const affectedUserIds = party?.members.map((member) => member.userId) ?? [session.profile.userId]
+    await refreshRoomPresenceForUserIds(affectedUserIds)
+    io.to(room.roomId).emit(serverEvents.playerMoved, player)
+    io.to(room.roomId).emit(serverEvents.roomState, room)
+  })
+
+  socket.on(clientEvents.updateAudioSettings, (rawPayload, callback) => {
+    const parsed = updateAudioSettingsSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible actualizar tus ajustes de audio.',
+      })
+      return
+    }
+
+    session.profile.audioSettings = { ...parsed.data.audioSettings }
+    void gameRepository.savePlayerProfile(session.profile)
+
+    callback?.({
+      ok: true,
+      profile: session.profile,
+    })
+  })
+
+  socket.on(clientEvents.updateInventory, (_rawPayload, callback) => {
+    const session = sessions.get(socket.id)
+
+    if (!session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible actualizar el inventario.',
+      })
+      return
+    }
+
+    callback?.({
+      ok: false,
+      message: 'El inventario solo puede modificarse mediante acciones verificadas por el servidor.',
+      inventory: session.inventory,
+    })
+  })
+
+  socket.on(clientEvents.requestSocialState, () => {
+    void emitSocialStateToSocket(socket.id)
+  })
+
+  socket.on(clientEvents.requestPartyState, () => {
+    void emitPartyStateToSocket(socket.id)
+  })
+
+  socket.on(clientEvents.addFriend, async (rawPayload, callback) => {
+    const parsed = addFriendSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible enviar la solicitud.',
+      })
+      return
+    }
+
+    const result = await gameRepository.sendFriendRequest(session.profile.userId, parsed.data.friendUserId)
+
+    if (!result.ok) {
+      callback?.(result)
+      return
+    }
+
+    await emitSocialStateToSocket(socket.id)
+
+    const targetSocketId = Array.from(sessions.entries()).find(
+      ([, currentSession]) => currentSession.profile.userId === parsed.data.friendUserId,
+    )?.[0]
+
+    if (targetSocketId) {
+      if (result.request) {
+        io.to(targetSocketId).emit(serverEvents.friendRequestReceived, result.request)
+      }
+      await emitSocialStateToSocket(targetSocketId)
+    }
+
+    await refreshSocialStateForAllSessions()
+
+    callback?.({
+      ok: true,
+      request: result.request,
+    })
+  })
+
+  socket.on(clientEvents.respondFriendRequest, async (rawPayload, callback) => {
+    const parsed = respondFriendRequestSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible responder la solicitud.',
+      })
+      return
+    }
+
+    const result = await gameRepository.respondToFriendRequest(
+      session.profile.userId,
+      parsed.data.requestId,
+      parsed.data.action,
+    )
+
+    if (!result.ok) {
+      callback?.(result)
+      return
+    }
+
+    await emitSocialStateToSocket(socket.id)
+
+    if (result.requesterUserId) {
+      const requesterSocketId = Array.from(sessions.entries()).find(
+        ([, currentSession]) => currentSession.profile.userId === result.requesterUserId,
+      )?.[0]
+
+      if (requesterSocketId) {
+        await emitSocialStateToSocket(requesterSocketId)
+      }
+    }
+
+    await refreshSocialStateForAllSessions()
+    callback?.({ ok: true })
+  })
+
+  socket.on(clientEvents.removeFriend, async (rawPayload, callback) => {
+    const parsed = removeFriendSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible quitar la amistad.',
+      })
+      return
+    }
+
+    const result = await gameRepository.removeFriend(session.profile.userId, parsed.data.friendUserId)
+    if (!result.ok) {
+      callback?.(result)
+      return
+    }
+
+    await emitSocialStateToSocket(socket.id)
+
+    const targetSocketId = Array.from(sessions.entries()).find(
+      ([, currentSession]) => currentSession.profile.userId === parsed.data.friendUserId,
+    )?.[0]
+
+    if (targetSocketId) {
+      await emitSocialStateToSocket(targetSocketId)
+    }
+
+    await refreshSocialStateForAllSessions()
+    callback?.({ ok: true })
+  })
+
+  socket.on(clientEvents.inviteToParty, async (rawPayload, callback) => {
+    const parsed = inviteToPartySchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible enviar la invitacion al grupo.',
+      })
+      return
+    }
+
+    const targetSocketIds = Array.from(sessions.entries())
+      .filter(([, currentSession]) => currentSession.profile.userId === parsed.data.friendUserId)
+      .map(([targetSocketId]) => targetSocketId)
+
+    if (targetSocketIds.length === 0) {
+      callback?.({
+        ok: false,
+        message: 'Ese jugador no se encuentra conectado.',
+      })
+      return
+    }
+
+    const result = await gameRepository.inviteToParty(session.profile.userId, parsed.data.friendUserId)
+    if (!result.ok) {
+      callback?.(result)
+      return
+    }
+
+    await emitPartyStateToSocket(socket.id)
+
+    await Promise.all(
+      targetSocketIds.map(async (targetSocketId) => {
+        if (result.invite) {
+          io.to(targetSocketId).emit(serverEvents.partyInviteReceived, result.invite)
+        }
+        await emitPartyStateToSocket(targetSocketId)
+      }),
+    )
+
+    await refreshPartyStateForAllSessions()
+    callback?.({
+      ok: true,
+      invite: result.invite,
+    })
+  })
+
+  socket.on(clientEvents.respondPartyInvite, async (rawPayload, callback) => {
+    const parsed = respondPartyInviteSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible responder la invitacion al grupo.',
+      })
+      return
+    }
+
+    const result = await gameRepository.respondToPartyInvite(
+      session.profile.userId,
+      parsed.data.inviteId,
+      parsed.data.action,
+    )
+
+    if (!result.ok) {
+      callback?.(result)
+      return
+    }
+
+    clearPendingPartyLeaderFollowRequestForUser(session.profile.userId)
+    await refreshPartyStateForUserIds(result.affectedUserIds ?? [session.profile.userId])
+    await refreshRoomPresenceForUserIds(result.affectedUserIds ?? [session.profile.userId])
+    await refreshPartyStateForAllSessions()
+
+    if (parsed.data.action === 'accept') {
+      await ensurePartyCanGatherInSharedRoom(result.leaderUserId ?? session.profile.userId)
+    }
+
+    callback?.({ ok: true })
+  })
+
+  socket.on(clientEvents.requestEnemyCombat, (rawPayload, callback) => {
+    const parsed = requestEnemyCombatSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session?.roomId) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible iniciar el combate.',
+      })
+      return
+    }
+
+    const room = rooms.get(session.roomId)
+    const player = room?.players.find((presence) => presence.sessionId === socket.id) ?? null
+    const enemyTemplate = room?.template.enemies?.find((enemy) => enemy.id === parsed.data.enemyId) ?? null
+
+    if (!room || !player || parsed.data.roomId !== room.roomId || !enemyTemplate) {
+      callback?.({
+        ok: false,
+        message: 'El enemigo ya no esta disponible para combatir.',
+      })
+      return
+    }
+
+    const currentEncounterForUser = getActiveEnemyCombatEncounterForUser(session.profile.userId)
+    const roomEnemyKey = buildEnemyCombatRoomEnemyKey(room.roomId, enemyTemplate.id)
+    const existingEncounterId = activeEnemyCombatEncounterIdsByRoomEnemy.get(roomEnemyKey)
+    const existingEncounter = existingEncounterId
+      ? activeEnemyCombatEncounters.get(existingEncounterId) ?? null
+      : null
+
+    if (
+      currentEncounterForUser &&
+      (!existingEncounter || currentEncounterForUser.encounterId !== existingEncounter.encounterId)
+    ) {
+      callback?.({
+        ok: false,
+        message: 'Ya participas en otro combate activo.',
+      })
+      return
+    }
+
+    if (existingEncounter) {
+      if (existingEncounter.participantUserIds.includes(session.profile.userId)) {
+        emitRoomEnemyCombatState(room.roomId)
+        callback?.({ ok: true })
+        return
+      }
+
+      if (existingEncounter.phase !== 'lobby') {
+        callback?.({
+          ok: false,
+          message: 'Ese combate ya comenzo y no admite nuevos participantes.',
+        })
+        return
+      }
+
+      if (!existingEncounter.declinedUserIds.has(session.profile.userId)) {
+        emitEnemyCombatSupportInviteToUser(session.profile.userId, existingEncounter)
+      }
+
+      callback?.({
+        ok: true,
+        message: 'Ya existe un combate activo con ese rival.',
+      })
+      return
+    }
+
+    void (async () => {
+      const combatLeader = await resolveEnemyCombatLeaderForUser(session.profile.userId, room.roomId)
+
+      const encounter: ActiveEnemyCombatEncounter = {
+        encounterId: randomUUID(),
+        roomId: room.roomId,
+        templateId: room.templateId,
+        enemyId: enemyTemplate.id,
+        enemyLabel: enemyTemplate.label ?? 'Rival',
+        enemyLevel: Math.max(0, Math.floor(enemyTemplate.nivel_enemigo_ ?? 0)),
+        phase: 'lobby',
+        combatLeaderUserId: combatLeader.userId,
+        combatLeaderDisplayName: combatLeader.displayName,
+        requestedByUserId: session.profile.userId,
+        requestedByDisplayName: session.profile.displayName,
+        requestedByPosition: clonePosition(player.position),
+        participantUserIds: [session.profile.userId],
+        declinedUserIds: new Set<string>(),
+      }
+
+      activeEnemyCombatEncounters.set(encounter.encounterId, encounter)
+      activeEnemyCombatEncounterIdsByRoomEnemy.set(roomEnemyKey, encounter.encounterId)
+      activeEnemyCombatEncounterIdsByUser.set(session.profile.userId, encounter.encounterId)
+
+      emitRoomEnemyCombatState(room.roomId)
+
+      Array.from(new Set(room.players.map((presence) => presence.userId)))
+        .filter((userId) => userId !== session.profile.userId)
+        .forEach((userId) => {
+          emitEnemyCombatSupportInviteToUser(userId, encounter)
+        })
+
+      callback?.({ ok: true })
+    })().catch((error) => {
+      console.error('[COMBATE] No fue posible resolver el lider del combate.', error)
+      callback?.({
+        ok: false,
+        message: 'No fue posible iniciar el combate.',
+      })
+    })
+  })
+
+  socket.on(clientEvents.startEnemyCombat, (rawPayload, callback) => {
+    const parsed = startEnemyCombatSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible comenzar el combate.',
+      })
+      return
+    }
+
+    const encounter = activeEnemyCombatEncounters.get(parsed.data.encounterId)
+    if (!encounter || !encounter.participantUserIds.includes(session.profile.userId)) {
+      callback?.({
+        ok: false,
+        message: 'Ese combate ya no esta disponible.',
+      })
+      return
+    }
+
+    if (!canUserControlEnemyCombatEncounter(encounter, session.profile.userId)) {
+      callback?.({
+        ok: false,
+        message: `Solo ${encounter.combatLeaderDisplayName} puede iniciar el combate.`,
+      })
+      return
+    }
+
+    if (encounter.phase === 'battle') {
+      emitRoomEnemyCombatState(encounter.roomId)
+      callback?.({ ok: true })
+      return
+    }
+
+    encounter.phase = 'battle'
+    emitRoomEnemyCombatState(encounter.roomId)
+    callback?.({ ok: true })
+  })
+
+  socket.on(clientEvents.respondEnemyCombatSupport, (rawPayload, callback) => {
+    const parsed = respondEnemyCombatSupportSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session?.roomId) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible responder a la ayuda de combate.',
+      })
+      return
+    }
+
+    const encounter = activeEnemyCombatEncounters.get(parsed.data.encounterId)
+    if (!encounter) {
+      callback?.({
+        ok: false,
+        message: 'La solicitud de apoyo al combate ya no esta disponible.',
+      })
+      return
+    }
+
+    if (encounter.phase !== 'lobby') {
+      callback?.({
+        ok: false,
+        message: 'El combate ya comenzo y ya no acepta nuevos aliados.',
+      })
+      return
+    }
+
+    if (parsed.data.action === 'reject') {
+      encounter.declinedUserIds.add(session.profile.userId)
+      callback?.({ ok: true })
+      return
+    }
+
+    const currentEncounterForUser = getActiveEnemyCombatEncounterForUser(session.profile.userId)
+    if (currentEncounterForUser && currentEncounterForUser.encounterId !== encounter.encounterId) {
+      callback?.({
+        ok: false,
+        message: 'Ya participas en otro combate activo.',
+      })
+      return
+    }
+
+    if (session.roomId !== encounter.roomId) {
+      callback?.({
+        ok: false,
+        message: 'Debes permanecer en la misma sala para unirte a este combate.',
+      })
+      return
+    }
+
+    if (!encounter.participantUserIds.includes(session.profile.userId)) {
+      encounter.participantUserIds.push(session.profile.userId)
+    }
+    encounter.declinedUserIds.delete(session.profile.userId)
+    activeEnemyCombatEncounterIdsByUser.set(session.profile.userId, encounter.encounterId)
+
+    teleportUserToEnemyCombatEncounter(session.profile.userId, encounter)
+    emitRoomEnemyCombatState(encounter.roomId)
+    callback?.({ ok: true })
+  })
+
+  socket.on(clientEvents.fleeEnemyCombat, (rawPayload, callback) => {
+    const parsed = fleeEnemyCombatSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session) {
+      console.info('[COMBATE] Solicitud de huida rechazada por payload o sesion invalida.', {
+        socketId: socket.id,
+        rawPayload,
+        hasSession: Boolean(session),
+      })
+      callback?.({
+        ok: false,
+        message: 'No fue posible huir del combate.',
+      })
+      return
+    }
+
+    const encounter = activeEnemyCombatEncounters.get(parsed.data.encounterId)
+    if (!encounter || !encounter.participantUserIds.includes(session.profile.userId)) {
+      console.info('[COMBATE] Solicitud de huida rechazada porque el combate no existe o el usuario no participa.', {
+        socketId: socket.id,
+        userId: session.profile.userId,
+        encounterId: parsed.data.encounterId,
+        encounterExists: Boolean(encounter),
+        participantUserIds: encounter?.participantUserIds ?? [],
+      })
+      callback?.({
+        ok: false,
+        message: 'Ese combate ya no se encuentra activo.',
+      })
+      return
+    }
+
+    if (!canUserControlEnemyCombatEncounter(encounter, session.profile.userId)) {
+      callback?.({
+        ok: false,
+        message: `Solo ${encounter.combatLeaderDisplayName} puede retirarse del combate.`,
+      })
+      return
+    }
+
+    const escaped =
+      canUserControlEnemyCombatEncounter(encounter, session.profile.userId) ||
+      Math.random() <= resolveEnemyCombatFleeChance(encounter.enemyLevel)
+    console.info('[COMBATE] Resolviendo huida del combate.', {
+      socketId: socket.id,
+      userId: session.profile.userId,
+      encounterId: encounter.encounterId,
+      enemyId: encounter.enemyId,
+      enemyLevel: encounter.enemyLevel,
+      fleeChance: resolveEnemyCombatFleeChance(encounter.enemyLevel),
+      escaped,
+      participantsBefore: [...encounter.participantUserIds],
+    })
+
+    if (escaped) {
+      removeUserFromEnemyCombatEncounter(session.profile.userId, encounter.encounterId)
+
+      callback?.({
+        ok: true,
+        escaped,
+        message: encounter.combatLeaderUserId === session.profile.userId
+          ? 'Te retiraste del combate y todo el grupo salio del enfrentamiento.'
+          : 'Lograste huir del combate.',
+      })
+      return
+    }
+
+    callback?.({
+      ok: true,
+      escaped,
+      message: escaped ? 'Lograste huir del combate.' : 'No lograste escapar del rival.',
+    })
+  })
+
+  socket.on(clientEvents.respondPartyLeaderFollow, async (rawPayload, callback) => {
+    const parsed = respondPartyLeaderFollowSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible responder al movimiento del lider.',
+      })
+      return
+    }
+
+    const pendingRequest = pendingPartyLeaderFollowRequests.get(parsed.data.requestId)
+    if (!pendingRequest || pendingRequest.targetUserId !== session.profile.userId) {
+      socket.emit(serverEvents.serverError, {
+        code: 'PARTY_FOLLOW_REQUEST_EXPIRED',
+        message: 'La solicitud para seguir al lider ya no esta disponible.',
+      })
+      callback?.({
+        ok: false,
+        message: 'La solicitud para seguir al lider ya no esta disponible.',
+      })
+      return
+    }
+
+    clearPendingPartyLeaderFollowRequest(parsed.data.requestId)
+
+    const currentParty = await buildPartyForUser(session.profile.userId)
+    if (!currentParty || currentParty.partyId !== pendingRequest.partyId) {
+      callback?.({
+        ok: false,
+        message: 'Tu grupo cambio antes de responder al movimiento del lider.',
+      })
+      return
+    }
+
+    if (parsed.data.action === 'reject') {
+      const result = await gameRepository.leaveParty(session.profile.userId)
+      if (!result.ok) {
+        callback?.(result)
+        return
+      }
+
+      for (const userId of result.affectedUserIds ?? [session.profile.userId]) {
+        clearPendingPartyLeaderFollowRequestForUser(userId)
+      }
+      await refreshPartyStateForUserIds(result.affectedUserIds ?? [session.profile.userId])
+      await refreshRoomPresenceForUserIds(result.affectedUserIds ?? [session.profile.userId])
+      await refreshPartyStateForAllSessions()
+      emitActivityNoticeToUserIds(
+        result.affectedUserIds ?? [session.profile.userId],
+        'Grupo actualizado',
+        `${session.profile.displayName} decidio no seguir al lider y salio del grupo.`,
+      )
+      callback?.({ ok: true })
+      return
+    }
+
+    emitRoomTransitionToUser(session.profile.userId, {
+      roomId: pendingRequest.roomId,
+      templateId: pendingRequest.templateId,
+      spawnPosition: { ...pendingRequest.spawnPosition },
+      transition: 'follow-leader',
+    })
+
+    callback?.({ ok: true })
+  })
+
+  socket.on(clientEvents.leaveParty, async (rawPayload, callback) => {
+    const parsed = leavePartySchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible salir del grupo.',
+      })
+      return
+    }
+
+    const result = await gameRepository.leaveParty(session.profile.userId)
+    if (!result.ok) {
+      callback?.(result)
+      return
+    }
+
+    for (const userId of result.affectedUserIds ?? [session.profile.userId]) {
+      clearPendingPartyLeaderFollowRequestForUser(userId)
+    }
+    await refreshPartyStateForUserIds(result.affectedUserIds ?? [session.profile.userId])
+    await refreshRoomPresenceForUserIds(result.affectedUserIds ?? [session.profile.userId])
+    await refreshPartyStateForAllSessions()
+    callback?.({ ok: true })
+  })
+
+  socket.on(clientEvents.promotePartyLeader, async (rawPayload, callback) => {
+    const parsed = promotePartyLeaderSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session) {
+      callback?.({
+        ok: false,
+        message: 'No fue posible promover al nuevo lider.',
+      })
+      return
+    }
+
+    const result = await gameRepository.promotePartyLeader(session.profile.userId, parsed.data.nextLeaderUserId)
+    if (!result.ok) {
+      callback?.(result)
+      return
+    }
+
+    for (const userId of result.affectedUserIds ?? [session.profile.userId]) {
+      clearPendingPartyLeaderFollowRequestForUser(userId)
+    }
+    await refreshPartyStateForUserIds(result.affectedUserIds ?? [session.profile.userId])
+    await refreshRoomPresenceForUserIds(result.affectedUserIds ?? [session.profile.userId])
+    await refreshPartyStateForAllSessions()
+    callback?.({ ok: true })
+  })
+
+  socket.on(clientEvents.sendChatMessage, (rawPayload) => {
+    const parsed = sendChatMessageSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session?.roomId) {
+      return
+    }
+
+    io.to(session.roomId).emit(serverEvents.typingStateChanged, {
+      roomId: session.roomId,
+      userId: session.profile.userId,
+      isTyping: false,
+    })
+
+    const message: ChatMessage = {
+      messageId: randomUUID(),
+      roomId: session.roomId,
+      userId: session.profile.userId,
+      displayName: session.profile.displayName,
+      content: parsed.data.content,
+      timestamp: new Date().toISOString(),
+    }
+
+    io.to(session.roomId).emit(serverEvents.chatMessage, message)
+  })
+
+  socket.on(clientEvents.setTypingState, (rawPayload) => {
+    const parsed = setTypingStateSchema.safeParse(rawPayload)
+    const session = sessions.get(socket.id)
+
+    if (!parsed.success || !session?.roomId) {
+      return
+    }
+
+    if (parsed.data.roomId !== session.roomId) {
+      return
+    }
+
+    io.to(session.roomId).emit(serverEvents.typingStateChanged, {
+      roomId: session.roomId,
+      userId: session.profile.userId,
+      isTyping: parsed.data.isTyping,
+    })
+  })
+
+  socket.on('disconnect', async () => {
+    const session = sessions.get(socket.id)
+    if (!session) {
+      return
+    }
+
+    await removeSessionPresenceFromCurrentRoom(socket, session)
+
+    sessions.delete(socket.id)
+
+    const userStillHasActiveSession = Array.from(sessions.values()).some(
+      (currentSession) => currentSession.profile.userId === session.profile.userId,
+    )
+
+    if (!userStillHasActiveSession) {
+      clearPendingPartyLeaderFollowRequestForUser(session.profile.userId)
+      const partyLeaveResult = await gameRepository.leaveParty(session.profile.userId)
+      if (partyLeaveResult.ok) {
+        for (const userId of partyLeaveResult.affectedUserIds ?? [session.profile.userId]) {
+          clearPendingPartyLeaderFollowRequestForUser(userId)
+        }
+        await refreshPartyStateForUserIds(partyLeaveResult.affectedUserIds ?? [session.profile.userId])
+        await refreshRoomPresenceForUserIds(partyLeaveResult.affectedUserIds ?? [session.profile.userId])
+      }
+    }
+
+    await refreshSocialStateForAllSessions()
+  })
+})
+
+void initializeDatabase().finally(() => {
+  httpServer.listen(port, '0.0.0.0', () => {
+    console.log(`Social Sena game server listening on port ${port}`)
+  })
+})

@@ -1,5 +1,5 @@
 import { useAvatarAnimationFrame } from '../../game/avatar/useAvatarAnimationFrame'
-import shadowUrl from '../../assets/characters/Chap/Sombra_0.svg'
+import shadowUrl from '../../assets/characters/Chap/sk_0_0_f_chap_sombra.svg'
 import {
   AVATAR_PARTS,
   idleBackLayerOrder,

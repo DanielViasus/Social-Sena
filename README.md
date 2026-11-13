@@ -60,3 +60,7 @@ Esta primera fundacion deja listo el proyecto para iterar sobre el slice inicial
 ## Proximo paso recomendado
 
 Instalar dependencias y probar dos clientes conectados contra el servidor local.
+
+## Documentacion tecnica
+
+- `docs/architecture/sistema-animaciones.md`: sistema de animaciones por capas (editor, asignacion, publicacion en el servidor y uso en el juego) y plan de migracion desde el sistema antiguo
