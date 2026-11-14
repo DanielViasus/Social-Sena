@@ -15,6 +15,10 @@ import tpRoom1909_1 from '../../assets/Decoration/Doors_tp/tp_room_1909_1.svg'
 import tpRoom1909_1Hover from '../../assets/Decoration/Doors_tp/tp_room_1909_1_hover.svg'
 import enemyTrainingDummySheet from '../../assets/enemies/maniqui_de_entrenamiento/MANIKI_DE_ENTRENAMIENTO.svg'
 import mageSheet from '../../assets/npc/mago/Mage.svg'
+import enemyWarning0 from '../../assets/room-editor/sprites/WARNING_0.svg'
+import enemyWarning1 from '../../assets/room-editor/sprites/WARNING_1.svg'
+import enemyWarning2 from '../../assets/room-editor/sprites/WARNING_2.svg'
+import enemyWarning3 from '../../assets/room-editor/sprites/WARNING_3.svg'
 import npcAlert0 from '../../assets/npc/icons/alert/ALERT_0.svg'
 import npcAlert1 from '../../assets/npc/icons/alert/ALERT_1.svg'
 import npcAlert2 from '../../assets/npc/icons/alert/ALERT_2.svg'
@@ -92,7 +96,19 @@ export const NPC_SPRITES: Record<string, string> = {
 
 export const ENEMY_SPRITES: Record<string, string> = {
   'enemy-training-dummy-sheet': enemyTrainingDummySheet,
+  // Alerta que aparece sobre el enemigo cuando detecta al jugador.
+  'enemy-warning-0': enemyWarning0,
+  'enemy-warning-1': enemyWarning1,
+  'enemy-warning-2': enemyWarning2,
+  'enemy-warning-3': enemyWarning3,
 }
+
+export const ENEMY_WARNING_ICON_ASSET_IDS = [
+  'enemy-warning-0',
+  'enemy-warning-1',
+  'enemy-warning-2',
+  'enemy-warning-3',
+]
 
 const imagePreloadCache = new Map<string, Promise<void>>()
 const IMAGE_PRELOAD_TIMEOUT_MS = 2500

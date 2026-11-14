@@ -23,11 +23,9 @@ import {
 import { listAnimations, loadAnimation, type AnimationEditorDocument, type AnimationSummary } from '../game/avatar/animationEditorStorage'
 import { navigateInApp } from '../hooks/usePathname'
 import type { AuthSession } from '../auth/localSession'
+import { buildAnimationPack, downloadAnimationPack, parseAnimationPack } from '../game/avatar/animationPack'
 import {
-  buildAnimationPack,
-  downloadAnimationPack,
   listAnimationHistory,
-  parseAnimationPack,
   publishAnimationPack,
   publishAvatarAnimations,
   restoreAnimationVersion,

@@ -1,9 +1,17 @@
 import type { RoomEditorAssetData, RoomEditorPlacementData, SavedRoomEditorMap } from '../types'
 import {
-  ROOM_REWARDS_LAYER_ID,
+  DEFAULT_ENEMY_INTERACTION_AREA,
+  DEFAULT_ENEMY_SURVEILLANCE_AREA,
+  ROOM_INTERACTION_ICON_SIZE,
   getCoinInventoryItemIdFromAssetId,
 } from '../constants'
+import {
+  ROOM_EDITOR_LAYER_PRIORITY,
+  createRoomEditorLayerCategoryLookup,
+  type RoomEditorLayerCategory,
+} from './layers'
 import type {
+  RoomEnemyTemplate,
   RoomObjectInteractionVariantTemplate,
   RoomNpcTemplate,
   RoomObjectKind,
@@ -11,16 +19,6 @@ import type {
   RoomTeleportTemplate,
   RoomTemplate,
 } from './types'
-
-const LAYER_PRIORITY: Record<string, number> = {
-  floor: 0,
-  walls: 1,
-  doors: 2,
-  'object-decoration': 3,
-  [ROOM_REWARDS_LAYER_ID]: 4,
-  npcs: 5,
-  teleports: 6,
-}
 
 function normalizeEntryPath(path: string) {
   const pathname = path.split(/[?#]/, 1)[0]?.trim() ?? ''
@@ -45,13 +43,13 @@ export function resolveRoomEntrySpawn(template: RoomTemplate, sourcePath?: strin
   return { ...resolvedPosition }
 }
 
-function resolveKind(layerId: string, category: string): RoomObjectKind {
-  if (layerId === 'floor') return 'floor'
-  if (layerId === 'walls') return 'wall'
-  if (layerId === 'doors') return 'door'
-  if (layerId === ROOM_REWARDS_LAYER_ID) return 'landmark'
-  if (layerId === 'teleports') return 'portal'
-  const normalized = category.toLowerCase()
+function resolveKind(layerCategory: RoomEditorLayerCategory, assetCategory: string): RoomObjectKind {
+  if (layerCategory === 'floor') return 'floor'
+  if (layerCategory === 'walls') return 'wall'
+  if (layerCategory === 'doors') return 'door'
+  if (layerCategory === 'rewards') return 'landmark'
+  if (layerCategory === 'teleports') return 'portal'
+  const normalized = assetCategory.toLowerCase()
   if (normalized.includes('floor')) return 'floor'
   if (normalized.includes('wall')) return 'wall'
   return 'landmark'
@@ -61,9 +59,10 @@ function createObjectVariant(
   placement: RoomEditorPlacementData,
   asset: RoomEditorAssetData,
   collidersEnabled: boolean,
+  layerCategory: RoomEditorLayerCategory,
 ): RoomObjectInteractionVariantTemplate {
   const usesBottomCenterAnchor = asset.frameWidth > 128 || asset.frameHeight > 128
-  const centersWithinGridFootprint = placement.layerId === ROOM_REWARDS_LAYER_ID
+  const centersWithinGridFootprint = layerCategory === 'rewards'
   const occupiedWidth = asset.occupiedColumns * 128
   const occupiedHeight = asset.occupiedRows * 128
   const placementColliders = placement.colliders ?? asset.colliders
@@ -74,9 +73,9 @@ function createObjectVariant(
       }))
     : []
   const collider = colliders[0]
-  const isInteractablePlacement = placement.layerId === 'doors'
-    || placement.layerId === 'teleports'
-    || placement.layerId === 'npcs'
+  const isInteractablePlacement = layerCategory === 'doors'
+    || layerCategory === 'teleports'
+    || layerCategory === 'npcs'
   const placementWarningArea = placement.warningArea ?? asset.warningArea
   const placementInteractionArea = placement.interactionArea ?? asset.interactionArea
   const placementIconContainer = placement.interactionIconContainer ?? asset.interactionIconContainer
@@ -109,10 +108,10 @@ function createObjectVariant(
   const interactionIconContainer = isInteractablePlacement
     ? {
         ...(placementIconContainer ?? {
-          width: 128,
-          height: 129,
+          width: ROOM_INTERACTION_ICON_SIZE,
+          height: ROOM_INTERACTION_ICON_SIZE,
           offsetX: 0,
-          offsetY: -Math.round((asset.frameHeight + 129) / 2),
+          offsetY: -Math.round((asset.frameHeight + ROOM_INTERACTION_ICON_SIZE) / 2),
         }),
         offsetX: placement.flippedX
           ? -(placementIconContainer?.offsetX ?? 0)
@@ -149,6 +148,72 @@ function createObjectVariant(
       width: Math.max(48, collider ? collider.width * 0.45 : asset.frameWidth * 0.35),
       thickness: 2,
     },
+  }
+}
+
+// Hoja de sprites del enemigo colocado desde el editor: 4 filas (idle y caminata, frente y espalda).
+const ENEMY_SPRITE_SHEET_ASSET_ID = 'enemy-training-dummy-sheet'
+const ENEMY_SPRITE_SHEET_SIZE = { width: 512, height: 1280 }
+const ENEMY_SPRITE_FRAME_SIZE = { width: 128, height: 128 }
+const ENEMY_SPRITE_ROWS = 4
+const ENEMY_SPRITE_COLUMNS = 4
+
+function createEnemySpriteFrames(enemyId: string) {
+  return Array.from({ length: ENEMY_SPRITE_ROWS * ENEMY_SPRITE_COLUMNS }, (_unused, index) => {
+    const row = Math.floor(index / ENEMY_SPRITE_COLUMNS)
+    const column = index % ENEMY_SPRITE_COLUMNS
+    return { key: `${enemyId}-${row}-${column}`, row, column }
+  })
+}
+
+// Construye el enemigo de una colocacion del editor. La zona de vigilancia decide
+// donde detecta al jugador y, por ahora, tambien el area que patrulla.
+export function createEnemyTemplateFromPlacement(
+  placement: RoomEditorPlacementData,
+  asset: RoomEditorAssetData,
+  idPrefix: string,
+): RoomEnemyTemplate {
+  const variant = createObjectVariant(placement, asset, false, 'enemies')
+  const surveillanceArea = placement.surveillanceArea
+    ?? asset.surveillanceArea
+    ?? { ...DEFAULT_ENEMY_SURVEILLANCE_AREA }
+  const interactionArea = placement.interactionArea
+    ?? asset.interactionArea
+    ?? { ...DEFAULT_ENEMY_INTERACTION_AREA }
+  const id = `${idPrefix}-${placement.cellX}-${placement.cellY}`
+
+  return {
+    entityType: 'enemy',
+    id,
+    label: placement.name,
+    posicion_relativa_X: variant.x,
+    posicion_relativa_Y: variant.y,
+    ancho_de_patrullaje_: surveillanceArea.width,
+    alto_de_patrullaje_: surveillanceArea.height,
+    velocidad_de_patrullaje_: 72,
+    nivel_enemigo_: 0,
+    ancho_area_interaccion_directa_: interactionArea.width,
+    alto_area_interaccion_directa_: interactionArea.height,
+    spriteSheetAssetId: ENEMY_SPRITE_SHEET_ASSET_ID,
+    spriteSheetWidth: ENEMY_SPRITE_SHEET_SIZE.width,
+    spriteSheetHeight: ENEMY_SPRITE_SHEET_SIZE.height,
+    spriteFrameWidth: ENEMY_SPRITE_FRAME_SIZE.width,
+    spriteFrameHeight: ENEMY_SPRITE_FRAME_SIZE.height,
+    spriteFrames: createEnemySpriteFrames(id),
+    spriteFrameDurationMs: 240,
+    iconWarningAssetIds: ['enemy-warning-0', 'enemy-warning-1', 'enemy-warning-2', 'enemy-warning-3'],
+    iconFrameDurationMs: 180,
+    // Misma escala que el icono de las puertas y teleports (128 px).
+    iconWidth: 128,
+    iconHeight: 128,
+    iconOffsetX: 0,
+    iconOffsetY: -128,
+    surveillanceArea: { ...surveillanceArea },
+    interactionArea: { ...interactionArea },
+    // Por defecto, a un octavo de la figura desde abajo.
+    zIndexOffsetY: placement.zIndexOffsetY
+      ?? asset.zIndexOffsetY
+      ?? Math.round(asset.frameHeight * 0.375),
   }
 }
 
@@ -192,15 +257,20 @@ export function interactWithRoomObject(
 export function createRoomTemplateFromEditorMap(map: SavedRoomEditorMap): RoomTemplate {
   const assets = new Map(map.document.assets.map((asset) => [asset.id, asset]))
   const layers = new Map(map.document.layers.map((layer) => [layer.id, layer]))
+  // El comportamiento depende de la categoria de la capa, no de su id: asi una capa nueva
+  // puede comportarse como suelo, muro, puerta, recompensa, NPC o teleport.
+  const layerCategoryOf = createRoomEditorLayerCategoryLookup(map.document.layers)
   const objects = map.document.placements.flatMap((placement): RoomObjectTemplate[] => {
-    if (placement.layerId === 'teleports' || placement.layerId === 'npcs') return []
+    const layerCategory = layerCategoryOf(placement.layerId)
+    // Los teleports, NPCs y enemigos se construyen en sus propias listas, no como objetos.
+    if (layerCategory === 'teleports' || layerCategory === 'npcs' || layerCategory === 'enemies') return []
 
     const asset = assets.get(placement.assetId)
     if (!asset) return []
     const layer = layers.get(placement.layerId)
     if (layer?.enabled === false) return []
     const collidersEnabled = layer?.collidersEnabled !== false
-    const activeVariant = createObjectVariant(placement, asset, collidersEnabled)
+    const activeVariant = createObjectVariant(placement, asset, collidersEnabled, layerCategory)
     const { state: variantState, ...activeObjectProperties } = activeVariant
     const interactionVariants = asset.interactionState === undefined
       ? undefined
@@ -210,20 +280,20 @@ export function createRoomTemplateFromEditorMap(map: SavedRoomEditorMap): RoomTe
             && candidate.interactionState !== undefined
             && candidate.id.replace(/-S[01]$/i, '') === asset.id.replace(/-S[01]$/i, '')
           ))
-          .map((candidate) => createObjectVariant(placement, candidate, collidersEnabled))
-    const coinInventoryItemId = placement.layerId === ROOM_REWARDS_LAYER_ID
+          .map((candidate) => createObjectVariant(placement, candidate, collidersEnabled, layerCategory))
+    const coinInventoryItemId = layerCategory === 'rewards'
       ? getCoinInventoryItemIdFromAssetId(asset.id)
       : null
     return [{
       id: `published-${placement.layerId}-${placement.cellX}-${placement.cellY}`,
-      kind: resolveKind(placement.layerId, asset.category),
-      collectible: placement.layerId === ROOM_REWARDS_LAYER_ID,
+      kind: resolveKind(layerCategory, asset.category),
+      collectible: layerCategory === 'rewards',
       collectibleReward: coinInventoryItemId
         ? { inventoryItemId: coinInventoryItemId, quantity: 1 }
         : undefined,
       opacity: placement.assetId === 'component-teleport' ? 0 : 1,
       flippedX: placement.flippedX,
-      layerOrder: LAYER_PRIORITY[placement.layerId] ?? 2,
+      layerOrder: ROOM_EDITOR_LAYER_PRIORITY[layerCategory],
       ...activeObjectProperties,
       interactionState: asset.interactionState === undefined ? undefined : variantState,
       interactionVariants,
@@ -231,7 +301,7 @@ export function createRoomTemplateFromEditorMap(map: SavedRoomEditorMap): RoomTe
   })
 
   const teleports = map.document.placements.flatMap((placement): RoomTeleportTemplate[] => {
-    if (placement.layerId !== 'teleports' || !placement.teleportTargetPath) return []
+    if (layerCategoryOf(placement.layerId) !== 'teleports' || !placement.teleportTargetPath) return []
 
     const asset = assets.get(placement.assetId)
     if (!asset) return []
@@ -242,6 +312,7 @@ export function createRoomTemplateFromEditorMap(map: SavedRoomEditorMap): RoomTe
       placement,
       asset,
       layer?.collidersEnabled !== false,
+      'teleports',
     )
     const iconContainer = variant.interactionIconContainer
     const centerToBottomOffset = variant.height / 2
@@ -284,16 +355,16 @@ export function createRoomTemplateFromEditorMap(map: SavedRoomEditorMap): RoomTe
       ],
       iconFrameDurationMs: 600,
       iconOffsetX: iconContainer?.offsetX ?? 0,
-      iconOffsetY: (iconContainer?.offsetY ?? -129) - centerToBottomOffset,
-      iconWidth: iconContainer?.width ?? 128,
-      iconHeight: iconContainer?.height ?? 129,
+      iconOffsetY: (iconContainer?.offsetY ?? -ROOM_INTERACTION_ICON_SIZE) - centerToBottomOffset,
+      iconWidth: iconContainer?.width ?? ROOM_INTERACTION_ICON_SIZE,
+      iconHeight: iconContainer?.height ?? ROOM_INTERACTION_ICON_SIZE,
       interactionId: `editor-teleport-${placement.cellX}-${placement.cellY}`,
       teleportTarget: { routePath: placement.teleportTargetPath },
     }]
   })
 
   const npcs = map.document.placements.flatMap((placement): RoomNpcTemplate[] => {
-    if (placement.layerId !== 'npcs' || placement.assetId !== 'component-npc-mage') return []
+    if (layerCategoryOf(placement.layerId) !== 'npcs' || placement.assetId !== 'component-npc-mage') return []
 
     const asset = assets.get(placement.assetId)
     if (!asset) return []
@@ -304,6 +375,7 @@ export function createRoomTemplateFromEditorMap(map: SavedRoomEditorMap): RoomTe
       placement,
       asset,
       layer?.collidersEnabled !== false,
+      'npcs',
     )
     const centerToBottomOffset = variant.height / 2
     const collider = variant.collider
@@ -357,6 +429,17 @@ export function createRoomTemplateFromEditorMap(map: SavedRoomEditorMap): RoomTe
     }]
   })
 
+  const enemies = map.document.placements.flatMap((placement): RoomEnemyTemplate[] => {
+    if (layerCategoryOf(placement.layerId) !== 'enemies') return []
+
+    const asset = assets.get(placement.assetId)
+    if (!asset) return []
+    const layer = layers.get(placement.layerId)
+    if (layer?.enabled === false) return []
+
+    return [createEnemyTemplateFromPlacement(placement, asset, 'published-enemy')]
+  })
+
   const entrySpawns = map.document.spawnPoints.map((spawnPoint) => ({
     id: spawnPoint.id,
     position: {
@@ -400,6 +483,6 @@ export function createRoomTemplateFromEditorMap(map: SavedRoomEditorMap): RoomTe
     objects,
     npcs,
     teleports,
-    enemies: [],
+    enemies,
   }
 }

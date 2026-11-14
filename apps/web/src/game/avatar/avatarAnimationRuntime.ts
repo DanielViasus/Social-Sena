@@ -9,6 +9,7 @@ import {
   type AssignmentDirection,
 } from './animationAssignmentStorage'
 import type { AnimationSkeleton } from './animationSkeleton'
+import type { AnimationPack } from './animationPack'
 
 // Runtime store for the animations published by an administrator. The game reads it
 // synchronously while rendering; anything missing or still loading resolves to null so
@@ -19,17 +20,12 @@ const CACHE_KEY = 'social-sena-avatar-animations-cache-v1'
 
 // Paquete incluido con el juego (opcional): se usa solo cuando no hay animaciones publicadas disponibles.
 // Se genera con «Exportar paquete» en la pantalla de asignaciones y se guarda como ./defaultAnimationPack.json.
-export interface AnimationPack {
-  format: 'social-sena-animation-pack'
-  version: 1
-  config: AnimationAssignments
-  animations: Array<{ id: string; name: string; document: AnimationSkeleton }>
-}
-
 const packLoaders = import.meta.glob<AnimationPack>('./defaultAnimationPack.json', { import: 'default' })
 let bundled: { config: AnimationAssignments; documents: Map<string, AnimationSkeleton> } | null = null
 let bundledRequested = false
 let serverDisabled = false
+// Vista previa sin servidor (modo de prueba del editor de niveles): usa los datos de este navegador.
+let localPreview: { config: AnimationAssignments; documents: Map<string, AnimationSkeleton> } | null = null
 let configVersion: string | null = null
 
 let socket: Socket | null = null
@@ -73,17 +69,18 @@ function loadBundledPack() {
   }).catch((error) => console.warn('[avatar-animations] No se pudo cargar el paquete incluido.', error))
 }
 
-// Con animaciones publicadas se usan esas; sin ellas (y sin apagado explícito) se usa el paquete incluido.
-function usingBundled() {
-  return !config && !DISABLED_BY_ENV && !serverDisabled && bundled !== null
+// Orden de respaldo cuando no hay configuración publicada: datos locales del editor y luego el paquete incluido.
+function fallbackSource() {
+  if (config || DISABLED_BY_ENV || serverDisabled) return null
+  return localPreview ?? bundled
 }
 
 function activeConfig() {
-  return config ?? (usingBundled() ? bundled!.config : null)
+  return config ?? fallbackSource()?.config ?? null
 }
 
 function activeDocuments() {
-  return usingBundled() ? bundled!.documents : documents
+  return config ? documents : fallbackSource()?.documents ?? documents
 }
 
 let cacheTimer: number | null = null
@@ -251,7 +248,12 @@ export function setSelectedRuntimeVariation(id: string) {
 
 export function getRuntimeStatus() {
   if (!socket) return 'sin conexión'
-  if (!config) return usingBundled() ? `paquete incluido (${bundled!.documents.size} animaciones) · ${configStatus}` : configStatus
+  if (!config) {
+    const fallback = fallbackSource()
+    if (!fallback) return configStatus
+    const origin = fallback === localPreview ? 'animaciones de este navegador' : 'paquete incluido'
+    return `${origin} (${fallback.documents.size} animaciones) · ${configStatus}`
+  }
   const variation = config.variations.find((item) => item.id === selectedVariationId)
     ?? config.variations.find((item) => item.id === DEFAULT_VARIATION_ID)
   const assigned = variation ? Object.keys(variation.assignments).length : 0
@@ -287,7 +289,8 @@ export function resolveRuntimeAnimation(
     if (!slot) continue
     const document = activeDocuments().get(slot.animationId)
     if (!document) {
-      if (!usingBundled()) requestDocument(slot.animationId)
+      if (!config) return null
+      requestDocument(slot.animationId)
       return null
     }
     return { document, flipX: slot.flipX, flipY: slot.flipY }
@@ -303,4 +306,41 @@ function subscribe(listener: () => void) {
 // Re-renders the caller whenever the published data, a loaded document or the test selection changes.
 export function useAvatarAnimationRuntimeVersion() {
   return useSyncExternalStore(subscribe, () => version, () => 0)
+}
+
+// Permite que una pantalla sin conexión al juego (el modo de prueba del editor de niveles)
+// use las animaciones publicadas que haya en caché, el paquete incluido o, si no hay nada,
+// las animaciones guardadas en este navegador. No toca la conexión del juego.
+export async function enableLocalAnimationPreview(): Promise<string> {
+  loadBundledPack()
+  if (!config) hydrateFromCache()
+  notify()
+  if (config) return 'Animaciones publicadas (caché de este navegador).'
+  if (DISABLED_BY_ENV) return 'Animaciones publicadas desactivadas por configuración.'
+  try {
+    const [{ buildAnimationPack }, { loadAssignments }] = await Promise.all([
+      import('./animationPack'),
+      import('./animationAssignmentStorage'),
+    ])
+    const built = await buildAnimationPack(loadAssignments())
+    if (!built.ok) {
+      console.warn('[avatar-animations] No se pudo armar la vista previa local:', built.message)
+      return built.message
+    }
+    localPreview = {
+      config: built.pack.config,
+      documents: new Map(built.pack.animations.map((item) => [item.id, item.document])),
+    }
+    notify()
+    return `Animaciones de este navegador (${localPreview.documents.size}).`
+  } catch (error) {
+    console.warn('[avatar-animations] No se pudo cargar la vista previa local.', error)
+    return 'No se pudieron cargar las animaciones de este navegador.'
+  }
+}
+
+export function disableLocalAnimationPreview() {
+  if (!localPreview) return
+  localPreview = null
+  notify()
 }

@@ -5,6 +5,28 @@ export const DEFAULT_ROOM_NAME = 'Lobby Principal'
 export const DEFAULT_ROOM_CAPACITY = 20
 export const ROOM_COIN_ASSET_ID = 'component-coins'
 export const ROOM_REWARDS_LAYER_ID = 'rewards'
+
+// Espacio estandar de los iconos de interaccion (alerta, tecla E, aviso del enemigo).
+export const ROOM_INTERACTION_ICON_SIZE = 128
+
+// Tras huir, el enemigo deja en paz al grupo durante este tiempo.
+export const COMBAT_FLEE_GRACE_MS = 5000
+
+// Zona de interaccion por defecto de un enemigo: 2x2 celdas que lo acompañan.
+export const DEFAULT_ENEMY_INTERACTION_AREA = {
+  width: 2 * 128,
+  height: 2 * 128,
+  offsetX: 0,
+  offsetY: 0,
+} as const
+
+// Zona de vigilancia por defecto de un enemigo: 3x3 celdas centradas en el.
+export const DEFAULT_ENEMY_SURVEILLANCE_AREA = {
+  width: 3 * 128,
+  height: 3 * 128,
+  offsetX: 0,
+  offsetY: 0,
+} as const
 export const PLAYER_CURRENCY_INVENTORY_PREFIX = 'currency:'
 export const PLAYER_COIN_INVENTORY_ITEM_ID = `${PLAYER_CURRENCY_INVENTORY_PREFIX}coin`
 export const MAX_INVENTORY_ITEM_QUANTITY = 2_000_000_000

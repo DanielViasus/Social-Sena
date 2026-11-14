@@ -11,6 +11,9 @@ import {
 } from 'react'
 import { io, type Socket } from 'socket.io-client'
 import {
+  DEFAULT_ENEMY_INTERACTION_AREA,
+  DEFAULT_ENEMY_SURVEILLANCE_AREA,
+  ROOM_INTERACTION_ICON_SIZE,
   ROOM_REWARDS_LAYER_ID,
   clientEvents,
   hasMinimumUserRole,
@@ -25,15 +28,25 @@ import {
   type RoomEditorAreaData,
   type RoomEditorColliderData,
   type RoomEditorLayerData,
+  type RoomEditorLayerCategory,
+  type RoomEnemyTemplate,
   type RoomEditorPlacementData,
   type RoomEditorSpawnPointData,
   type RoomTemplate,
   type SavedRoomEditorMap,
   type UserProfile,
+  ROOM_EDITOR_LAYER_CATEGORIES,
+  ROOM_EDITOR_LAYER_PRIORITY,
+  createEnemyTemplateFromPlacement,
+  createRoomEditorLayerCategoryLookup,
+  resolveRoomEditorLayerCategory,
+  roomEditorLayerCategoryName,
+  DEFAULT_ROOM_EDITOR_LAYER_CATEGORY,
 } from '@social-sena/shared'
 import { saveAuthSession, type AuthSession } from '../auth/localSession'
 import { listenForSessionReplacement } from '../auth/sessionReplacement'
 import eraseToolIconSrc from '../assets/room-editor/sprites/icon_Erase.svg'
+import enemyDummySheetSrc from '../assets/enemies/maniqui_de_entrenamiento/MANIKI_DE_ENTRENAMIENTO.svg'
 import mageNpcSheetSrc from '../assets/npc/mago/Mage.svg'
 import paintToolIconSrc from '../assets/room-editor/sprites/icon_Paint.svg'
 import selectToolIconSrc from '../assets/room-editor/sprites/icon_Select.svg'
@@ -56,6 +69,7 @@ import {
 } from './roomEditorAssetCatalog'
 import EditRoomTestMode from './EditRoomTestMode'
 import { Coins } from './world/Coins'
+import { EditorEnemyPlacement } from './world/EditorEnemyPlacement'
 import { ObjectDecoration } from './world/ObjectDecoration'
 import { WorldNpc } from './world/WorldNpc'
 
@@ -67,6 +81,7 @@ const MAX_EDIT_HISTORY = 100
 const DEFAULT_SPAWN_ID = 'default'
 const TELEPORT_EDITOR_ASSET_ID = 'component-teleport'
 const NPC_MAGE_EDITOR_ASSET_ID = 'component-npc-mage'
+const ENEMY_EDITOR_ASSET_ID = 'component-enemy-dummy'
 
 const TELEPORT_EDITOR_ASSET: RoomEditorAsset = {
   id: TELEPORT_EDITOR_ASSET_ID,
@@ -92,10 +107,10 @@ const TELEPORT_EDITOR_ASSET: RoomEditorAsset = {
     offsetY: 0,
   },
   interactionIconContainer: {
-    width: 128,
-    height: 129,
+    width: ROOM_INTERACTION_ICON_SIZE,
+    height: ROOM_INTERACTION_ICON_SIZE,
     offsetX: 0,
-    offsetY: -129,
+    offsetY: -ROOM_INTERACTION_ICON_SIZE,
   },
   sourceWidth: 128,
   sourceHeight: 128,
@@ -141,6 +156,42 @@ const NPC_MAGE_EDITOR_ASSET: RoomEditorAsset = {
   url: mageNpcSheetSrc,
 }
 
+const ENEMY_EDITOR_ASSET: RoomEditorAsset = {
+  id: ENEMY_EDITOR_ASSET_ID,
+  fileName: ENEMY_EDITOR_ASSET_ID,
+  category: 'Enemy',
+  name: 'Maniqui de entrenamiento',
+  frameWidth: 128,
+  frameHeight: 128,
+  occupiedColumns: 1,
+  occupiedRows: 1,
+  colliders: [{
+    width: 68,
+    height: 24,
+    offsetX: 0,
+    offsetY: 52,
+  }],
+  // Un octavo de la figura desde abajo: 128 / 2 - 128 / 8.
+  zIndexOffsetY: 48,
+  warningArea: {
+    width: 750,
+    height: 750,
+    offsetX: 0,
+    offsetY: -6,
+  },
+  interactionArea: { ...DEFAULT_ENEMY_INTERACTION_AREA },
+  interactionIconContainer: {
+    width: 128,
+    height: 128,
+    offsetX: 0,
+    offsetY: -136,
+  },
+  surveillanceArea: { ...DEFAULT_ENEMY_SURVEILLANCE_AREA },
+  sourceWidth: 512,
+  sourceHeight: 1280,
+  url: enemyDummySheetSrc,
+}
+
 function createGlobalRouteSlug(sceneName: string) {
   const words = sceneName
     .normalize('NFD')
@@ -154,24 +205,18 @@ function createGlobalRouteSlug(sceneName: string) {
 type EditorLayer = RoomEditorLayerData
 
 const REQUIRED_EDITOR_LAYERS: EditorLayer[] = [
-  { id: 'floor', name: 'Floor', enabled: true, collidersEnabled: false, required: true },
-  { id: 'walls', name: 'Walls', enabled: true, collidersEnabled: true, required: true },
-  { id: 'doors', name: 'Door', enabled: true, collidersEnabled: true, required: true },
-  { id: 'object-decoration', name: 'ObjectDecoration', enabled: true, collidersEnabled: true, required: true },
-  { id: ROOM_REWARDS_LAYER_ID, name: 'Rewards', enabled: true, collidersEnabled: false, required: true },
-  { id: 'npcs', name: 'NPCs', enabled: true, collidersEnabled: true, required: true },
-  { id: 'teleports', name: 'Teleports', enabled: true, collidersEnabled: true, required: true },
+  { id: 'floor', name: 'Floor', enabled: true, collidersEnabled: false, required: true, category: 'floor' },
+  { id: 'walls', name: 'Walls', enabled: true, collidersEnabled: true, required: true, category: 'walls' },
+  { id: 'doors', name: 'Door', enabled: true, collidersEnabled: true, required: true, category: 'doors' },
+  { id: 'object-decoration', name: 'ObjectDecoration', enabled: true, collidersEnabled: true, required: true, category: 'object-decoration' },
+  { id: ROOM_REWARDS_LAYER_ID, name: 'Rewards', enabled: true, collidersEnabled: false, required: true, category: 'rewards' },
+  { id: 'npcs', name: 'NPCs', enabled: true, collidersEnabled: true, required: true, category: 'npcs' },
+  { id: 'teleports', name: 'Teleports', enabled: true, collidersEnabled: true, required: true, category: 'teleports' },
+  { id: 'enemies', name: 'Enemies', enabled: true, collidersEnabled: true, required: true, category: 'enemies' },
 ]
 
-const EDITOR_LAYER_PRIORITY: Record<string, number> = {
-  floor: 0,
-  walls: 1,
-  doors: 2,
-  'object-decoration': 3,
-  [ROOM_REWARDS_LAYER_ID]: 4,
-  npcs: 5,
-  teleports: 6,
-}
+// Las capas nuevas que nacen como suelo o recompensa no necesitan colisiones, igual que las obligatorias.
+const CATEGORIES_WITHOUT_COLLIDERS = new Set<RoomEditorLayerCategory>(['floor', 'rewards'])
 
 const EDITOR_LAYER_COLORS: Record<string, string> = {
   floor: '#98a078',
@@ -179,6 +224,7 @@ const EDITOR_LAYER_COLORS: Record<string, string> = {
   doors: '#a18469',
   'object-decoration': '#907b99',
   [ROOM_REWARDS_LAYER_ID]: '#a68f5b',
+  enemies: '#a3595b',
   npcs: '#7f8fac',
   teleports: '#619391',
 }
@@ -192,8 +238,8 @@ const CUSTOM_EDITOR_LAYER_COLORS = [
   '#70898f',
 ]
 
-function getEditorLayerPriority(layerId: string) {
-  return EDITOR_LAYER_PRIORITY[layerId] ?? EDITOR_LAYER_PRIORITY['object-decoration']
+function getEditorLayerPriority(category: RoomEditorLayerCategory) {
+  return ROOM_EDITOR_LAYER_PRIORITY[category]
 }
 
 function getEditorLayerColor(layerId: string) {
@@ -214,18 +260,23 @@ function getEditorLayerColorStyle(layerId: string) {
   return { '--edit-room-layer-color': getEditorLayerColor(layerId) } as CSSProperties
 }
 
+// Respeta el orden guardado (el usuario puede reordenar la caja de capas) y garantiza
+// que las capas obligatorias existan, agregando al final las que falten.
 function normalizeEditorLayers(savedLayers: EditorLayer[]) {
-  const savedLayersById = new Map(savedLayers.map((layer) => [layer.id, layer]))
-  const requiredLayerIds = new Set(REQUIRED_EDITOR_LAYERS.map((layer) => layer.id))
+  const requiredLayersById = new Map(REQUIRED_EDITOR_LAYERS.map((layer) => [layer.id, layer]))
+  const savedLayerIds = new Set(savedLayers.map((layer) => layer.id))
   return [
-    ...REQUIRED_EDITOR_LAYERS.map((requiredLayer) => ({
-      ...requiredLayer,
-      ...savedLayersById.get(requiredLayer.id),
-      required: true,
-    })),
-    ...savedLayers
-      .filter((layer) => !requiredLayerIds.has(layer.id))
-      .map((layer) => ({ ...layer, enabled: layer.enabled !== false })),
+    ...savedLayers.map((layer) => {
+      const requiredLayer = requiredLayersById.get(layer.id)
+      return requiredLayer
+        ? { ...requiredLayer, ...layer, required: true, category: requiredLayer.category }
+        : {
+            ...layer,
+            enabled: layer.enabled !== false,
+            category: resolveRoomEditorLayerCategory(layer, layer.id),
+          }
+    }),
+    ...REQUIRED_EDITOR_LAYERS.filter((layer) => !savedLayerIds.has(layer.id)),
   ]
 }
 
@@ -235,6 +286,7 @@ type EditableInteractionAreaKey =
   | 'warningArea'
   | 'interactionArea'
   | 'interactionIconContainer'
+  | 'surveillanceArea'
 
 function getPlacedAssetKey(placement: PlacedRoomAsset) {
   return `${placement.layerId}:${placement.cellX}:${placement.cellY}:${placement.assetId}`
@@ -353,6 +405,7 @@ function clonePlacedAsset(placement: PlacedRoomAsset): PlacedRoomAsset {
     interactionIconContainer: placement.interactionIconContainer
       ? { ...placement.interactionIconContainer }
       : undefined,
+    surveillanceArea: placement.surveillanceArea ? { ...placement.surveillanceArea } : undefined,
   }
 }
 
@@ -520,9 +573,10 @@ function createPlacedObjectVariant(
   placement: PlacedRoomAsset,
   asset: RoomEditorAsset,
   collidersEnabled = true,
+  layerCategory: RoomEditorLayerCategory = DEFAULT_ROOM_EDITOR_LAYER_CATEGORY,
 ): RoomObjectInteractionVariantTemplate {
   const usesBottomCenterAnchor = asset.frameWidth > 128 || asset.frameHeight > 128
-  const centersWithinGridFootprint = placement.layerId === ROOM_REWARDS_LAYER_ID
+  const centersWithinGridFootprint = layerCategory === 'rewards'
   const occupiedWidth = asset.occupiedColumns * 128
   const occupiedHeight = asset.occupiedRows * 128
   const placementColliders = placement.colliders ?? asset.colliders
@@ -533,9 +587,9 @@ function createPlacedObjectVariant(
       }))
     : []
   const collider = colliders[0]
-  const isInteractablePlacement = placement.layerId === 'doors'
-    || placement.layerId === 'teleports'
-    || placement.layerId === 'npcs'
+  const isInteractablePlacement = layerCategory === 'doors'
+    || layerCategory === 'teleports'
+    || layerCategory === 'npcs'
   const placementWarningArea = placement.warningArea ?? asset.warningArea
   const placementInteractionArea = placement.interactionArea ?? asset.interactionArea
   const placementIconContainer = placement.interactionIconContainer ?? asset.interactionIconContainer
@@ -603,14 +657,15 @@ function createPlacedObjectTemplate(
   asset: RoomEditorAsset,
   availableAssets: RoomEditorAsset[],
   collidersEnabled = true,
+  layerCategory: RoomEditorLayerCategory = DEFAULT_ROOM_EDITOR_LAYER_CATEGORY,
 ): RoomObjectTemplate {
-  const variant = createPlacedObjectVariant(placement, asset, collidersEnabled)
-  const layerKind: Partial<Record<string, RoomObjectKind>> = {
+  const variant = createPlacedObjectVariant(placement, asset, collidersEnabled, layerCategory)
+  const layerKind: Partial<Record<RoomEditorLayerCategory, RoomObjectKind>> = {
     floor: 'floor',
     walls: 'wall',
     doors: 'door',
     'object-decoration': 'landmark',
-    [ROOM_REWARDS_LAYER_ID]: 'landmark',
+    rewards: 'landmark',
     teleports: 'portal',
   }
   const interactionVariants = asset.interactionState === undefined
@@ -621,16 +676,16 @@ function createPlacedObjectTemplate(
           && candidate.name === asset.name
           && candidate.interactionState !== undefined
         ))
-        .map((candidate) => createPlacedObjectVariant(placement, candidate, collidersEnabled))
+        .map((candidate) => createPlacedObjectVariant(placement, candidate, collidersEnabled, layerCategory))
   const { state: variantState, ...activeVariant } = variant
 
   return {
     id: `editor-object-${placement.layerId}-${placement.cellX}-${placement.cellY}`,
-    kind: layerKind[placement.layerId] ?? getObjectKindFromAssetType(asset.category),
-    collectible: placement.layerId === ROOM_REWARDS_LAYER_ID,
+    kind: layerKind[layerCategory] ?? getObjectKindFromAssetType(asset.category),
+    collectible: layerCategory === 'rewards',
     opacity: asset.id === TELEPORT_EDITOR_ASSET_ID ? 0 : 1,
     flippedX: placement.flippedX,
-    layerOrder: getEditorLayerPriority(placement.layerId),
+    layerOrder: getEditorLayerPriority(layerCategory),
     ...activeVariant,
     interactionState: asset.interactionState === undefined ? undefined : variantState,
     interactionVariants,
@@ -642,11 +697,11 @@ function createPlacedTeleportTemplate(
   asset: RoomEditorAsset,
   collidersEnabled = true,
 ): RoomTeleportTemplate | null {
-  if (placement.layerId !== 'teleports' || !placement.teleportTargetPath) {
+  if (!placement.teleportTargetPath) {
     return null
   }
 
-  const variant = createPlacedObjectVariant(placement, asset, collidersEnabled)
+  const variant = createPlacedObjectVariant(placement, asset, collidersEnabled, 'teleports')
   const centerToBottomOffset = variant.height / 2
   const collider = variant.collider
     ? { ...variant.collider, offsetY: variant.collider.offsetY - centerToBottomOffset }
@@ -688,9 +743,9 @@ function createPlacedTeleportTemplate(
     ],
     iconFrameDurationMs: 600,
     iconOffsetX: iconContainer?.offsetX ?? 0,
-    iconOffsetY: (iconContainer?.offsetY ?? -129) - centerToBottomOffset,
-    iconWidth: iconContainer?.width ?? 128,
-    iconHeight: iconContainer?.height ?? 129,
+    iconOffsetY: (iconContainer?.offsetY ?? -ROOM_INTERACTION_ICON_SIZE) - centerToBottomOffset,
+    iconWidth: iconContainer?.width ?? ROOM_INTERACTION_ICON_SIZE,
+    iconHeight: iconContainer?.height ?? ROOM_INTERACTION_ICON_SIZE,
     interactionId: `editor-teleport-${placement.cellX}-${placement.cellY}`,
     teleportTarget: { routePath: placement.teleportTargetPath },
   }
@@ -701,11 +756,11 @@ function createPlacedNpcTemplate(
   asset: RoomEditorAsset,
   collidersEnabled = true,
 ): RoomNpcTemplate | null {
-  if (placement.layerId !== 'npcs' || placement.assetId !== NPC_MAGE_EDITOR_ASSET_ID) {
+  if (placement.assetId !== NPC_MAGE_EDITOR_ASSET_ID) {
     return null
   }
 
-  const variant = createPlacedObjectVariant(placement, asset, collidersEnabled)
+  const variant = createPlacedObjectVariant(placement, asset, collidersEnabled, 'npcs')
   const centerToBottomOffset = variant.height / 2
   const collider = variant.collider
     ? { ...variant.collider, offsetY: variant.collider.offsetY - centerToBottomOffset }
@@ -794,6 +849,9 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
   const [renamingPlacementKey, setRenamingPlacementKey] = useState<string | null>(null)
   const [placementNameDraft, setPlacementNameDraft] = useState('')
   const [newLayerName, setNewLayerName] = useState('')
+  const [newLayerCategory, setNewLayerCategory] = useState<RoomEditorLayerCategory>(DEFAULT_ROOM_EDITOR_LAYER_CATEGORY)
+  const [draggedLayerId, setDraggedLayerId] = useState<string | null>(null)
+  const [layerDropTarget, setLayerDropTarget] = useState<{ layerId: string; position: 'before' | 'after' } | null>(null)
   const [assetCategories, setAssetCategories] = useState<RoomEditorAssetCategory[]>([])
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null)
   const [placedAssets, setPlacedAssets] = useState<PlacedRoomAsset[]>([])
@@ -1224,6 +1282,7 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
     () => [
       TELEPORT_EDITOR_ASSET,
       NPC_MAGE_EDITOR_ASSET,
+      ENEMY_EDITOR_ASSET,
       ...coinEditorAssets,
       ...assetCategories.flatMap((category) => category.assets),
     ],
@@ -1273,6 +1332,8 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
     () => new Map(layers.map((layer) => [layer.id, layer])),
     [layers],
   )
+  // El comportamiento de cada colocacion lo decide la categoria de su capa, no su id.
+  const layerCategoryOf = useMemo(() => createRoomEditorLayerCategoryLookup(layers), [layers])
   const selectedPlacementAreas = useMemo(() => placedAssets.flatMap((placement) => {
     const placementKey = getPlacedAssetKey(placement)
     const layer = layerById.get(placement.layerId)
@@ -1312,25 +1373,38 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
       ?? selectedDetailAsset?.interactionIconContainer
       ?? null
     : null
+  const selectedDetailSurveillanceArea = selectedDetailPlacement
+    ? selectedDetailPlacement.surveillanceArea
+      ?? selectedDetailAsset?.surveillanceArea
+      ?? null
+    : null
+  // Punto de profundidad del enemigo, medido desde el centro de la figura hacia abajo.
+  const selectedDetailZIndexOffsetY = selectedDetailPlacement
+    ? selectedDetailPlacement.zIndexOffsetY
+      ?? selectedDetailAsset?.zIndexOffsetY
+      ?? 0
+    : 0
   const selectedSpawnPoint = selectedSpawnId
     ? spawnPoints.find((spawnPoint) => spawnPoint.id === selectedSpawnId) ?? null
     : null
   const visiblePlacedAssets = useMemo(() => placedAssets
     .filter((placement) => layerById.get(placement.layerId)?.enabled !== false)
     .sort((left, right) => (
-      getEditorLayerPriority(left.layerId) - getEditorLayerPriority(right.layerId)
-    )), [layerById, placedAssets])
+      getEditorLayerPriority(layerCategoryOf(left.layerId))
+      - getEditorLayerPriority(layerCategoryOf(right.layerId))
+    )), [layerById, layerCategoryOf, placedAssets])
   const testObjects = useMemo(() => placedAssets.flatMap((placement) => {
-    if (placement.layerId === 'teleports' || placement.layerId === 'npcs') return []
+    const layerCategory = layerCategoryOf(placement.layerId)
+    if (layerCategory === 'teleports' || layerCategory === 'npcs' || layerCategory === 'enemies') return []
 
     const asset = assetById.get(placement.assetId)
     const layer = layerById.get(placement.layerId)
     return asset && layer?.enabled !== false
-      ? [createPlacedObjectTemplate(placement, asset, availableAssets, layer?.collidersEnabled ?? true)]
+      ? [createPlacedObjectTemplate(placement, asset, availableAssets, layer?.collidersEnabled ?? true, layerCategory)]
       : []
-  }), [assetById, availableAssets, layerById, placedAssets])
+  }), [assetById, availableAssets, layerById, layerCategoryOf, placedAssets])
   const testTeleports = useMemo(() => placedAssets.flatMap((placement) => {
-    if (placement.layerId !== 'teleports') return []
+    if (layerCategoryOf(placement.layerId) !== 'teleports') return []
 
     const asset = assetById.get(placement.assetId)
     const layer = layerById.get(placement.layerId)
@@ -1342,9 +1416,9 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
       layer?.collidersEnabled ?? true,
     )
     return teleport ? [teleport] : []
-  }), [assetById, layerById, placedAssets])
+  }), [assetById, layerById, layerCategoryOf, placedAssets])
   const testNpcs = useMemo(() => placedAssets.flatMap((placement) => {
-    if (placement.layerId !== 'npcs') return []
+    if (layerCategoryOf(placement.layerId) !== 'npcs') return []
 
     const asset = assetById.get(placement.assetId)
     const layer = layerById.get(placement.layerId)
@@ -1356,7 +1430,16 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
       layer?.collidersEnabled ?? true,
     )
     return npc ? [npc] : []
-  }), [assetById, layerById, placedAssets])
+  }), [assetById, layerById, layerCategoryOf, placedAssets])
+  const testEnemies = useMemo(() => placedAssets.flatMap((placement): RoomEnemyTemplate[] => {
+    if (layerCategoryOf(placement.layerId) !== 'enemies') return []
+
+    const asset = assetById.get(placement.assetId)
+    const layer = layerById.get(placement.layerId)
+    if (!asset || layer?.enabled === false) return []
+
+    return [createEnemyTemplateFromPlacement(placement, asset, 'editor-enemy')]
+  }), [assetById, layerById, layerCategoryOf, placedAssets])
 
   if (!resolvedProfile && !validationFailed) {
     return <main className="edit-room-page" aria-label="Validando acceso al editor" />
@@ -1452,7 +1535,7 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
     objects: testObjects,
     npcs: testNpcs,
     teleports: testTeleports,
-    enemies: [],
+    enemies: testEnemies,
   }
 
   if (testSpawn && resolvedProfile) {
@@ -1545,6 +1628,8 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
             asset.interactionIconContainer,
             nextAsset.interactionIconContainer,
           )
+          || !arePlacementAreasEqual(asset.surveillanceArea, nextAsset.surveillanceArea)
+          || asset.zIndexOffsetY !== nextAsset.zIndexOffsetY
       })
 
     if (!didChange) {
@@ -1606,8 +1691,18 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
     return nextName ?? defaultName
   }
 
+  // La categoria de la capa decide que se puede configurar, asi una capa nueva creada como
+  // Teleports o NPCs tiene las mismas opciones que la capa obligatoria.
+  const selectedDetailCategory = selectedDetailPlacement
+    ? layerCategoryOf(selectedDetailPlacement.layerId)
+    : null
+  const selectedDetailIsEnemy = selectedDetailCategory === 'enemies'
+  const selectedDetailIsInteractable = selectedDetailCategory === 'teleports'
+    || selectedDetailCategory === 'npcs'
+    || selectedDetailIsEnemy
+
   const commitSelectedTeleportTargetPath = (rawValue: string) => {
-    if (!selectedDetailPlacement || selectedDetailPlacement.layerId !== 'teleports') {
+    if (!selectedDetailPlacement || selectedDetailCategory !== 'teleports') {
       return ''
     }
 
@@ -1630,6 +1725,7 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
   const getSelectedInteractionArea = (areaKey: EditableInteractionAreaKey) => {
     if (areaKey === 'warningArea') return selectedDetailWarningArea
     if (areaKey === 'interactionArea') return selectedDetailInteractionArea
+    if (areaKey === 'surveillanceArea') return selectedDetailSurveillanceArea
     return selectedDetailIconContainer
   }
 
@@ -1638,10 +1734,7 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
     field: keyof RoomEditorAreaData,
     rawValue: string,
   ) => {
-    if (
-      !selectedDetailPlacement
-      || (selectedDetailPlacement.layerId !== 'teleports' && selectedDetailPlacement.layerId !== 'npcs')
-    ) {
+    if (!selectedDetailPlacement || !selectedDetailIsInteractable) {
       return 0
     }
 
@@ -1665,8 +1758,10 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
     const areaLabel = areaKey === 'warningArea'
       ? 'Área de alerta'
       : areaKey === 'interactionArea'
-        ? 'Área de interacción'
-        : 'Icono de interacción'
+        ? selectedDetailIsEnemy ? 'Zona de interacción' : 'Área de interacción'
+        : areaKey === 'surveillanceArea'
+          ? 'Zona de vigilancia'
+          : 'Icono de interacción'
 
     updateSelectedDetailPlacement(
       { ...selectedDetailPlacement, [areaKey]: nextArea },
@@ -1678,7 +1773,7 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
   const resetSelectedInteractionArea = (areaKey: EditableInteractionAreaKey) => {
     if (
       !selectedDetailPlacement
-      || (selectedDetailPlacement.layerId !== 'teleports' && selectedDetailPlacement.layerId !== 'npcs')
+      || !selectedDetailIsInteractable
       || selectedDetailPlacement[areaKey] === undefined
     ) {
       return
@@ -1687,11 +1782,33 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
     const areaLabel = areaKey === 'warningArea'
       ? 'Área de alerta'
       : areaKey === 'interactionArea'
-        ? 'Área de interacción'
-        : 'Icono de interacción'
+        ? selectedDetailIsEnemy ? 'Zona de interacción' : 'Área de interacción'
+        : areaKey === 'surveillanceArea'
+          ? 'Zona de vigilancia'
+          : 'Icono de interacción'
     updateSelectedDetailPlacement(
       { ...selectedDetailPlacement, [areaKey]: undefined },
       `${areaLabel} restaurada desde el asset original`,
+    )
+  }
+
+  const commitSelectedZIndexOffsetY = (rawValue: string) => {
+    if (!selectedDetailPlacement) return 0
+
+    const nextValue = normalizeEditorInteger(rawValue, -4096, 4096, selectedDetailZIndexOffsetY)
+    updateSelectedDetailPlacement(
+      { ...selectedDetailPlacement, zIndexOffsetY: nextValue },
+      'Punto de profundidad actualizado',
+    )
+    return nextValue
+  }
+
+  const resetSelectedZIndexOffsetY = () => {
+    if (!selectedDetailPlacement || selectedDetailPlacement.zIndexOffsetY === undefined) return
+
+    updateSelectedDetailPlacement(
+      { ...selectedDetailPlacement, zIndexOffsetY: undefined },
+      'Punto de profundidad restaurado desde el asset original',
     )
   }
 
@@ -1938,10 +2055,41 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
     nextLayerIdRef.current += 1
     setLayers((currentLayers) => [
       ...currentLayers,
-      { id: layerId, name: layerName, enabled: true, collidersEnabled: true },
+      {
+        id: layerId,
+        name: layerName,
+        enabled: true,
+        collidersEnabled: !CATEGORIES_WITHOUT_COLLIDERS.has(newLayerCategory),
+        category: newLayerCategory,
+      },
     ])
     setActiveLayerId(layerId)
     setNewLayerName('')
+    setMapPersistenceMessage(`Capa ${layerName} creada como ${roomEditorLayerCategoryName(newLayerCategory)}`)
+  }
+
+  // Reordenar solo cambia la jerarquia de la caja de capas; el orden se guarda con el mapa.
+  const moveLayer = (sourceLayerId: string, targetLayerId: string, position: 'before' | 'after') => {
+    if (sourceLayerId === targetLayerId) return
+
+    setLayers((currentLayers) => {
+      const sourceLayer = currentLayers.find((layer) => layer.id === sourceLayerId)
+      if (!sourceLayer) return currentLayers
+
+      const remainingLayers = currentLayers.filter((layer) => layer.id !== sourceLayerId)
+      const targetIndex = remainingLayers.findIndex((layer) => layer.id === targetLayerId)
+      if (targetIndex < 0) return currentLayers
+
+      const nextLayers = [...remainingLayers]
+      nextLayers.splice(position === 'before' ? targetIndex : targetIndex + 1, 0, sourceLayer)
+      return nextLayers
+    })
+    setMapPersistenceMessage('Capas reordenadas · guarda para conservar el orden')
+  }
+
+  const finishLayerDrag = () => {
+    setDraggedLayerId(null)
+    setLayerDropTarget(null)
   }
 
   const deleteLayer = (layerId: string) => {
@@ -2215,8 +2363,8 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
     })
 
     candidates.sort((left, right) => (
-      getEditorLayerPriority(right.placement.layerId)
-      - getEditorLayerPriority(left.placement.layerId)
+      getEditorLayerPriority(layerCategoryOf(right.placement.layerId))
+      - getEditorLayerPriority(layerCategoryOf(left.placement.layerId))
       || right.placementIndex - left.placementIndex
     ))
 
@@ -2541,7 +2689,8 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
     if (layer?.enabled === false) {
       return null
     }
-    if (placement.layerId === 'npcs') {
+    const layerCategory = layerCategoryOf(placement.layerId)
+    if (layerCategory === 'npcs') {
       const npcTemplate = createPlacedNpcTemplate(
         placement,
         asset,
@@ -2556,7 +2705,7 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
             position: 'absolute',
             inset: 0,
             pointerEvents: 'none',
-            zIndex: getEditorLayerPriority(placement.layerId),
+            zIndex: getEditorLayerPriority(layerCategory),
           }}
         >
           <WorldNpc
@@ -2578,11 +2727,42 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
         </div>
       )
     }
+    if (layerCategory === 'enemies') {
+      const variant = createPlacedObjectVariant(placement, asset, false, 'enemies')
+
+      return (
+        <div
+          key={`${placement.layerId}-${placement.cellX}-${placement.cellY}`}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            pointerEvents: 'none',
+            zIndex: getEditorLayerPriority(layerCategory),
+          }}
+        >
+          <EditorEnemyPlacement
+            x={variant.x}
+            y={variant.y}
+            sheetUrl={asset.url}
+            sheetWidth={asset.sourceWidth}
+            sheetHeight={asset.sourceHeight}
+            frameWidth={asset.frameWidth}
+            frameHeight={asset.frameHeight}
+            flippedX={placement.flippedX}
+            label={placement.name ?? asset.name}
+            surveillanceArea={placement.surveillanceArea ?? asset.surveillanceArea ?? null}
+            interactionArea={placement.interactionArea ?? asset.interactionArea ?? null}
+          />
+        </div>
+      )
+    }
+
     const objectTemplate = createPlacedObjectTemplate(
       placement,
       asset,
       availableAssets,
       layer?.collidersEnabled ?? true,
+      layerCategory,
     )
 
     return (
@@ -2592,7 +2772,7 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
         spriteSrc={asset.url}
         debugEnabled={isDebugEnabled}
         flippedX={placement.flippedX}
-        zIndex={getEditorLayerPriority(placement.layerId)}
+        zIndex={getEditorLayerPriority(layerCategory)}
       />
     )
   }
@@ -2653,6 +2833,7 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
             warningArea: asset.warningArea,
             interactionArea: asset.interactionArea,
             interactionIconContainer: asset.interactionIconContainer,
+            surveillanceArea: asset.surveillanceArea,
             interactionState: asset.interactionState,
           })),
         },
@@ -2810,6 +2991,8 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
                     warningArea: selectedDetailPlacement.warningArea,
                     interactionArea: selectedDetailPlacement.interactionArea,
                     interactionIconContainer: selectedDetailPlacement.interactionIconContainer,
+                    surveillanceArea: selectedDetailPlacement.surveillanceArea,
+                    zIndexOffsetY: selectedDetailPlacement.zIndexOffsetY,
                   })}`}
                   className="edit-room-details-content"
                 >
@@ -2839,7 +3022,7 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
                         />
                       </dd>
                     </div>
-                    {selectedDetailPlacement.layerId === 'teleports' ? (
+                    {selectedDetailCategory === 'teleports' ? (
                       <div className="edit-room-details-field is-name is-teleport-url">
                         <dt>URL de destino</dt>
                         <dd>
@@ -2949,20 +3132,84 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
                     </div>
                   </fieldset>
 
-                  {selectedDetailPlacement.layerId === 'teleports'
-                    || selectedDetailPlacement.layerId === 'npcs' ? (
+                  {selectedDetailIsInteractable ? (
                     <section
                       className="edit-room-details-colliders edit-room-details-interaction-config"
-                      aria-label={`Configuración de interacción del ${selectedDetailPlacement.layerId === 'npcs' ? 'NPC' : 'portal'}`}
+                      aria-label={`Configuración ${selectedDetailIsEnemy ? 'del enemigo' : `de interacción del ${selectedDetailCategory === 'npcs' ? 'NPC' : 'portal'}`}`}
                     >
                       <header>
                         <strong>
-                          Interacción del {selectedDetailPlacement.layerId === 'npcs' ? 'NPC' : 'portal'}
+                          {selectedDetailIsEnemy
+                            ? 'Vigilancia del enemigo'
+                            : `Interacción del ${selectedDetailCategory === 'npcs' ? 'NPC' : 'portal'}`}
                         </strong>
                         <output>px</output>
                       </header>
                       <div className="edit-room-details-collider-list">
-                        {([
+                        {selectedDetailIsEnemy ? (
+                          <article className="edit-room-details-collider edit-room-details-interaction-area">
+                            <header>
+                              <strong>Punto de profundidad</strong>
+                              {selectedDetailPlacement.zIndexOffsetY !== undefined ? (
+                                <button
+                                  type="button"
+                                  aria-label="Restaurar el punto de profundidad"
+                                  title="Restaurar el punto de profundidad"
+                                  onClick={resetSelectedZIndexOffsetY}
+                                >
+                                  ↺
+                                </button>
+                              ) : null}
+                            </header>
+                            <div className="edit-room-property-stack">
+                              <fieldset className="edit-room-property-group">
+                                <legend>Desde el centro hacia abajo <span>(px)</span></legend>
+                                <div className="edit-room-details-collider-fields edit-room-property-axes">
+                                  <label className="edit-room-property-axis">
+                                    <span>Y</span>
+                                    <input
+                                      type="number"
+                                      min={-4096}
+                                      max={4096}
+                                      defaultValue={selectedDetailZIndexOffsetY}
+                                      aria-label="Punto de profundidad del enemigo"
+                                      title="Mas alto lo dibuja delante de lo que esta mas arriba en la escena"
+                                      onBlur={(event) => {
+                                        event.currentTarget.value = String(
+                                          commitSelectedZIndexOffsetY(event.currentTarget.value),
+                                        )
+                                      }}
+                                      onKeyDown={(event) => {
+                                        if (event.key === 'Enter') {
+                                          event.preventDefault()
+                                          event.currentTarget.blur()
+                                        } else if (event.key === 'Escape') {
+                                          event.preventDefault()
+                                          event.currentTarget.value = String(selectedDetailZIndexOffsetY)
+                                          event.currentTarget.blur()
+                                        }
+                                      }}
+                                    />
+                                  </label>
+                                </div>
+                              </fieldset>
+                            </div>
+                          </article>
+                        ) : null}
+                        {(selectedDetailIsEnemy
+                          ? [
+                            {
+                              areaKey: 'surveillanceArea' as const,
+                              label: 'Zona de vigilancia',
+                              area: selectedDetailSurveillanceArea,
+                            },
+                            {
+                              areaKey: 'interactionArea' as const,
+                              label: 'Zona de interacción',
+                              area: selectedDetailInteractionArea,
+                            },
+                          ]
+                          : [
                           {
                             areaKey: 'warningArea' as const,
                             label: 'Área de alerta',
@@ -3053,6 +3300,7 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
                     </section>
                   ) : null}
 
+                  {selectedDetailIsEnemy ? null : (
                   <section className="edit-room-details-colliders" aria-label="Dimensiones de los colliders">
                     <header>
                       <strong>Colliders</strong>
@@ -3155,6 +3403,7 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
                       <p className="edit-room-details-empty-collider">Sin collider</p>
                     )}
                   </section>
+                  )}
                 </div>
               ) : selectedSpawnPoint ? (
                 <div
@@ -3271,14 +3520,14 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
               <span>Assets</span>
               <output>{assetCategories.reduce(
                 (total, category) => total + category.assets.length,
-                3 + coinEditorAssets.length,
+                4 + coinEditorAssets.length,
               )}</output>
             </header>
             <div className="edit-room-panel-body edit-room-assets-body">
             <details className="edit-room-asset-collection" open>
               <summary>
                 <span>Componentes</span>
-                <output>{3 + coinEditorAssets.length}</output>
+                <output>{4 + coinEditorAssets.length}</output>
               </summary>
               <div className="edit-room-asset-grid">
                 <button
@@ -3360,6 +3609,40 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
                   </span>
                   <span className="edit-room-asset-name">NPC Mago</span>
                   <span className="edit-room-asset-size">1×1 celda · 128×128 px</span>
+                </button>
+                <button
+                  type="button"
+                  className={`edit-room-asset-tile edit-room-npc-asset${selectedAssetId === ENEMY_EDITOR_ASSET_ID ? ' is-selected' : ''}`}
+                  aria-label="Colocar enemigo"
+                  aria-pressed={selectedAssetId === ENEMY_EDITOR_ASSET_ID && isPaintToolActive}
+                  title="Enemigo · zona de vigilancia de 3×3 celdas editable en el inspector"
+                  onClick={() => {
+                    setSelectedAssetId(ENEMY_EDITOR_ASSET_ID)
+                    setActiveLayerId('enemies')
+                    setExpandedLayerIds((currentLayerIds) => new Set(currentLayerIds).add('enemies'))
+                    setIsPasteToolActive(false)
+                    setIsPaintToolActive(true)
+                    setIsEraseToolActive(false)
+                    setIsSelectToolActive(false)
+                    setIsSpawnToolActive(false)
+                    setIsTestSpawnToolActive(false)
+                    clearEditorSelection()
+                  }}
+                >
+                  <span className="edit-room-asset-preview edit-room-npc-preview" aria-hidden="true">
+                    <img
+                      src={enemyDummySheetSrc}
+                      alt=""
+                      draggable={false}
+                      style={{
+                        width: '512px',
+                        height: '1280px',
+                        transform: 'scale(0.5)',
+                      }}
+                    />
+                  </span>
+                  <span className="edit-room-asset-name">Enemigo</span>
+                  <span className="edit-room-asset-size">1×1 celda · vigilancia 3×3</span>
                 </button>
                 {coinEditorAssets.map((coinAsset) => {
                   const coinDefinition = getCoinSpriteDefinition(coinAsset.id)
@@ -3658,7 +3941,7 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
                           flippedX={isAssetFlippedX}
                           animation={selectedCoinDefinition}
                         />
-                      ) : !draggedMapArea && selectedAsset.id === NPC_MAGE_EDITOR_ASSET_ID ? (
+                      ) : !draggedMapArea && (selectedAsset.id === NPC_MAGE_EDITOR_ASSET_ID || selectedAsset.id === ENEMY_EDITOR_ASSET_ID) ? (
                         <span
                           className="edit-room-paint-preview-npc"
                           style={{ transform: isAssetFlippedX ? 'scaleX(-1)' : undefined }}
@@ -3890,12 +4173,24 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
                   placeholder="Nombre de la capa"
                   onChange={(event) => setNewLayerName(event.target.value)}
                 />
-                <button type="submit" aria-label="Crear capa" title="Crear capa">+</button>
+                <select
+                  className="edit-room-layer-category-select"
+                  value={newLayerCategory}
+                  aria-label="Categoria de la nueva capa"
+                  title={ROOM_EDITOR_LAYER_CATEGORIES.find((category) => category.id === newLayerCategory)?.description}
+                  onChange={(event) => setNewLayerCategory(event.target.value as RoomEditorLayerCategory)}
+                >
+                  {ROOM_EDITOR_LAYER_CATEGORIES.map((category) => (
+                    <option key={category.id} value={category.id} title={category.description}>{category.name}</option>
+                  ))}
+                </select>
+                <button type="submit" aria-label="Crear capa" title={`Crear capa como ${roomEditorLayerCategoryName(newLayerCategory)}`}>+</button>
               </form>
 
               <div className="edit-room-layer-list" role="list" aria-label="Capas disponibles">
                 {layers.map((layer) => {
                   const layerPlacements = placedAssetsByLayer.get(layer.id) ?? []
+                  const layerCategoryName = roomEditorLayerCategoryName(layerCategoryOf(layer.id))
                   const isExpanded = expandedLayerIds.has(layer.id)
                   const childListId = `edit-room-layer-children-${layer.id}`
 
@@ -3907,7 +4202,45 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
                       role="listitem"
                     >
                       <div
-                        className={`edit-room-layer-row${layer.id === activeLayer.id ? ' is-active' : ''}${layer.enabled ? '' : ' is-disabled'}`}
+                        className={[
+                          'edit-room-layer-row',
+                          layer.id === activeLayer.id ? 'is-active' : '',
+                          layer.enabled ? '' : 'is-disabled',
+                          draggedLayerId === layer.id ? 'is-dragging' : '',
+                          layerDropTarget?.layerId === layer.id ? `is-drop-${layerDropTarget.position}` : '',
+                        ].filter(Boolean).join(' ')}
+                        draggable
+                        onDragStart={(event) => {
+                          setDraggedLayerId(layer.id)
+                          event.dataTransfer.effectAllowed = 'move'
+                          event.dataTransfer.setData('text/plain', layer.id)
+                        }}
+                        onDragEnd={finishLayerDrag}
+                        onDragOver={(event) => {
+                          if (!draggedLayerId || draggedLayerId === layer.id) return
+
+                          event.preventDefault()
+                          event.dataTransfer.dropEffect = 'move'
+                          const bounds = event.currentTarget.getBoundingClientRect()
+                          const position = event.clientY - bounds.top < bounds.height / 2 ? 'before' : 'after'
+                          setLayerDropTarget((currentTarget) => (
+                            currentTarget?.layerId === layer.id && currentTarget.position === position
+                              ? currentTarget
+                              : { layerId: layer.id, position }
+                          ))
+                        }}
+                        onDragLeave={() => setLayerDropTarget((currentTarget) => (
+                          currentTarget?.layerId === layer.id ? null : currentTarget
+                        ))}
+                        onDrop={(event) => {
+                          event.preventDefault()
+                          const sourceLayerId = draggedLayerId || event.dataTransfer.getData('text/plain')
+                          const position = layerDropTarget?.layerId === layer.id
+                            ? layerDropTarget.position
+                            : 'after'
+                          if (sourceLayerId) moveLayer(sourceLayerId, layer.id, position)
+                          finishLayerDrag()
+                        }}
                       >
                         <button
                           type="button"
@@ -3934,6 +4267,7 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
                           type="button"
                           className="edit-room-layer-select"
                           aria-pressed={layer.id === activeLayer.id}
+                          title={`${layer.name} · categoria ${layerCategoryName} · arrastra la fila para reordenar`}
                           disabled={!layer.enabled}
                           onClick={() => {
                             if (isPasteToolActive) {
@@ -3946,6 +4280,9 @@ export default function EditRoomPage({ session, onSessionChange, onSessionReplac
                         >
                           <span className="edit-room-layer-icon-slot" aria-hidden="true" />
                           <span className="edit-room-layer-name">{layer.name}</span>
+                          {layer.required ? null : (
+                            <span className="edit-room-layer-category">{layerCategoryName}</span>
+                          )}
                           {layer.id === activeLayer.id ? (
                             <span className="edit-room-layer-mode">: {activeLayerStatusLabel}</span>
                           ) : null}

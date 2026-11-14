@@ -189,10 +189,19 @@ export interface RoomEnemyTemplate {
   spriteFrames?: RoomSpriteFrameTemplate[]
   spriteFrameDurationMs?: number
   iconAssetId?: string
+  // Iconos del aviso de deteccion, animados en bucle.
+  iconWarningAssetIds?: string[]
+  iconFrameDurationMs?: number
   iconOffsetX?: number
   iconOffsetY?: number
   iconWidth?: number
   iconHeight?: number
+  // Zona de vigilancia: area fija, anclada donde se coloco al enemigo.
+  surveillanceArea?: RoomInteractionAreaTemplate
+  // Zona de interaccion: acompaña al enemigo, se mueve con el.
+  interactionArea?: RoomInteractionAreaTemplate
+  // Punto de profundidad medido desde el centro de la figura hacia abajo.
+  zIndexOffsetY?: number
 }
 
 export type RoomEnemyMode = 'patrol' | 'chase'
@@ -203,6 +212,8 @@ export interface RoomEnemyState {
   y: number
   mode: RoomEnemyMode
   targetUserId: string | null
+  // El servidor marca si el enemigo se esta desplazando, para elegir caminata o idle.
+  moving?: boolean
 }
 
 export type RoomInteractableTemplate = RoomNpcTemplate | RoomTeleportTemplate

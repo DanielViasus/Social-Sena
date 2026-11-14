@@ -215,3 +215,12 @@ El estado se ve en el panel de depuracion (tecla P): "desactivadas en el servido
 - En la pantalla de asignaciones, **Historial** lista las versiones y **Restaurar** reescribe animaciones y configuración y avisa a todos los clientes. Solo administradores (validado en el servidor).
 - **Exportar paquete** descarga el JSON desde lo guardado en el navegador. **Importar paquete** lo publica para todo el servidor (solo administradores).
 - Eventos nuevos: `list_avatar_animation_history`, `restore_avatar_animation_version`.
+
+### Modo de prueba del editor de niveles
+
+El modo Test (boton de probar la sala) no abre conexion con el game-server, asi que el sistema de
+animaciones se alimenta ahi con `enableLocalAnimationPreview()`: usa la configuracion publicada que
+haya en la cache del navegador, si no el paquete incluido y, si tampoco hay, las animaciones guardadas
+en este navegador (asignaciones de localStorage + animaciones de IndexedDB). El aviso inferior del modo
+Test indica de donde salieron. Al salir del modo Test se descarta esa vista previa local, de modo que
+no afecta a la conexion del juego.

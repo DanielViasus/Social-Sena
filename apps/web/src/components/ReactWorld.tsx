@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { PLAYER_SPEED } from '@social-sena/shared'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { COMBAT_FLEE_GRACE_MS, PLAYER_SPEED, type EnemyCombatParticipant } from '@social-sena/shared'
 import type {
   EnemyCombatEncounterStatePayload,
   PlayerFacing,
@@ -41,15 +41,17 @@ import {
   getTeleportPerspectiveY,
   getTeleportWarningArea,
 } from './world/WorldTeleport'
+import { CombatScreen, type CombatSoundName } from './world/CombatScreen'
+import { CombatTransition } from './world/CombatTransition'
 import { WorldCombatEncounter } from './world/WorldCombatEncounter'
 import WorldMiniMap from './world/WorldMiniMap'
 import {
-  getEnemySpriteAsset,
+  getEnemyOverlayAsset,
   getNpcSpriteAsset,
   getRoomBackgroundAsset,
   getWorldSpriteAsset,
 } from './world/worldAssetCatalog'
-import { Enemigo } from './world/Enemigo'
+import { Enemigo, getAnimatedEnemyFrame } from './world/Enemigo'
 
 interface ReactWorldProps {
   room: RoomState | null
@@ -65,6 +67,14 @@ interface ReactWorldProps {
   onInteract?: (interactable: WorldInteractableTarget) => void
   onEnemyTouchInteract?: (enemyTemplate: RoomEnemyTemplate) => void
   onActiveInteractableChange?: (interactable: WorldInteractableTarget | null) => void
+  // Avisa el enemigo con el que empieza el combate, y null al terminarlo.
+  onCombatChange?: (enemyId: string | null) => void
+  // Companeros que estan combatiendo contigo, segun el servidor.
+  combatParticipants?: EnemyCombatParticipant[]
+  // El anfitrion puede cancelar un combate que el servidor rechazo.
+  combatRejection?: { enemyId: string; token: number } | null
+  // Sonidos del combate: el texto letra a letra y la pulsacion de los botones.
+  onCombatSound?: (sound: CombatSoundName) => void
   navigationEnabled?: boolean
   interactionEnabled?: boolean
   blockedEnemyInteractionIds?: string[]
@@ -176,6 +186,7 @@ type RenderLayerItem =
       displayX: number
       displayY: number
       spriteFrame: WorldNpcFrameDefinition | null
+      iconFrame: WorldNpcFrameDefinition | null
       flipX: boolean
       showIcon: boolean
     }
@@ -502,52 +513,36 @@ function getAnimatedNpcFrame(
   return frames[frameIndex]
 }
 
-function getAnimatedEnemyFrame(
-  enemyTemplate: RoomEnemyTemplate,
+// Bucle de iconos de alerta sobre el enemigo.
+// Capas que forman el escenario del combate: Floor, Walls, Door y ObjectDecoration.
+const COMBAT_SCENERY_KINDS = new Set(['floor', 'wall', 'door', 'landmark'])
+const COMBAT_SCENERY_MIN_COLUMNS = 8
+const COMBAT_SCENERY_MIN_ROWS = 5
+
+// Vida de relleno mientras el combate no tenga estadisticas propias.
+function getPlaceholderHealth(level: number) {
+  const max = 20 + Math.max(0, level) * 4
+  return { current: max, max }
+}
+
+function getAnimatedEnemyIconFrame(
+  assetIds: string[] | undefined,
   now: number,
-  facingPose: FacingPose,
-  moving: boolean,
+  frameDurationMs: number | undefined,
 ): WorldNpcFrameDefinition | null {
-  const sheetUrl = getEnemySpriteAsset(enemyTemplate.spriteSheetAssetId)
-  const sheetFrameDefinitions = enemyTemplate.spriteFrames ?? []
+  const frames = (assetIds ?? [])
+    .map((assetId) => {
+      const url = getEnemyOverlayAsset(assetId)
+      return url ? { key: assetId, url } : null
+    })
+    .filter((frame): frame is { key: string; url: string } => frame !== null)
 
-  if (
-    sheetUrl &&
-    typeof enemyTemplate.spriteSheetWidth === 'number' &&
-    typeof enemyTemplate.spriteSheetHeight === 'number' &&
-    typeof enemyTemplate.spriteFrameWidth === 'number' &&
-    typeof enemyTemplate.spriteFrameHeight === 'number' &&
-    sheetFrameDefinitions.length > 0
-  ) {
-    const useBack = facingPose === 'back-left' || facingPose === 'back-right'
-    const targetRow = moving ? (useBack ? 3 : 1) : useBack ? 2 : 0
-    const rowFrames = sheetFrameDefinitions
-      .filter((frame) => frame.row === targetRow)
-      .sort((leftFrame, rightFrame) => leftFrame.column - rightFrame.column)
-    const frames = rowFrames.length > 0 ? rowFrames : sheetFrameDefinitions
-    const frameDuration = Math.max(80, enemyTemplate.spriteFrameDurationMs ?? 180)
-    const frameIndex = Math.floor(now / frameDuration) % frames.length
-    const frame = frames[frameIndex]
-
-    return {
-      key: frame.key,
-      sheetUrl,
-      sheetWidth: enemyTemplate.spriteSheetWidth,
-      sheetHeight: enemyTemplate.spriteSheetHeight,
-      frameWidth: enemyTemplate.spriteFrameWidth,
-      frameHeight: enemyTemplate.spriteFrameHeight,
-      row: frame.row,
-      column: frame.column,
-    }
+  if (frames.length === 0) {
+    return null
   }
 
-  const spriteUrl = getWorldSpriteAsset(enemyTemplate.spriteAssetId)
-  return spriteUrl
-    ? {
-        key: enemyTemplate.spriteAssetId ?? enemyTemplate.id,
-        url: spriteUrl,
-      }
-    : null
+  const frameDuration = Math.max(80, frameDurationMs ?? 180)
+  return frames[Math.floor(now / frameDuration) % frames.length]
 }
 
 function getPatrollingNpcPosition(
@@ -712,6 +707,7 @@ function getPerspectiveAwareRenderItems(
     displayX: number
     displayY: number
     spriteFrame: WorldNpcFrameDefinition | null
+    iconFrame: WorldNpcFrameDefinition | null
     flipX: boolean
     showIcon: boolean
   }>,
@@ -771,14 +767,16 @@ function getPerspectiveAwareRenderItems(
     flipX,
   }))
 
-  const enemyItems: RenderLayerItem[] = enemyViews.map(({ enemyTemplate, displayX, displayY, spriteFrame, flipX, showIcon }) => ({
+  const enemyItems: RenderLayerItem[] = enemyViews.map(({ enemyTemplate, displayX, displayY, spriteFrame, iconFrame, flipX, showIcon }) => ({
     kind: 'enemy',
     key: enemyTemplate.id,
-    perspectiveY: displayY,
+    // Un octavo de la figura desde abajo cuando la plantilla no lo define.
+    perspectiveY: displayY + (enemyTemplate.zIndexOffsetY ?? 48),
     enemyTemplate,
     displayX,
     displayY,
     spriteFrame,
+    iconFrame,
     flipX,
     showIcon,
   }))
@@ -881,8 +879,10 @@ function getEnemyViews(
         y: enemyState.y,
       }
       const facingPose = enemyFacingById[enemyState.enemyId] ?? 'front-right'
-      const moving =
-        Math.hypot(enemyState.x - animatedPosition.x, enemyState.y - animatedPosition.y) > 0.45
+      // El servidor dice si el enemigo se esta desplazando; si no lo informa, se deduce
+      // de la distancia que le falta por recorrer en pantalla.
+      const moving = enemyState.moving
+        ?? Math.hypot(enemyState.x - animatedPosition.x, enemyState.y - animatedPosition.y) > 0.45
       const flipX = facingPose === 'front-left' || facingPose === 'back-left'
 
       return {
@@ -890,6 +890,11 @@ function getEnemyViews(
         displayX: animatedPosition.x,
         displayY: animatedPosition.y,
         spriteFrame: getAnimatedEnemyFrame(enemyTemplate, now, facingPose, moving),
+        iconFrame: getAnimatedEnemyIconFrame(
+          enemyTemplate.iconWarningAssetIds,
+          now,
+          enemyTemplate.iconFrameDurationMs,
+        ),
         flipX,
         showIcon: enemyState.mode === 'chase' && enemyState.targetUserId !== null,
       }
@@ -900,6 +905,7 @@ function getEnemyViews(
         displayX: number
         displayY: number
         spriteFrame: WorldNpcFrameDefinition | null
+        iconFrame: WorldNpcFrameDefinition | null
         flipX: boolean
         showIcon: boolean
       } =>
@@ -971,6 +977,10 @@ function ReactWorld({
   onInteract,
   onEnemyTouchInteract,
   onActiveInteractableChange,
+  onCombatChange,
+  combatParticipants,
+  combatRejection,
+  onCombatSound,
   navigationEnabled = true,
   interactionEnabled = true,
   blockedEnemyInteractionIds = [],
@@ -1570,6 +1580,134 @@ function ReactWorld({
     [blockedEnemyInteractionIds],
   )
 
+  // Enemigos cuya zona de interaccion esta tocando al jugador local. La zona acompaña
+  // al enemigo, asi que se evalua con su posicion actual.
+  const enemiesInInteractionZoneSignature = useMemo(() => {
+    if (!currentPlayerBounds) {
+      return ''
+    }
+
+    return enemyViews.flatMap((enemyView) => {
+      const area = enemyView.enemyTemplate.interactionArea
+      if (!area) {
+        return []
+      }
+
+      const centerX = enemyView.displayX + area.offsetX
+      const centerY = enemyView.displayY + area.offsetY
+      const zoneBounds = {
+        left: centerX - area.width / 2,
+        right: centerX + area.width / 2,
+        top: centerY - area.height / 2,
+        bottom: centerY + area.height / 2,
+      }
+
+      return overlapsRect(currentPlayerBounds, zoneBounds) ? [enemyView.enemyTemplate.id] : []
+    }).join('|')
+  }, [currentPlayerBounds, enemyViews])
+
+  const enemiesInInteractionZone = useMemo(
+    () => (enemiesInInteractionZoneSignature ? enemiesInInteractionZoneSignature.split('|') : []),
+    [enemiesInInteractionZoneSignature],
+  )
+
+  // Mientras el jugador siga dentro de la zona no se repite la animacion.
+  const engagedEnemyIdsRef = useRef(new Set<string>())
+  const [combatTransition, setCombatTransition] = useState<{ enemyId: string; token: number } | null>(null)
+  const [combatEnemyId, setCombatEnemyId] = useState<string | null>(null)
+  // Desde que arranca la transicion ya se considera que el combate empezo.
+  const activeCombatEnemyId = combatEnemyId ?? combatTransition?.enemyId ?? null
+  // Se toma de la plantilla, no de la vista animada, para no recalcular en cada frame.
+  const combatEnemyTemplate = useMemo(
+    () => template.enemies?.find((enemyTemplate) => enemyTemplate.id === combatEnemyId) ?? null,
+    [combatEnemyId, template.enemies],
+  )
+  // La transicion termina cubriendo la pantalla y el combate entra en el mismo paso.
+  const pendingCombatEnemyIdRef = useRef<string | null>(null)
+  const handleCombatTransitionEnd = useCallback(() => {
+    setCombatTransition(null)
+    setCombatEnemyId(pendingCombatEnemyIdRef.current)
+  }, [])
+  // Al huir, ese enemigo queda en tregua: ni persigue ni vuelve a iniciar combate.
+  const fleeCooldownsRef = useRef(new Map<string, number>())
+  const [fleeCooldownTick, setFleeCooldownTick] = useState(0)
+  const handleCombatFlee = useCallback(() => {
+    if (combatEnemyId) {
+      fleeCooldownsRef.current.set(combatEnemyId, Date.now() + COMBAT_FLEE_GRACE_MS)
+      engagedEnemyIdsRef.current.delete(combatEnemyId)
+      // Al terminar la tregua se vuelve a mirar si el jugador sigue dentro de la zona.
+      window.setTimeout(() => setFleeCooldownTick((currentTick) => currentTick + 1), COMBAT_FLEE_GRACE_MS)
+    }
+    setCombatEnemyId(null)
+  }, [combatEnemyId])
+  const combatAllies = useMemo(
+    () => (combatParticipants ?? []).filter((participant) => participant.userId !== currentUserId),
+    [combatParticipants, currentUserId],
+  )
+  const combatEnemyHealth = useMemo(
+    () => getPlaceholderHealth(combatEnemyTemplate?.nivel_enemigo_ ?? 1),
+    [combatEnemyTemplate?.nivel_enemigo_],
+  )
+  const combatPlayerHealth = useMemo(
+    () => getPlaceholderHealth(currentPlayerView?.player.level ?? 1),
+    [currentPlayerView?.player.level],
+  )
+  // Si el servidor rechaza el combate, se cierra lo que se haya abierto.
+  useEffect(() => {
+    if (!combatRejection) {
+      return
+    }
+
+    const rejectedEnemyId = combatRejection.enemyId
+    if (pendingCombatEnemyIdRef.current === rejectedEnemyId) {
+      pendingCombatEnemyIdRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Respuesta a un rechazo del servidor.
+    setCombatTransition((currentTransition) => (
+      currentTransition?.enemyId === rejectedEnemyId ? null : currentTransition
+    ))
+    setCombatEnemyId((currentEnemyId) => (currentEnemyId === rejectedEnemyId ? null : currentEnemyId))
+  }, [combatRejection])
+
+  // El anfitrion decide que hacer con el combate: detener al jugador, avisar al servidor...
+  const onCombatChangeRef = useRef(onCombatChange)
+  useEffect(() => {
+    onCombatChangeRef.current = onCombatChange
+  }, [onCombatChange])
+  useEffect(() => {
+    onCombatChangeRef.current?.(activeCombatEnemyId)
+  }, [activeCombatEnemyId])
+
+  useEffect(() => {
+    const engagedEnemyIds = engagedEnemyIdsRef.current
+    const currentIds = new Set(enemiesInInteractionZone)
+    engagedEnemyIds.forEach((enemyId) => {
+      if (!currentIds.has(enemyId)) {
+        engagedEnemyIds.delete(enemyId)
+      }
+    })
+
+    const nowMs = Date.now()
+    fleeCooldownsRef.current.forEach((untilMs, enemyId) => {
+      if (untilMs <= nowMs) {
+        fleeCooldownsRef.current.delete(enemyId)
+      }
+    })
+
+    const enteringEnemyId = enemiesInInteractionZone.find((enemyId) => (
+      !engagedEnemyIds.has(enemyId) && !fleeCooldownsRef.current.has(enemyId)
+    ))
+    // Con un combate o una transicion en marcha no se encadena otro.
+    if (!enteringEnemyId || activeCombatEnemyId) {
+      return
+    }
+
+    currentIds.forEach((enemyId) => engagedEnemyIds.add(enemyId))
+    console.info(`[combate] El jugador entro en la zona de interaccion de ${enteringEnemyId}.`)
+    pendingCombatEnemyIdRef.current = enteringEnemyId
+    setCombatTransition({ enemyId: enteringEnemyId, token: Date.now() })
+  }, [activeCombatEnemyId, enemiesInInteractionZone, fleeCooldownTick])
+
   const activeInteractable = useMemo(() => {
     if (!currentPlayerView) {
       return null
@@ -1743,6 +1881,91 @@ function ReactWorld({
     }))
   ), [resolveObjectSpriteSrc, template.objects])
 
+  // Escenario del combate: los bloques del mapa que hay dentro de la zona de vigilancia,
+  // para que el fondo sea el mismo sitio donde empezo el combate.
+  const combatScenery = useMemo(() => {
+    if (!combatEnemyTemplate) {
+      return null
+    }
+
+    const area = combatEnemyTemplate.surveillanceArea ?? {
+      width: combatEnemyTemplate.ancho_de_patrullaje_,
+      height: combatEnemyTemplate.alto_de_patrullaje_,
+      offsetX: 0,
+      offsetY: 0,
+    }
+    // La zona decide el sitio; la ventana del fondo se amplia a un minimo de 8x5 celdas
+    // para que se reconozca el lugar y no se vean dos bloques gigantes.
+    const centerX = combatEnemyTemplate.posicion_relativa_X + area.offsetX
+    const centerY = combatEnemyTemplate.posicion_relativa_Y + area.offsetY
+    const zoneWidth = Math.max(area.width, COMBAT_SCENERY_MIN_COLUMNS * 128)
+    const zoneHeight = Math.max(area.height, COMBAT_SCENERY_MIN_ROWS * 128)
+    const zoneLeft = centerX - zoneWidth / 2
+    const zoneTop = centerY - zoneHeight / 2
+
+    const tiles = objectRenderItems
+      .filter(({ objectTemplate, spriteSrc }) => {
+        if (!spriteSrc || objectTemplate.collectible || !COMBAT_SCENERY_KINDS.has(objectTemplate.kind)) {
+          return false
+        }
+
+        const halfWidth = objectTemplate.width / 2
+        const halfHeight = objectTemplate.height / 2
+        return objectTemplate.x + halfWidth > zoneLeft
+          && objectTemplate.x - halfWidth < zoneLeft + zoneWidth
+          && objectTemplate.y + halfHeight > zoneTop
+          && objectTemplate.y - halfHeight < zoneTop + zoneHeight
+      })
+      .sort((left, right) => (
+        (left.objectTemplate.layerOrder ?? 0) - (right.objectTemplate.layerOrder ?? 0)
+        || left.objectTemplate.y - right.objectTemplate.y
+      ))
+      .map(({ key, objectTemplate, spriteSrc }) => ({
+        key,
+        src: spriteSrc as string,
+        flippedX: objectTemplate.flippedX === true,
+        // En porcentajes de la zona, para que el fondo escale con la pantalla.
+        leftPercent: ((objectTemplate.x - objectTemplate.width / 2 - zoneLeft) / zoneWidth) * 100,
+        topPercent: ((objectTemplate.y - objectTemplate.height / 2 - zoneTop) / zoneHeight) * 100,
+        widthPercent: (objectTemplate.width / zoneWidth) * 100,
+        heightPercent: (objectTemplate.height / zoneHeight) * 100,
+      }))
+
+    if (tiles.length === 0) {
+      return null
+    }
+
+    // El suelo mas repetido rellena los huecos, para que el fondo no deje ver el vacio.
+    const floorUsage = new Map<string, number>()
+    objectRenderItems.forEach(({ objectTemplate, spriteSrc }) => {
+      if (!spriteSrc || objectTemplate.kind !== 'floor') {
+        return
+      }
+
+      const halfWidth = objectTemplate.width / 2
+      const halfHeight = objectTemplate.height / 2
+      const isNearby = objectTemplate.x + halfWidth > zoneLeft - 512
+        && objectTemplate.x - halfWidth < zoneLeft + zoneWidth + 512
+        && objectTemplate.y + halfHeight > zoneTop - 512
+        && objectTemplate.y - halfHeight < zoneTop + zoneHeight + 512
+      if (isNearby) {
+        floorUsage.set(spriteSrc, (floorUsage.get(spriteSrc) ?? 0) + 1)
+      }
+    })
+    const fillSrc = [...floorUsage.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ?? null
+
+    return {
+      aspect: zoneWidth / zoneHeight,
+      tiles,
+      fillSrc,
+      fillWidthPercent: (128 / zoneWidth) * 100,
+      fillHeightPercent: (128 / zoneHeight) * 100,
+      // Alinea la rejilla de relleno con la del mapa.
+      fillOffsetXPercent: (-(((zoneLeft % 128) + 128) % 128) / zoneWidth) * 100,
+      fillOffsetYPercent: (-(((zoneTop % 128) + 128) % 128) / zoneHeight) * 100,
+    }
+  }, [combatEnemyTemplate, objectRenderItems])
+
   const visibleObjectRenderItems = useMemo(() => {
     const viewportLeft = runtime.cameraX - WORLD_OBJECT_CULL_MARGIN
     const viewportRight = runtime.cameraX + worldViewportWidth + WORLD_OBJECT_CULL_MARGIN
@@ -1780,7 +2003,8 @@ function ReactWorld({
   const backgroundAsset = getRoomBackgroundAsset(template.id)
 
   const handleWorldPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!navigationEnabled) {
+    // En combate no se puede caminar ni con clic.
+    if (!navigationEnabled || activeCombatEnemyId) {
       return
     }
 
@@ -1973,6 +2197,7 @@ function ReactWorld({
                   displayX={item.displayX}
                   displayY={item.displayY}
                   spriteFrame={item.spriteFrame}
+                  iconFrame={item.iconFrame}
                   flipX={item.flipX}
                   showIcon={item.showIcon}
                   motionElementRef={(element) => {
@@ -2050,6 +2275,30 @@ function ReactWorld({
           )
         })}
       </div>
+
+      {combatTransition ? (
+        <CombatTransition
+          key={`${combatTransition.enemyId}:${combatTransition.token}`}
+          fadeOut={false}
+          onComplete={handleCombatTransitionEnd}
+        />
+      ) : null}
+
+      {combatEnemyTemplate ? (
+        <CombatScreen
+          enemyName={combatEnemyTemplate.label ?? 'Enemigo'}
+          enemyLevel={combatEnemyTemplate.nivel_enemigo_ ?? 1}
+          enemyHealth={combatEnemyHealth}
+          enemyTemplate={combatEnemyTemplate}
+          playerName={currentPlayerView?.player.displayName ?? 'Jugador'}
+          playerLevel={currentPlayerView?.player.level ?? 1}
+          playerHealth={combatPlayerHealth}
+          allies={combatAllies}
+          scenery={combatScenery}
+          onSound={onCombatSound}
+          onFlee={handleCombatFlee}
+        />
+      ) : null}
 
       <WorldMiniMap
         template={template}

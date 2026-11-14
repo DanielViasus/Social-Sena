@@ -16,6 +16,7 @@ import {
   type ChatMessage,
   type ConnectionAcceptedPayload,
   type EnemyCombatEncounterStatePayload,
+  type EnemyCombatSessionPayload,
   type EnemyCombatSupportInvitePayload,
   type FriendRequestSummary,
   type FriendSummary,
@@ -326,6 +327,11 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
   const [partyLeaderFollowPrompt, setPartyLeaderFollowPrompt] = useState<PartyLeaderFollowPromptState | null>(null)
   const [enemyCombatSupportInvites, setEnemyCombatSupportInvites] = useState<EnemyCombatSupportInviteState[]>([])
   const [roomEnemyCombatEncounters, setRoomEnemyCombatEncounters] = useState<EnemyCombatEncounterStatePayload[]>([])
+  // Combate contra un enemigo del mundo: participantes y rechazos del servidor.
+  const [enemyCombatSession, setEnemyCombatSession] = useState<EnemyCombatSessionPayload | null>(null)
+  const [combatRejection, setCombatRejection] = useState<{ enemyId: string; token: number } | null>(null)
+  // Con un combate abierto se desactivan los atajos y paneles del mundo.
+  const [combatEnemyId, setCombatEnemyId] = useState<string | null>(null)
   const [activityNotices, setActivityNotices] = useState<ActivityNoticeState[]>([])
   const [addingFriendUserId, setAddingFriendUserId] = useState<string | null>(null)
   const [respondingFriendRequestId, setRespondingFriendRequestId] = useState<string | null>(null)
@@ -1413,6 +1419,13 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
       })
     })
 
+    nextSocket.on(
+      serverEvents.enemyCombatSessionUpdated,
+      (payload: EnemyCombatSessionPayload | null) => {
+        setEnemyCombatSession(payload)
+      },
+    )
+
     nextSocket.on(serverEvents.roomEnemyCombatState, (payload: RoomEnemyCombatStatePayload) => {
       const previousEncounters = roomEnemyCombatEncountersRef.current
       const removedEncounterEnemyIds = previousEncounters
@@ -1792,6 +1805,11 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
         return
       }
 
+      // Durante el combate, Escape lo gestiona la pantalla de combate.
+      if (combatEnemyId) {
+        return
+      }
+
       if (inventoryOpen) {
         event.preventDefault()
         closeInventory()
@@ -1827,6 +1845,7 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
     activeDialogue,
     activeTouchPrompt,
     closeInventory,
+    combatEnemyId,
     initialSkinSetupOpen,
     inventoryOpen,
     optionsOpen,
@@ -2748,6 +2767,43 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [activeDialogue])
 
+  // El texto usa el blip de los dialogos y los botones los sonidos de menu.
+  const handleCombatSound = useCallback((sound: 'typing' | 'confirm' | 'cancel') => {
+    const soundName = sound === 'typing' ? 'dialogue-blip' : sound
+    void uiSoundControllerRef.current?.play(soundName)
+  }, [])
+
+  // La interfaz de combate avisa aqui: el servidor congela al jugador y a su enemigo.
+  const handleCombatChange = useCallback((enemyId: string | null) => {
+    setCombatEnemyId(enemyId)
+    if (enemyId) {
+      // Ningun panel debe quedarse abierto detras de la pantalla de combate.
+      setOptionsOpen(false)
+      setQuickChatOpen(false)
+    }
+
+    const socket = socketRef.current
+    if (!socket?.connected) {
+      return
+    }
+
+    socket.emit(clientEvents.setEnemyCombatLock, { enemyId }, (response: { ok: boolean; message?: string }) => {
+      if (response?.ok) {
+        return
+      }
+
+      console.warn('[combate] El servidor no aplico el bloqueo:', response?.message ?? 'sin detalle')
+      if (enemyId) {
+        setCombatRejection({ enemyId, token: Date.now() })
+      }
+    })
+
+    if (!enemyId) {
+      setEnemyCombatSession(null)
+      setCombatRejection(null)
+    }
+  }, [])
+
   const handleNavigate = (target: Position) => {
     const socket = socketRef.current
     const activeRoom = roomRef.current
@@ -3484,8 +3540,12 @@ function GameClient({ session, onLogout, onSessionChange, onSessionReplaced }: G
           onInteract={handleWorldInteract}
           onEnemyTouchInteract={handleEnemyTouchInteract}
           onActiveInteractableChange={setActiveInteractable}
-          navigationEnabled={!mobileInteractionEnabled && !inventoryOpen && !activeDialogue && !activeTouchPrompt && !skinEditorOpen && !initialSkinSetupOpen}
-          interactionEnabled={!inventoryOpen && !activeDialogue && !activeTouchPrompt && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen}
+          onCombatChange={handleCombatChange}
+          combatParticipants={enemyCombatSession?.participants}
+          combatRejection={combatRejection}
+          onCombatSound={handleCombatSound}
+          navigationEnabled={!mobileInteractionEnabled && !inventoryOpen && !activeDialogue && !activeTouchPrompt && !skinEditorOpen && !initialSkinSetupOpen && !combatEnemyId}
+          interactionEnabled={!inventoryOpen && !activeDialogue && !activeTouchPrompt && !npcInteractionLocked && !skinEditorOpen && !initialSkinSetupOpen && !combatEnemyId}
           blockedEnemyInteractionIds={blockedEnemyInteractionIds}
           suppressInteractionIconForId={
             activeDialogue?.npcId ??

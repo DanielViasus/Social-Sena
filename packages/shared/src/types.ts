@@ -1,4 +1,5 @@
 import type { RoomEnemyState, RoomObjectTemplate, RoomTemplate } from './rooms/types'
+import type { RoomEditorLayerCategory } from './rooms/layers'
 
 export type Direction = 'up' | 'down' | 'left' | 'right'
 export type PlayerFacing = 'front-right' | 'front-left' | 'back-right' | 'back-left'
@@ -358,6 +359,19 @@ export interface UpdateSkinPayload {
   skinColors?: SkinColorSelections
 }
 
+// Combate contra un enemigo del mundo: quienes estan participando.
+export interface EnemyCombatParticipant {
+  userId: string
+  displayName: string
+  level: number
+}
+
+export interface EnemyCombatSessionPayload {
+  roomId: string
+  enemyId: string
+  participants: EnemyCombatParticipant[]
+}
+
 export interface UpdateAccessRolePayload {
   role: UserRole
 }
@@ -368,6 +382,9 @@ export interface RoomEditorLayerData {
   enabled: boolean
   collidersEnabled: boolean
   required?: boolean
+  // Comportamiento de la capa en el juego. Ausente en documentos antiguos:
+  // se resuelve con resolveRoomEditorLayerCategory.
+  category?: RoomEditorLayerCategory
 }
 
 export interface RoomEditorPlacementData {
@@ -381,6 +398,11 @@ export interface RoomEditorPlacementData {
   warningArea?: RoomEditorAreaData
   interactionArea?: RoomEditorAreaData
   interactionIconContainer?: RoomEditorAreaData
+  // Zona de vigilancia de un enemigo: el area donde detecta al jugador.
+  surveillanceArea?: RoomEditorAreaData
+  // Punto de profundidad: cuanto baja, desde el centro de la figura, el punto que decide
+  // si se dibuja delante o detras de lo demas.
+  zIndexOffsetY?: number
   teleportTargetPath?: string
 }
 
@@ -410,6 +432,7 @@ export interface RoomEditorAssetData {
   warningArea?: RoomEditorAreaData
   interactionArea?: RoomEditorAreaData
   interactionIconContainer?: RoomEditorAreaData
+  surveillanceArea?: RoomEditorAreaData
   interactionState?: 0 | 1
 }
 

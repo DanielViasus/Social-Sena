@@ -2,9 +2,7 @@ import { io, type Socket } from 'socket.io-client'
 import { clientEvents, serverEvents, type UserProfile } from '@social-sena/shared'
 import type { AuthSession } from '../../auth/localSession'
 import type { AnimationAssignments } from './animationAssignmentStorage'
-import { loadAnimation } from './animationEditorStorage'
-import { toSkeleton } from './animationSkeleton'
-import type { AnimationPack } from './avatarAnimationRuntime'
+import { buildAnimationPack, type AnimationPack } from './animationPack'
 
 const LOG = '[avatar-animations:publicar]'
 const SERVER_URL = import.meta.env.VITE_GAME_SERVER_URL ?? 'http://localhost:3001'
@@ -61,43 +59,6 @@ async function withAdminSocket<T extends Ack>(
   } finally {
     socket.disconnect()
   }
-}
-
-// Convierte las asignaciones guardadas en este navegador (y sus animaciones) en un paquete de solo datos.
-export async function buildAnimationPack(assignments: AnimationAssignments): Promise<{ ok: true; pack: AnimationPack } | { ok: false; message: string }> {
-  const ids = [...new Set(assignments.variations.flatMap((variation) => Object.values(variation.assignments)))]
-  const animations: AnimationPack['animations'] = []
-  for (const id of ids) {
-    const animation = await loadAnimation(id)
-    if (!animation) return { ok: false, message: 'Una animación asignada ya no existe en este navegador.' }
-    const skeleton = toSkeleton(animation.document)
-    if (!skeleton.ok) return { ok: false, message: `“${animation.name}”: ${skeleton.error}` }
-    animations.push({ id: animation.id, name: animation.name, document: skeleton.skeleton })
-  }
-  return { ok: true, pack: { format: 'social-sena-animation-pack', version: 1, config: assignments, animations } }
-}
-
-export function parseAnimationPack(text: string): { ok: true; pack: AnimationPack } | { ok: false; message: string } {
-  try {
-    const pack = JSON.parse(text) as Partial<AnimationPack>
-    if (pack?.format !== 'social-sena-animation-pack' || pack.version !== 1) return { ok: false, message: 'El archivo no es un paquete de animaciones válido.' }
-    if (!pack.config || pack.config.version !== 2 || !Array.isArray(pack.config.variations) || !Array.isArray(pack.animations)) {
-      return { ok: false, message: 'El paquete está incompleto.' }
-    }
-    return { ok: true, pack: pack as AnimationPack }
-  } catch {
-    return { ok: false, message: 'El archivo no es JSON válido.' }
-  }
-}
-
-export function downloadAnimationPack(pack: AnimationPack) {
-  const blob = new Blob([JSON.stringify(pack, null, 2)], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = 'defaultAnimationPack.json'
-  link.click()
-  URL.revokeObjectURL(url)
 }
 
 // Sube primero las animaciones y luego las asignaciones. El servidor solo lo acepta de administradores.

@@ -6602,7 +6602,7 @@ button {
 
 .edit-room-layer-creator {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 34px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr) 34px;
   gap: 5px;
 }
 
@@ -6618,6 +6618,21 @@ button {
   border-color: #111111 #5b5b5b #5b5b5b #111111;
   border-radius: 0;
   outline: none;
+}
+
+.edit-room-layer-category-select {
+  min-width: 0;
+  height: 34px;
+  padding: 0 4px;
+  color: #e6e6e6;
+  font: inherit;
+  font-size: 0.42rem;
+  background: #202020;
+  border: 2px solid;
+  border-color: #111111 #5b5b5b #5b5b5b #111111;
+  border-radius: 0;
+  outline: none;
+  cursor: pointer;
 }
 
 .edit-room-layer-creator input:focus {
@@ -6654,6 +6669,34 @@ button {
   display: grid;
   grid-template-columns: 28px 22px minmax(0, 1fr) 28px 28px;
   border-bottom: 1px solid #111111;
+}
+
+.edit-room-layer-row[draggable='true'] {
+  position: relative;
+}
+
+.edit-room-layer-row.is-dragging {
+  opacity: 0.55;
+}
+
+.edit-room-layer-row.is-drop-before::before,
+.edit-room-layer-row.is-drop-after::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: #d8c35d;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.edit-room-layer-row.is-drop-before::before {
+  top: -2px;
+}
+
+.edit-room-layer-row.is-drop-after::after {
+  bottom: -2px;
 }
 
 .edit-room-layer-row.is-active {
@@ -6695,6 +6738,16 @@ button {
   box-shadow:
     inset 0 0 0 2px color-mix(in srgb, var(--edit-room-layer-color, #9399a3) 72%, #303030),
     1px 1px 0 rgba(0, 0, 0, 0.5);
+}
+
+.edit-room-layer-category {
+  flex: none;
+  max-width: 42%;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--edit-room-layer-color, #9399a3) 55%, #ffffff);
+  font-size: 0.34rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .edit-room-layer-mode {
@@ -7985,4 +8038,691 @@ button.inventory-slot:focus-visible {
 /* En el mundo el avatar se ancla al centro de los pies; aqui se centra en su caja. */
 .inventory-equipment-avatar .react-world-layered-avatar {
   left: 50%;
+}
+
+.editor-enemy-placement {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+/* Zona de interaccion del enemigo: acompaña a la figura, en azul para distinguirla. */
+.editor-enemy-interaction-area {
+  position: absolute;
+  left: 0;
+  top: 0;
+  background: rgba(72, 148, 214, 0.22);
+  border: 2px solid rgba(118, 190, 236, 0.75);
+  pointer-events: none;
+}
+
+/* Zona de vigilancia del enemigo: rojo translucido para poder ajustarla en el editor. */
+.editor-enemy-surveillance-area {
+  position: absolute;
+  left: 0;
+  top: 0;
+  background: rgba(214, 52, 52, 0.26);
+  border: 2px solid rgba(214, 52, 52, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  pointer-events: none;
+}
+
+.editor-enemy-sprite {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: hidden;
+  image-rendering: pixelated;
+}
+
+.editor-enemy-sprite img {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: block;
+  max-width: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.debug-enemy-surveillance-area {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  background: rgba(214, 52, 52, 0.18);
+  border: 2px solid rgba(214, 52, 52, 0.6);
+  pointer-events: none;
+}
+
+/* Transicion de entrada al combate: mosaico negro en espiral desde el centro. */
+.combat-transition {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity var(--combat-transition-fade-ms, 240ms) ease-out;
+}
+
+.combat-transition.is-fading {
+  opacity: 0;
+}
+
+.combat-transition-tile {
+  position: absolute;
+  display: block;
+  background: #000000;
+  transform: scale(0);
+  transform-origin: center;
+  animation-name: combat-transition-tile-in;
+  animation-timing-function: ease-out;
+  animation-fill-mode: forwards;
+}
+
+@keyframes combat-transition-tile-in {
+  from {
+    transform: scale(0);
+  }
+
+  to {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .combat-transition-tile {
+    animation-duration: 1ms !important;
+  }
+}
+
+/* ---- Interfaz de combate (pixel art) ---- */
+.combat-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 9100;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 0;
+  font-family: 'Press Start 2P', monospace;
+  color: #f4ecd8;
+  background:
+    repeating-linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.03) 0 2px,
+      rgba(0, 0, 0, 0) 2px 4px
+    ),
+    linear-gradient(180deg, #3d4a6d 0%, #566682 55%, #7a8f6e 55%, #637357 100%);
+  image-rendering: pixelated;
+  animation: combat-screen-in 220ms steps(3) both;
+}
+
+.combat-screen:has(.combat-screen-stage.has-scenery) {
+  background: #3a3550;
+}
+
+@keyframes combat-screen-in {
+  from {
+    opacity: 0.2;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.combat-screen-stage {
+  position: relative;
+  z-index: 1;
+  min-height: 0;
+  padding: 24px;
+}
+
+/* Escenario: los bloques del mapa dentro de la zona de vigilancia, ampliados de fondo.
+   Cubre la pantalla completa, tambien por detras del panel flotante. */
+.combat-screen-scenery {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.combat-screen-scenery-crop {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  /* Cubre el area sin deformar la zona: crece por el lado que haga falta. */
+  width: max(100%, calc(100vh * var(--combat-scenery-aspect, 1)));
+  aspect-ratio: var(--combat-scenery-aspect, 1);
+  /* Se amplia un poco mas de lo necesario para que el desenfoque no muestre los bordes. */
+  transform: translate(-50%, -50%) scale(1.12);
+  filter: blur(6px) brightness(1.22) saturate(1.06);
+  image-rendering: pixelated;
+  /* El suelo de relleno (background-image) lo pone el componente. */
+  background-repeat: repeat;
+}
+
+.combat-screen-scenery-crop img {
+  position: absolute;
+  display: block;
+  max-width: none;
+  image-rendering: pixelated;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* Velo suave: da contraste a los paneles sin apagar el escenario. */
+.combat-screen-scenery-veil {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 50% 45%, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0) 58%),
+    radial-gradient(ellipse at 50% 48%, rgba(18, 16, 22, 0) 45%, rgba(18, 16, 22, 0.26) 100%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.06) 0%, rgba(0, 0, 0, 0.04) 55%, rgba(0, 0, 0, 0.2) 100%);
+}
+
+
+/* Paneles de estado */
+.combat-screen-status {
+  position: absolute;
+  min-width: 260px;
+  padding: 10px 12px;
+  background: #f4ecd8;
+  color: #2a2420;
+  border: 4px solid #2a2420;
+  box-shadow:
+    inset -4px -4px 0 rgba(42, 36, 32, 0.25),
+    inset 4px 4px 0 rgba(255, 255, 255, 0.8),
+    6px 6px 0 rgba(0, 0, 0, 0.45);
+}
+
+.combat-screen-status.is-enemy {
+  top: 28px;
+  left: 28px;
+  animation: combat-screen-slide-left 260ms steps(4) both 140ms;
+}
+
+.combat-screen-status.is-player {
+  right: 28px;
+  bottom: 28px;
+  animation: combat-screen-slide-right 260ms steps(4) both 220ms;
+}
+
+@keyframes combat-screen-slide-left {
+  from {
+    transform: translateX(-120%);
+  }
+
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes combat-screen-slide-right {
+  from {
+    transform: translateX(120%);
+  }
+
+  to {
+    transform: translateX(0);
+  }
+}
+
+.combat-screen-status header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.combat-screen-status strong {
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+}
+
+.combat-screen-status span {
+  font-size: 0.5rem;
+  color: #6b5a44;
+}
+
+/* Barra de vida */
+.combat-screen-hp {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.combat-screen-hp-label {
+  font-size: 0.46rem;
+  color: #b8802a;
+}
+
+.combat-screen-hp-track {
+  flex: 1;
+  height: 12px;
+  padding: 2px;
+  background: #2a2420;
+  border: 2px solid #2a2420;
+}
+
+.combat-screen-hp-fill {
+  height: 100%;
+  background: #58c23a;
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.28);
+  transition: width 260ms steps(8);
+}
+
+.combat-screen-hp-fill.is-low {
+  background: #e8c23a;
+}
+
+.combat-screen-hp-fill.is-critical {
+  background: #e05a3a;
+}
+
+.combat-screen-hp-numbers {
+  display: block;
+  margin-top: 8px;
+  font-size: 0.5rem;
+  text-align: right;
+  color: #2a2420;
+}
+
+/* Combatientes */
+.combat-screen-actor {
+  position: absolute;
+  display: grid;
+  place-items: center;
+}
+
+.combat-screen-actor.is-enemy {
+  top: 14%;
+  right: 12%;
+}
+
+.combat-screen-actor.is-player {
+  bottom: 8%;
+  left: 12%;
+}
+
+/* La entrada solo ocurre al abrirse el combate: si se dejara fija, al terminar cada
+   ataque volveria a reproducirse y pareceria que los personajes reaparecen. */
+.combat-screen-actor.is-enemy.is-entering {
+  animation: combat-screen-enemy-in 320ms steps(4) both 120ms;
+}
+
+.combat-screen-actor.is-player.is-entering {
+  animation: combat-screen-player-in 320ms steps(4) both 200ms;
+}
+
+@keyframes combat-screen-enemy-in {
+  from {
+    transform: translateX(160px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* ---- Secuencia de ataque ----
+   El atacante avanza hasta quedar al lado del rival, golpea y vuelve a su sitio; el que
+   recibe retrocede en el impacto. El desplazamiento exacto lo mide el componente. */
+.combat-screen-stage {
+  --combat-lunge-x: 34vw;
+  --combat-lunge-y: -24vh;
+  --combat-recoil-x: 0px;
+  --combat-recoil-y: 0px;
+  --combat-attack-duration: 1500ms;
+  --combat-impact-delay: 520ms;
+}
+
+.combat-screen-actor.is-attacking,
+.combat-screen-actor.is-hit {
+  z-index: 3;
+}
+
+.combat-screen-actor.is-attacking {
+  animation: combat-lunge var(--combat-attack-duration) ease-in-out both;
+}
+
+.combat-screen-actor.is-hit {
+  animation: combat-recoil 520ms steps(4) var(--combat-impact-delay) both;
+}
+
+@keyframes combat-lunge {
+  0% {
+    transform: translate(0, 0);
+  }
+
+  32% {
+    transform: translate(var(--combat-lunge-x), var(--combat-lunge-y));
+  }
+
+  /* Hueco para la animacion de ataque del personaje. */
+  40% {
+    transform: translate(calc(var(--combat-lunge-x) * 1.06), calc(var(--combat-lunge-y) * 1.06));
+  }
+
+  52% {
+    transform: translate(var(--combat-lunge-x), var(--combat-lunge-y));
+  }
+
+  100% {
+    transform: translate(0, 0);
+  }
+}
+
+@keyframes combat-recoil {
+  0% {
+    transform: translate(0, 0);
+    filter: none;
+  }
+
+  18% {
+    transform: translate(var(--combat-recoil-x), var(--combat-recoil-y));
+    filter: brightness(2.4) saturate(0.4);
+  }
+
+  46% {
+    transform: translate(calc(var(--combat-recoil-x) * 0.35), calc(var(--combat-recoil-y) * 0.35));
+    filter: none;
+  }
+
+  100% {
+    transform: translate(0, 0);
+    filter: none;
+  }
+}
+
+@keyframes combat-screen-player-in {
+  from {
+    transform: translateX(-160px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Sombra bajo el combatiente: negro transparente que se disuelve, sin borde duro. */
+.combat-screen-platform {
+  position: absolute;
+  bottom: -4px;
+  width: 196px;
+  height: 44px;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(0, 0, 0, 0.5) 0%,
+    rgba(0, 0, 0, 0.38) 38%,
+    rgba(0, 0, 0, 0.18) 62%,
+    rgba(0, 0, 0, 0) 78%
+  );
+  filter: blur(3px);
+}
+
+.combat-screen-actor.is-player .combat-screen-platform {
+  width: 240px;
+  height: 53px;
+}
+
+.combat-screen-sprite {
+  position: relative;
+  display: grid;
+  place-items: center;
+  animation: combat-screen-bob 1600ms steps(2) infinite;
+}
+
+.combat-screen-sprite.is-avatar {
+  position: relative;
+  display: block;
+  width: 128px;
+  height: 128px;
+  /* Un 25% mas pequeno que antes, igual que el enemigo. */
+  transform: scale(1.65);
+  transform-origin: center bottom;
+  animation: none;
+}
+
+.combat-screen-sprite.is-avatar .react-world-layered-avatar {
+  left: 50%;
+}
+
+@keyframes combat-screen-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+.combat-screen-sprite-flip {
+  display: block;
+}
+
+.combat-screen-sheet {
+  position: relative;
+  overflow: hidden;
+}
+
+.combat-screen-sheet img {
+  position: absolute;
+  display: block;
+  max-width: none;
+  image-rendering: pixelated;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.combat-screen-sprite-image {
+  display: block;
+  image-rendering: pixelated;
+}
+
+.combat-screen-sprite-placeholder {
+  width: 144px;
+  height: 144px;
+  background: rgba(244, 236, 216, 0.14);
+  border: 4px dashed rgba(244, 236, 216, 0.5);
+}
+
+/* Companeros de grupo en combate */
+.combat-screen-allies {
+  position: absolute;
+  right: 28px;
+  bottom: 150px;
+  min-width: 180px;
+  padding: 8px 10px;
+  background: #2a2420;
+  border: 4px solid #f4ecd8;
+  box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.45);
+}
+
+.combat-screen-allies strong {
+  display: block;
+  margin-bottom: 6px;
+  color: #b8802a;
+  font-size: 0.44rem;
+}
+
+.combat-screen-allies ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.combat-screen-allies li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.46rem;
+  color: #f4ecd8;
+}
+
+/* Caja de texto y menu: panel flotante con la pregunta arriba y las cuatro respuestas debajo */
+.combat-screen-dialog {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-rows: min-content;
+  gap: 12px;
+  width: min(1180px, calc(100% - 56px));
+  margin: 0 auto 34px;
+  padding: 16px;
+  background: #cfc8bb;
+  border: 4px solid #2a2420;
+  /* Elevacion: borde claro, sombra dura y una sombra difusa para que parezca flotando. */
+  box-shadow:
+    inset -3px -3px 0 rgba(42, 36, 32, 0.28),
+    inset 3px 3px 0 rgba(255, 255, 255, 0.85),
+    0 14px 0 rgba(18, 14, 24, 0.35),
+    0 26px 46px rgba(8, 6, 12, 0.6);
+}
+
+.combat-screen-message {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 86px;
+  margin: 0;
+  padding: 18px 24px;
+  color: #2a2420;
+  font-size: 0.72rem;
+  line-height: 2;
+  text-align: center;
+  background: #f7f2e6;
+  border: 3px solid #2a2420;
+  box-shadow: inset -2px -2px 0 rgba(42, 36, 32, 0.16), inset 2px 2px 0 rgba(255, 255, 255, 0.9);
+}
+
+.combat-screen-caret {
+  margin-left: 10px;
+  color: #b8802a;
+  animation: combat-screen-caret-blink 700ms steps(1) infinite;
+}
+
+@keyframes combat-screen-caret-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.combat-screen-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.combat-screen-action {
+  position: relative;
+  width: 100%;
+  padding: 18px 20px 18px 44px;
+  color: #2a2420;
+  font: inherit;
+  font-size: 0.66rem;
+  text-align: left;
+  background: #f7f2e6;
+  border: 3px solid #2a2420;
+  box-shadow: inset -2px -2px 0 rgba(42, 36, 32, 0.16), inset 2px 2px 0 rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+}
+
+.combat-screen-action.is-selected {
+  color: #a8431f;
+  background: #fff9ea;
+}
+
+.combat-screen-action.is-selected::before {
+  content: '>';
+  position: absolute;
+  left: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.combat-screen-action:focus-visible {
+  outline: 3px solid #b8802a;
+  outline-offset: 2px;
+}
+
+.combat-screen-action:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* En ordenador la caja y las respuestas crecen para leerse de un vistazo. */
+@media (min-width: 901px) {
+  .combat-screen-dialog {
+    gap: 14px;
+    padding: 18px;
+  }
+
+  .combat-screen-message {
+    min-height: 104px;
+    font-size: 0.82rem;
+  }
+
+  .combat-screen-action {
+    padding: 22px 24px 22px 52px;
+    font-size: 0.78rem;
+  }
+
+  .combat-screen-actions.is-answers .combat-screen-action {
+    font-size: 0.86rem;
+  }
+}
+
+@media (max-width: 900px) {
+  .combat-screen-status {
+    min-width: 200px;
+  }
+
+  .combat-screen-dialog {
+    width: calc(100% - 28px);
+    margin-bottom: 20px;
+  }
+}
+
+@media (max-width: 620px) {
+  .combat-screen-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .combat-screen,
+  .combat-screen-status,
+  .combat-screen-sprite {
+    animation: none !important;
+  }
+
+  /* El ataque se mantiene, pero mas corto y sin balanceos. */
+  .combat-screen-actor {
+    animation-duration: 1ms !important;
+  }
+
+  .combat-screen-actor.is-attacking,
+  .combat-screen-actor.is-hit {
+    animation-duration: 600ms !important;
+  }
 }

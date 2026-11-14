@@ -1,3 +1,5 @@
+import { ROOM_INTERACTION_ICON_SIZE } from '@social-sena/shared'
+
 export interface RoomEditorAsset {
   id: string
   fileName: string
@@ -27,6 +29,12 @@ export interface RoomEditorAsset {
     offsetY: number
   }
   interactionIconContainer: {
+    width: number
+    height: number
+    offsetX: number
+    offsetY: number
+  }
+  surveillanceArea?: {
     width: number
     height: number
     offsetX: number
@@ -96,8 +104,8 @@ const assetDefinitions = Object.entries(spriteModules).flatMap(([path, url]) => 
     const frameHeight = Number(rawFrameHeight)
     const occupiedColumns = Number(rawOccupiedColumns)
     const occupiedRows = Number(rawOccupiedRows)
-    const iconWidth = Number(rawIconWidth ?? 128)
-    const iconHeight = Number(rawIconHeight ?? 129)
+    const iconWidth = Number(rawIconWidth ?? ROOM_INTERACTION_ICON_SIZE)
+    const iconHeight = Number(rawIconHeight ?? ROOM_INTERACTION_ICON_SIZE)
     const colliders = Array.from(rawColliderParameters.matchAll(ASSET_COLLIDER_PATTERN), (colliderMatch) => ({
       width: Number(colliderMatch[1]),
       height: Number(colliderMatch[2]),
@@ -200,10 +208,10 @@ const assetDefinitions = Object.entries(spriteModules).flatMap(([path, url]) => 
       offsetY: 0,
     },
     interactionIconContainer: {
-      width: 128,
-      height: 129,
+      width: ROOM_INTERACTION_ICON_SIZE,
+      height: ROOM_INTERACTION_ICON_SIZE,
       offsetX: 0,
-      offsetY: -Math.round((frameHeight + 129) / 2),
+      offsetY: -Math.round((frameHeight + ROOM_INTERACTION_ICON_SIZE) / 2),
     },
     url,
   } satisfies RoomEditorAssetDefinition]

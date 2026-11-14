@@ -16,6 +16,7 @@ export const clientEvents = {
   getAvatarAnimation: 'get_avatar_animation',
   publishAvatarAnimation: 'publish_avatar_animation',
   publishAvatarAnimationConfig: 'publish_avatar_animation_config',
+  setEnemyCombatLock: 'set_enemy_combat_lock',
   listAvatarAnimationHistory: 'list_avatar_animation_history',
   restoreAvatarAnimationVersion: 'restore_avatar_animation_version',
   updateAudioSettings: 'update_audio_settings',
@@ -63,5 +64,6 @@ export const serverEvents = {
   typingStateChanged: 'typing_state_changed',
   chatMessage: 'chat_message',
   avatarAnimationsUpdated: 'avatar_animations_updated',
+  enemyCombatSessionUpdated: 'enemy_combat_session_updated',
   serverError: 'server_error',
 } as const

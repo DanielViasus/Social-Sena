@@ -1,7 +1,59 @@
-import type { RoomEnemyTemplate } from '@social-sena/shared'
+import type { PlayerFacing, RoomEnemyTemplate } from '@social-sena/shared'
 import { memo, type Ref } from 'react'
 import type { WorldNpcFrameDefinition } from './WorldNpc'
-import { getEnemyOverlayAsset, getWorldSpriteAsset } from './worldAssetCatalog'
+import { getEnemyOverlayAsset, getEnemySpriteAsset, getWorldSpriteAsset } from './worldAssetCatalog'
+
+// Frame animado del enemigo segun hacia donde mira y si se esta moviendo.
+// Filas de la hoja: 0 idle de frente, 1 caminata de frente, 2 idle de espaldas, 3 caminata de espaldas.
+// eslint-disable-next-line react-refresh/only-export-components -- Helper de animacion compartido.
+export function getAnimatedEnemyFrame(
+  enemyTemplate: RoomEnemyTemplate,
+  now: number,
+  facingPose: PlayerFacing,
+  moving: boolean,
+): WorldNpcFrameDefinition | null {
+  const sheetUrl = getEnemySpriteAsset(enemyTemplate.spriteSheetAssetId)
+  const sheetFrameDefinitions = enemyTemplate.spriteFrames ?? []
+
+  if (
+    sheetUrl &&
+    typeof enemyTemplate.spriteSheetWidth === 'number' &&
+    typeof enemyTemplate.spriteSheetHeight === 'number' &&
+    typeof enemyTemplate.spriteFrameWidth === 'number' &&
+    typeof enemyTemplate.spriteFrameHeight === 'number' &&
+    sheetFrameDefinitions.length > 0
+  ) {
+    const useBack = facingPose === 'back-left' || facingPose === 'back-right'
+    const targetRow = moving ? (useBack ? 3 : 1) : useBack ? 2 : 0
+    const rowFrames = sheetFrameDefinitions
+      .filter((frame) => frame.row === targetRow)
+      .sort((leftFrame, rightFrame) => leftFrame.column - rightFrame.column)
+    const frames = rowFrames.length > 0 ? rowFrames : sheetFrameDefinitions
+    const frameDuration = Math.max(80, enemyTemplate.spriteFrameDurationMs ?? 180)
+    const frameIndex = Math.floor(now / frameDuration) % frames.length
+    const frame = frames[frameIndex]
+
+    return {
+      key: frame.key,
+      sheetUrl,
+      sheetWidth: enemyTemplate.spriteSheetWidth,
+      sheetHeight: enemyTemplate.spriteSheetHeight,
+      frameWidth: enemyTemplate.spriteFrameWidth,
+      frameHeight: enemyTemplate.spriteFrameHeight,
+      row: frame.row,
+      column: frame.column,
+    }
+  }
+
+  const spriteUrl = getWorldSpriteAsset(enemyTemplate.spriteAssetId)
+  return spriteUrl
+    ? {
+        key: enemyTemplate.spriteAssetId ?? enemyTemplate.id,
+        url: spriteUrl,
+      }
+    : null
+}
+
 
 interface EnemigoProps {
   enemyTemplate: RoomEnemyTemplate
@@ -9,6 +61,8 @@ interface EnemigoProps {
   displayX: number
   displayY: number
   spriteFrame?: WorldNpcFrameDefinition | null
+  // Icono de alerta animado que se muestra cuando el enemigo detecta al jugador.
+  iconFrame?: WorldNpcFrameDefinition | null
   flipX?: boolean
   showIcon?: boolean
   motionElementRef?: Ref<HTMLDivElement>
@@ -20,20 +74,25 @@ function EnemigoComponent({
   displayX,
   displayY,
   spriteFrame,
+  iconFrame,
   flipX = false,
   showIcon = false,
   motionElementRef,
 }: EnemigoProps) {
   const spriteSrc = getWorldSpriteAsset(enemyTemplate.spriteAssetId)
-  const iconSrc = getEnemyOverlayAsset(enemyTemplate.iconAssetId)
+  const iconSrc = iconFrame?.url ?? getEnemyOverlayAsset(enemyTemplate.iconAssetId)
   const enemyOffsetX = displayX - enemyTemplate.posicion_relativa_X
   const enemyOffsetY = displayY - enemyTemplate.posicion_relativa_Y
-  const directInteractionWidth = enemyTemplate.ancho_area_interaccion_directa_ ?? 300
-  const directInteractionHeight = enemyTemplate.alto_area_interaccion_directa_ ?? 300
-  const iconWidth = enemyTemplate.iconWidth ?? 64
-  const iconHeight = enemyTemplate.iconHeight ?? 64
+  const interactionArea = enemyTemplate.interactionArea ?? {
+    width: enemyTemplate.ancho_area_interaccion_directa_ ?? 300,
+    height: enemyTemplate.alto_area_interaccion_directa_ ?? 300,
+    offsetX: 0,
+    offsetY: 0,
+  }
+  const iconWidth = enemyTemplate.iconWidth ?? 128
+  const iconHeight = enemyTemplate.iconHeight ?? 128
   const iconOffsetX = enemyTemplate.iconOffsetX ?? 0
-  const iconOffsetY = enemyTemplate.iconOffsetY ?? -110
+  const iconOffsetY = enemyTemplate.iconOffsetY ?? -128
 
   return (
     <div
@@ -52,13 +111,24 @@ function EnemigoComponent({
               height: `${enemyTemplate.alto_de_patrullaje_}px`,
             }}
           />
+          {enemyTemplate.surveillanceArea ? (
+            <div
+              className="debug-enemy-surveillance-area"
+              style={{
+                left: `${enemyTemplate.surveillanceArea.offsetX}px`,
+                top: `${enemyTemplate.surveillanceArea.offsetY}px`,
+                width: `${enemyTemplate.surveillanceArea.width}px`,
+                height: `${enemyTemplate.surveillanceArea.height}px`,
+              }}
+            />
+          ) : null}
           <div
             className="debug-enemy-direct-interaction"
             style={{
-              left: `${enemyOffsetX}px`,
-              top: `${enemyOffsetY}px`,
-              width: `${directInteractionWidth}px`,
-              height: `${directInteractionHeight}px`,
+              left: `${enemyOffsetX + interactionArea.offsetX}px`,
+              top: `${enemyOffsetY + interactionArea.offsetY}px`,
+              width: `${interactionArea.width}px`,
+              height: `${interactionArea.height}px`,
             }}
           />
         </>
@@ -76,6 +146,7 @@ function EnemigoComponent({
         {showIcon ? (
           iconSrc ? (
             <img
+              key={iconFrame?.key ?? enemyTemplate.iconAssetId}
               src={iconSrc}
               alt=""
               aria-hidden="true"

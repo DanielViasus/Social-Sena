@@ -7,12 +7,18 @@ import {
   type PlayerFacing,
   type Position,
   type Presence,
+  type RoomEnemyState,
+  type RoomEnemyTemplate,
   type RoomObjectTemplate,
   type RoomState,
   type RoomTemplate,
   type UserProfile,
 } from '@social-sena/shared'
 import { navigateInApp } from '../hooks/usePathname'
+import {
+  disableLocalAnimationPreview,
+  enableLocalAnimationPreview,
+} from '../game/avatar/avatarAnimationRuntime'
 import { createUiSoundController } from '../audio/chiptuneSounds'
 import { isCoinAssetId } from './coinAssetCatalog'
 import ReactWorld, { type WorldInteractableTarget } from './ReactWorld'
@@ -22,6 +28,8 @@ import { PLAYER_COLLIDER_HEIGHT, PLAYER_COLLIDER_WIDTH } from './world/WorldPlay
 const TEST_ROOM_ID = 'edit-room-local-test'
 const TEST_SESSION_ID = 'edit-room-local-player'
 const TEST_MOVEMENT_TICK_MS = 1000 / 20
+const TEST_ENEMY_HALF_SIZE = 64
+const TEST_ENEMY_REACH_PX = 12
 
 interface EditRoomTestModeProps {
   template: RoomTemplate
@@ -63,6 +71,101 @@ function createPlayer(profile: UserProfile, spawn: Position): Presence {
     destination: null,
     route: null,
   }
+}
+
+interface TestEnemyRuntime {
+  x: number
+  y: number
+  targetX: number
+  targetY: number
+  idleUntilMs: number
+  moving: boolean
+}
+
+// El enemigo ocupa el mismo espacio que un jugador, apoyado en la base de su figura.
+function getTestEnemyBodyBounds(position: Position): Bounds {
+  const feetY = position.y + TEST_ENEMY_HALF_SIZE
+  return {
+    left: position.x - PLAYER_COLLIDER_WIDTH / 2,
+    right: position.x + PLAYER_COLLIDER_WIDTH / 2,
+    top: feetY - PLAYER_COLLIDER_HEIGHT,
+    bottom: feetY,
+  }
+}
+
+// Zona de vigilancia completa: si el jugador la toca, el enemigo lo detecta.
+function getTestEnemyZoneBounds(enemyTemplate: RoomEnemyTemplate): Bounds {
+  const area = enemyTemplate.surveillanceArea ?? {
+    width: enemyTemplate.ancho_de_patrullaje_,
+    height: enemyTemplate.alto_de_patrullaje_,
+    offsetX: 0,
+    offsetY: 0,
+  }
+  const centerX = enemyTemplate.posicion_relativa_X + area.offsetX
+  const centerY = enemyTemplate.posicion_relativa_Y + area.offsetY
+
+  return {
+    left: centerX - area.width / 2,
+    right: centerX + area.width / 2,
+    top: centerY - area.height / 2,
+    bottom: centerY + area.height / 2,
+  }
+}
+
+// Area donde el enemigo puede moverse: su zona de vigilancia menos media figura por lado.
+// En el juego real esto lo calcula y simula el servidor; aqui es solo una vista previa.
+function getTestEnemyBounds(enemyTemplate: RoomEnemyTemplate) {
+  const area = enemyTemplate.surveillanceArea ?? {
+    width: enemyTemplate.ancho_de_patrullaje_,
+    height: enemyTemplate.alto_de_patrullaje_,
+    offsetX: 0,
+    offsetY: 0,
+  }
+  const centerX = enemyTemplate.posicion_relativa_X + area.offsetX
+  const centerY = enemyTemplate.posicion_relativa_Y + area.offsetY
+  const halfWidth = Math.max(0, area.width / 2 - TEST_ENEMY_HALF_SIZE)
+  const halfHeight = Math.max(0, area.height / 2 - TEST_ENEMY_HALF_SIZE)
+
+  return {
+    left: centerX - halfWidth,
+    right: centerX + halfWidth,
+    top: centerY - halfHeight,
+    bottom: centerY + halfHeight,
+  }
+}
+
+function getTestEnemyIdleDurationMs() {
+  return Math.random() < 0.35
+    ? 2600 + Math.round(Math.random() * 3400)
+    : 700 + Math.round(Math.random() * 1300)
+}
+
+function getTestEnemyPatrolPoint(
+  enemyTemplate: RoomEnemyTemplate,
+  from?: { x: number; y: number },
+  isBlocked?: (position: Position) => boolean,
+) {
+  const bounds = getTestEnemyBounds(enemyTemplate)
+  const areaWidth = bounds.right - bounds.left
+  const areaHeight = bounds.bottom - bounds.top
+  const minimumTravel = Math.min(96, Math.max(areaWidth, areaHeight) * 0.35)
+  let candidate = {
+    x: bounds.left + areaWidth * Math.random(),
+    y: bounds.top + areaHeight * Math.random(),
+  }
+
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const isFarEnough = !from
+      || Math.hypot(candidate.x - from.x, candidate.y - from.y) >= minimumTravel
+    if (isFarEnough && !isBlocked?.(candidate)) break
+
+    candidate = {
+      x: bounds.left + areaWidth * Math.random(),
+      y: bounds.top + areaHeight * Math.random(),
+    }
+  }
+
+  return candidate
 }
 
 function getPlayerBounds(position: Position): Bounds {
@@ -172,6 +275,23 @@ export default function EditRoomTestMode({
   const navigationTargetRef = useRef<Position | null>(null)
   const collectedObjectIdsRef = useRef(new Set<string>())
   const [uiSoundController] = useState(createUiSoundController)
+  const [animationSource, setAnimationSource] = useState('')
+  // Con la interfaz de combate abierta nadie se mueve en la vista previa.
+  const combatEnemyIdRef = useRef<string | null>(null)
+  const handleCombatSound = useCallback((sound: 'typing' | 'confirm' | 'cancel') => {
+    void uiSoundController.play(sound === 'typing' ? 'dialogue-blip' : sound)
+  }, [uiSoundController])
+  const handleCombatChange = useCallback((enemyId: string | null) => {
+    combatEnemyIdRef.current = enemyId
+    if (enemyId) {
+      navigationTargetRef.current = null
+      pressedKeysRef.current.clear()
+    }
+  }, [])
+  const enemyTemplates = useMemo(() => runtimeTemplate.enemies ?? [], [runtimeTemplate.enemies])
+  const [enemyStates, setEnemyStates] = useState<RoomEnemyState[]>([])
+  const enemyRuntimesRef = useRef(new Map<string, TestEnemyRuntime>())
+  const enemyStatesRef = useRef<RoomEnemyState[]>([])
   const colliders = useMemo(() => [
     ...runtimeTemplate.objects.flatMap(getObjectNavigationBoundsList),
     ...(runtimeTemplate.npcs ?? []).flatMap((npcTemplate) => {
@@ -186,10 +306,28 @@ export default function EditRoomTestMode({
       }]
     }),
   ], [runtimeTemplate.npcs, runtimeTemplate.objects])
+  // Los colliders se leen por referencia para no reiniciar la simulacion de enemigos.
+  const collidersRef = useRef(colliders)
+  useEffect(() => {
+    collidersRef.current = colliders
+  }, [colliders])
   const collectibleObjects = useMemo(
     () => runtimeTemplate.objects.filter((objectTemplate) => objectTemplate.collectible === true),
     [runtimeTemplate.objects],
   )
+
+  // El modo de prueba no abre conexión con el juego, así que el sistema de animaciones
+  // se alimenta aquí de la caché, del paquete incluido o de las animaciones de este navegador.
+  useEffect(() => {
+    let cancelled = false
+    void enableLocalAnimationPreview().then((status) => {
+      if (!cancelled) setAnimationSource(status)
+    })
+    return () => {
+      cancelled = true
+      disableLocalAnimationPreview()
+    }
+  }, [])
 
   useEffect(() => {
     uiSoundController.updateSettings({
@@ -268,6 +406,10 @@ export default function EditRoomTestMode({
     )
 
     const tick = () => {
+      if (combatEnemyIdRef.current) {
+        return
+      }
+
       const now = performance.now()
       const deltaSeconds = Math.min(0.05, Math.max(0, (now - previousTime) / 1000))
       previousTime = now
@@ -391,6 +533,197 @@ export default function EditRoomTestMode({
     return () => window.clearInterval(movementInterval)
   }, [collectibleObjects, colliders, runtimeTemplate.world.height, runtimeTemplate.world.width, uiSoundController])
 
+  // Vista previa del patrullaje dentro de la zona de vigilancia. En la escena publicada
+  // esto lo simula el servidor, que tambien hace que el enemigo persiga al jugador.
+  useEffect(() => {
+    const runtimes = enemyRuntimesRef.current
+    const activeIds = new Set(enemyTemplates.map((enemyTemplate) => enemyTemplate.id))
+    runtimes.forEach((_runtime, enemyId) => {
+      if (!activeIds.has(enemyId)) runtimes.delete(enemyId)
+    })
+
+    enemyTemplates.forEach((enemyTemplate) => {
+      if (runtimes.has(enemyTemplate.id)) return
+
+      const bounds = getTestEnemyBounds(enemyTemplate)
+      const start = {
+        x: clamp(enemyTemplate.posicion_relativa_X, bounds.left, bounds.right),
+        y: clamp(enemyTemplate.posicion_relativa_Y, bounds.top, bounds.bottom),
+      }
+      const target = getTestEnemyPatrolPoint(enemyTemplate, start)
+      runtimes.set(enemyTemplate.id, {
+        ...start,
+        targetX: target.x,
+        targetY: target.y,
+        idleUntilMs: Date.now() + getTestEnemyIdleDurationMs(),
+        moving: false,
+      })
+    })
+
+    enemyStatesRef.current = enemyTemplates.map((enemyTemplate) => {
+      const runtime = runtimes.get(enemyTemplate.id)
+      return {
+        enemyId: enemyTemplate.id,
+        x: runtime?.x ?? enemyTemplate.posicion_relativa_X,
+        y: runtime?.y ?? enemyTemplate.posicion_relativa_Y,
+        mode: 'patrol' as const,
+        targetUserId: null,
+        moving: false,
+      }
+    })
+    setEnemyStates(enemyStatesRef.current)
+
+    if (enemyTemplates.length === 0) return
+
+    const isEnemyBlocked = (position: Position) => collidersRef.current.some((collider) => (
+      overlaps(getTestEnemyBodyBounds(position), collider)
+    ))
+
+    // Si el destino esta bloqueado, intenta deslizarse por un solo eje.
+    const resolveEnemyStep = (from: Position, to: Position): Position => {
+      if (!isEnemyBlocked(to)) return to
+
+      const horizontalOnly = { x: to.x, y: from.y }
+      if (Math.abs(to.x - from.x) > 0.001 && !isEnemyBlocked(horizontalOnly)) return horizontalOnly
+
+      const verticalOnly = { x: from.x, y: to.y }
+      if (Math.abs(to.y - from.y) > 0.001 && !isEnemyBlocked(verticalOnly)) return verticalOnly
+
+      return { x: from.x, y: from.y }
+    }
+
+    const enemyInterval = window.setInterval(() => {
+      if (combatEnemyIdRef.current) {
+        return
+      }
+
+      const nowMs = Date.now()
+      const deltaSeconds = TEST_MOVEMENT_TICK_MS / 1000
+
+      const nextStates = enemyTemplates.map((enemyTemplate): RoomEnemyState => {
+        const runtime = runtimes.get(enemyTemplate.id)
+        if (!runtime) {
+          return {
+            enemyId: enemyTemplate.id,
+            x: enemyTemplate.posicion_relativa_X,
+            y: enemyTemplate.posicion_relativa_Y,
+            mode: 'patrol' as const,
+            targetUserId: null,
+            moving: false,
+          }
+        }
+
+        const baseSpeed = Math.max(0, enemyTemplate.velocidad_de_patrullaje_ ?? 72)
+        const speed = baseSpeed * 0.8
+        const bounds = getTestEnemyBounds(enemyTemplate)
+        const detected = overlaps(
+          getPlayerBounds(playerRef.current.position),
+          getTestEnemyZoneBounds(enemyTemplate),
+        )
+
+        if (detected) {
+          // Persecucion: el enemigo va hacia el jugador sin salir de su zona.
+          const target = {
+            x: clamp(playerRef.current.position.x, bounds.left, bounds.right),
+            y: clamp(playerRef.current.position.y, bounds.top, bounds.bottom),
+          }
+          const deltaX = target.x - runtime.x
+          const deltaY = target.y - runtime.y
+          const distance = Math.hypot(deltaX, deltaY)
+          const step = Math.min(baseSpeed * 1.2 * deltaSeconds, distance)
+
+          const nextChasePosition = distance > 0.05 && step > 0
+            ? resolveEnemyStep(runtime, {
+                x: runtime.x + (deltaX / distance) * step,
+                y: runtime.y + (deltaY / distance) * step,
+              })
+            : { x: runtime.x, y: runtime.y }
+          runtime.moving = Math.hypot(nextChasePosition.x - runtime.x, nextChasePosition.y - runtime.y) > 0.001
+          runtime.x = nextChasePosition.x
+          runtime.y = nextChasePosition.y
+
+          runtime.targetX = target.x
+          runtime.targetY = target.y
+          runtime.idleUntilMs = 0
+
+          return {
+            enemyId: enemyTemplate.id,
+            x: runtime.x,
+            y: runtime.y,
+            mode: 'chase' as const,
+            targetUserId: profile.userId,
+            moving: runtime.moving,
+          }
+        }
+
+        if (runtime.idleUntilMs > nowMs) {
+          runtime.moving = false
+        } else {
+          const deltaX = runtime.targetX - runtime.x
+          const deltaY = runtime.targetY - runtime.y
+          const distance = Math.hypot(deltaX, deltaY)
+
+          if (distance <= Math.max(TEST_ENEMY_REACH_PX, speed * deltaSeconds)) {
+            const nextTarget = getTestEnemyPatrolPoint(enemyTemplate, runtime, isEnemyBlocked)
+            runtime.targetX = nextTarget.x
+            runtime.targetY = nextTarget.y
+            runtime.idleUntilMs = nowMs + getTestEnemyIdleDurationMs()
+            runtime.moving = false
+          } else {
+            const step = Math.min(speed * deltaSeconds, distance)
+            const nextPosition = resolveEnemyStep(runtime, {
+              x: runtime.x + (deltaX / distance) * step,
+              y: runtime.y + (deltaY / distance) * step,
+            })
+
+            if (Math.hypot(nextPosition.x - runtime.x, nextPosition.y - runtime.y) <= 0.001) {
+              // Camino bloqueado: descansa y busca otro destino.
+              const nextTarget = getTestEnemyPatrolPoint(enemyTemplate, runtime, isEnemyBlocked)
+              runtime.targetX = nextTarget.x
+              runtime.targetY = nextTarget.y
+              runtime.idleUntilMs = nowMs + getTestEnemyIdleDurationMs()
+              runtime.moving = false
+            } else {
+              runtime.x = nextPosition.x
+              runtime.y = nextPosition.y
+              runtime.moving = true
+            }
+          }
+        }
+
+        return {
+          enemyId: enemyTemplate.id,
+          x: runtime.x,
+          y: runtime.y,
+          mode: 'patrol' as const,
+          targetUserId: null,
+          moving: runtime.moving,
+        }
+      })
+
+      // Sin cambios no se vuelve a renderizar: los enemigos quietos no cuestan nada.
+      const previousStates = enemyStatesRef.current
+      const unchanged = previousStates.length === nextStates.length
+        && nextStates.every((nextState, index) => {
+          const previousState = previousStates[index]
+          return previousState
+            && previousState.enemyId === nextState.enemyId
+            && previousState.x === nextState.x
+            && previousState.y === nextState.y
+            && previousState.moving === nextState.moving
+            && previousState.mode === nextState.mode
+            && previousState.targetUserId === nextState.targetUserId
+        })
+
+      if (unchanged) return
+
+      enemyStatesRef.current = nextStates
+      setEnemyStates(nextStates)
+    }, TEST_MOVEMENT_TICK_MS)
+
+    return () => window.clearInterval(enemyInterval)
+  }, [enemyTemplates, profile.userId])
+
   const room = useMemo<RoomState>(() => ({
     roomId: TEST_ROOM_ID,
     templateId: runtimeTemplate.id,
@@ -398,8 +731,8 @@ export default function EditRoomTestMode({
     maxUsers: 1,
     template: runtimeTemplate,
     players: [player],
-    enemies: [],
-  }), [player, runtimeTemplate])
+    enemies: enemyStates,
+  }), [enemyStates, player, runtimeTemplate])
 
   const handleNavigate = useCallback((target: Position) => {
     navigationTargetRef.current = target
@@ -431,6 +764,8 @@ export default function EditRoomTestMode({
         template={runtimeTemplate}
         onNavigate={handleNavigate}
         onInteract={handleInteract}
+        onCombatChange={handleCombatChange}
+        onCombatSound={handleCombatSound}
         debugEnabled={debugEnabled}
         playerIdentityMode="names"
         navigationEnabled
@@ -441,7 +776,7 @@ export default function EditRoomTestMode({
         cameraVerticalMargin={300}
       />
       <div className="edit-room-test-hint" role="status">
-        Modo Test · WASD/Flechas o clic para moverte · T para volver
+        Modo Test · WASD/Flechas o clic para moverte · T para volver{animationSource ? ` · ${animationSource}` : ''}
       </div>
     </main>
   )

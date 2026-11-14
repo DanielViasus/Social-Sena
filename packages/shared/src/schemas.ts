@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { MAX_INVENTORY_ITEM_QUANTITY, WORLD_HEIGHT, WORLD_WIDTH } from './constants'
 import { DEFAULT_AUDIO_SETTINGS, DEFAULT_USER_ROLE, USER_ROLES } from './types'
+import { ROOM_EDITOR_LAYER_CATEGORY_IDS } from './rooms/layers'
 
 export const directionSchema = z.enum(['up', 'down', 'left', 'right'])
 export const skinColorSelectionsSchema = z.record(z.string().trim().min(1), z.string().trim().min(1))
@@ -88,6 +89,8 @@ export const roomEditorLayerSchema = z.object({
   enabled: z.boolean().default(true),
   collidersEnabled: z.boolean(),
   required: z.boolean().optional(),
+  // Opcional por compatibilidad con los mapas guardados antes de las categorias.
+  category: z.enum(ROOM_EDITOR_LAYER_CATEGORY_IDS).optional(),
 })
 
 export const roomEditorColliderSchema = z.object({
@@ -117,6 +120,8 @@ export const roomEditorPlacementSchema = z.object({
   warningArea: roomEditorAreaSchema.optional(),
   interactionArea: roomEditorAreaSchema.optional(),
   interactionIconContainer: roomEditorAreaSchema.optional(),
+  surveillanceArea: roomEditorAreaSchema.optional(),
+  zIndexOffsetY: z.number().int().min(-4096).max(4096).optional(),
   teleportTargetPath: z.string().trim().startsWith('/').max(512).optional(),
 })
 
@@ -137,6 +142,8 @@ export const roomEditorAssetSchema = z.object({
   warningArea: roomEditorAreaSchema.optional(),
   interactionArea: roomEditorAreaSchema.optional(),
   interactionIconContainer: roomEditorAreaSchema.optional(),
+  // Zona de vigilancia por defecto del enemigo.
+  surveillanceArea: roomEditorAreaSchema.optional(),
   interactionState: z.union([z.literal(0), z.literal(1)]).optional(),
 }).transform((asset) => {
   const legacyCollider = asset.colliderWidth
